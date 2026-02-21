@@ -20,6 +20,12 @@ export default function MobileLayout({
             Clientes
           </Link>
           <Link
+            href="/mobile/plano"
+            className="text-sm text-gray-600 hover:text-gray-900"
+          >
+            Plano
+          </Link>
+          <Link
             href="/mobile/parametros"
             className="text-sm text-gray-600 hover:text-gray-900"
           >

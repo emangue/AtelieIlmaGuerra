@@ -20,6 +20,7 @@ from .domains.parametros.router import router as parametros_router
 from .domains.orcamentos.router import router as orcamentos_router
 from .domains.dashboard.router import router as dashboard_router
 from .domains.despesas.router import router as despesas_router
+from .domains.plano.router import router as plano_router
 
 # Importar modelos para criar tabelas
 from .domains.clientes.models import Cliente  # noqa: F401
@@ -27,6 +28,7 @@ from .domains.pedidos.models import Pedido, TipoPedido, FormaPeca, FormaPecaMedi
 from .domains.parametros.models import ParametrosOrcamento  # noqa: F401
 from .domains.orcamentos.models import Orcamento  # noqa: F401
 from .domains.despesas.models import DespesaDetalhada  # noqa: F401
+from .domains.plano.models import PlanoItem  # noqa: F401
 from .domains.users.models import User  # noqa: F401
 
 app = FastAPI(
@@ -52,6 +54,7 @@ app.include_router(parametros_router, prefix="/api/v1")
 app.include_router(orcamentos_router, prefix="/api/v1")
 app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(despesas_router, prefix="/api/v1")
+app.include_router(plano_router, prefix="/api/v1")
 
 # Uploads estáticos
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
@@ -121,6 +124,15 @@ def startup():
             print(f"Seed: {nf} formas de peça inseridas")
         if seed_admin_user(db):
             print("Seed: usuário admin criado (ilma@atelieilmaguerra.com)")
+        # Seed plano (receita + despesas) se tabela vazia
+        from app.domains.plano.models import PlanoItem
+        from app.domains.plano.seed_plano import seed_plano
+        if db.query(PlanoItem).count() == 0:
+            # app_dev/backend/app/main.py -> projeto/PLANO 2026...
+            excel_path = Path(__file__).resolve().parents[3] / "PLANO 2026 ATELIE ILMA GUERRA.xlsx"
+            if excel_path.exists():
+                nr, nd = seed_plano(db, excel_path)
+                print(f"Seed: plano importado ({nr} receitas, {nd} despesas)")
     finally:
         db.close()
 
