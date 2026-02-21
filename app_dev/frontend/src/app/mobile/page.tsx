@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   Loader2,
   TrendingUp,
@@ -22,6 +23,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  LabelList,
 } from "recharts";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -76,6 +78,7 @@ function getCorStatus(status: string) {
 }
 
 export default function PainelPage() {
+  const router = useRouter();
   const hoje = new Date();
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
   const [period, setPeriod] = useState<YTDToggleValue>("month");
@@ -155,28 +158,21 @@ export default function PainelPage() {
   }));
 
   return (
-    <div className="px-4 py-6 pb-24">
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-900">
-          Painel Resultados
-        </h2>
-        <p className="text-sm text-gray-500 mt-1">
-          KPIs e gráficos do mês selecionado
-        </p>
+    <div className="pb-24">
+      {/* Seletor de mês + toggle fixos abaixo do header */}
+      <div className="sticky top-14 z-40 bg-white border-b border-gray-200 px-4 py-3 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+          <MonthScrollPicker
+            selectedMonth={selectedMonth}
+            onMonthChange={setSelectedMonth}
+          />
+        </div>
+        <div className="flex justify-center mt-3">
+          <YTDToggle value={period} onChange={setPeriod} />
+        </div>
       </div>
 
-      {/* Scroll horizontal de meses */}
-      <div className="mb-4 rounded-xl border border-gray-200 bg-white overflow-hidden">
-        <MonthScrollPicker
-          selectedMonth={selectedMonth}
-          onMonthChange={setSelectedMonth}
-        />
-      </div>
-
-      {/* Toggle Mês / Ano */}
-      <div className="flex justify-center mb-6">
-        <YTDToggle value={period} onChange={setPeriod} />
-      </div>
+      <div className="px-4 py-6">
 
       {loading ? (
         <div className="flex flex-col items-center justify-center py-12 gap-4">
@@ -277,7 +273,12 @@ export default function PainelPage() {
                 Mix de status (pedidos do mês)
               </h3>
               <div className="h-[200px] min-h-[200px] w-full min-w-0">
-                <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                <ResponsiveContainer
+                  width="100%"
+                  height="100%"
+                  minHeight={200}
+                  initialDimension={{ width: 300, height: 200 }}
+                >
                   <PieChart>
                     <Pie
                       data={mixParaPie}
@@ -327,10 +328,15 @@ export default function PainelPage() {
                 Lucro mensal (últimos 12 meses)
               </h3>
               <div className="h-[220px] min-h-[220px] w-full min-w-0">
-                <ResponsiveContainer width="100%" height="100%" minHeight={220}>
+                <ResponsiveContainer
+                  width="100%"
+                  height="100%"
+                  minHeight={220}
+                  initialDimension={{ width: 300, height: 220 }}
+                >
                   <BarChart
                     data={lucroMensal}
-                    margin={{ top: 5, right: 5, left: -10, bottom: 0 }}
+                    margin={{ top: 20, right: 5, left: 5, bottom: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis
@@ -338,12 +344,7 @@ export default function PainelPage() {
                       tick={{ fontSize: 10 }}
                       tickFormatter={(v) => v.split("/")[0]}
                     />
-                    <YAxis
-                      tick={{ fontSize: 10 }}
-                      tickFormatter={(v) =>
-                        v >= 1000 ? `${v / 1000}k` : String(v)
-                      }
-                    />
+                    <YAxis hide />
                     <Tooltip
                       formatter={(val: number | undefined) => [val != null ? formatMoney(val) : "", "Lucro"]}
                       contentStyle={{
@@ -357,7 +358,21 @@ export default function PainelPage() {
                       fill="#6366f1"
                       radius={[4, 4, 0, 0]}
                       name="Lucro"
-                    />
+                      cursor="pointer"
+                      onClick={(data) => {
+                        if (data?.mes) {
+                          router.push(`/mobile/pedidos/todos?mes=${data.mes}`);
+                        }
+                      }}
+                    >
+                      <LabelList
+                        position="insideTop"
+                        formatter={(val: number) =>
+                          val >= 1000 ? `${(val / 1000).toFixed(0)}k` : String(val)
+                        }
+                        style={{ fontSize: 10, fill: "white", fontWeight: 600 }}
+                      />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -409,6 +424,7 @@ export default function PainelPage() {
             )}
         </>
       )}
+      </div>
     </div>
   );
 }

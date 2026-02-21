@@ -48,7 +48,7 @@ cd app_dev/frontend && npm install && npm run dev
 ```
 
 - **Backend:** http://localhost:8000
-- **Frontend:** http://localhost:3000
+- **Frontend:** http://localhost:3001
 - **API Docs:** http://localhost:8000/docs
 
 ## 🔐 Credenciais padrão

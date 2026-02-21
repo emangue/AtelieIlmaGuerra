@@ -13,6 +13,7 @@ import {
   Calendar,
   Loader2,
   ImageIcon,
+  FileText,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -141,12 +142,12 @@ export default function PedidosPage() {
                     key={p.id}
                     className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm min-h-[100px]"
                   >
-                    <div className="flex gap-3">
+                    <div className="flex gap-2">
                       <Link
                         href={`/mobile/pedidos/${p.id}`}
-                        className="flex flex-1 min-w-0 gap-3"
+                        className="flex flex-1 min-w-0 gap-2"
                       >
-                        <div className="flex-shrink-0 w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center">
+                        <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center">
                           {p.foto_url ? (
                             <img
                               src={p.foto_url}
@@ -154,11 +155,11 @@ export default function PedidosPage() {
                               className="w-full h-full object-cover rounded-lg"
                             />
                           ) : (
-                            <ImageIcon className="w-7 h-7 text-gray-400" />
+                            <ImageIcon className="w-6 h-6 text-gray-400" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-900 truncate">
+                          <p className="text-sm font-semibold text-gray-900 line-clamp-2 break-words">
                             {p.cliente_nome}
                           </p>
                           <p className="text-sm text-gray-600 mt-1 line-clamp-2">
@@ -173,6 +174,13 @@ export default function PedidosPage() {
                         <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
                           {p.status}
                         </span>
+                        <Link
+                          href={`/mobile/contratos/novo?cliente_id=${p.cliente_id}`}
+                          className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+                          aria-label="Criar contrato"
+                        >
+                          <FileText className="h-4 w-4" />
+                        </Link>
                         <Link href={`/mobile/pedidos/${p.id}`}>
                           <button
                             className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"

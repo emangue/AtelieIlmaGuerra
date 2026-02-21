@@ -66,13 +66,28 @@ class PedidoRepository:
             .all()
         )
 
-    def list_all(self) -> List[Pedido]:
-        """Lista todos os pedidos, sem filtro de status."""
-        return (
+    def list_all(
+        self,
+        mes: Optional[str] = None,
+    ) -> List[Pedido]:
+        """Lista todos os pedidos. Se mes=YYYYMM, filtra por data_entrega no mês."""
+        query = (
             self.db.query(Pedido)
             .order_by(Pedido.data_entrega.asc().nullslast(), Pedido.data_pedido.asc())
-            .all()
         )
+        if mes and len(mes) == 6:
+            try:
+                ano = int(mes[:4])
+                num_mes = int(mes[4:6])
+                inicio = date(ano, num_mes, 1)
+                fim = date(ano + 1, 1, 1) if num_mes == 12 else date(ano, num_mes + 1, 1)
+                query = query.filter(
+                    Pedido.data_entrega >= inicio,
+                    Pedido.data_entrega < fim,
+                )
+            except (ValueError, TypeError):
+                pass
+        return query.all()
 
     def list_ativos(
         self,

@@ -35,9 +35,9 @@ class PedidoService:
     def get_by_id(self, pedido_id: int) -> Optional[Pedido]:
         return self.repo.get_by_id(pedido_id)
 
-    def list_all(self) -> List[Pedido]:
-        """Lista todos os pedidos, sem filtro de status."""
-        return self.repo.list_all()
+    def list_all(self, mes: Optional[str] = None) -> List[Pedido]:
+        """Lista todos os pedidos. Se mes=YYYYMM, filtra por data_entrega no mês."""
+        return self.repo.list_all(mes=mes)
 
     def list_ativos(
         self,

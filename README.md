@@ -33,7 +33,7 @@ npm run dev
 ```
 
 ### Acesso
-- **Frontend:** http://localhost:3000
+- **Frontend:** http://localhost:3001
 - **Backend API:** http://localhost:8000
 - **Docs API:** http://localhost:8000/docs
 

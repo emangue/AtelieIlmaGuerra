@@ -32,6 +32,10 @@ app_dev/backend/database/*.db
 uploads/
 app_dev/backend/uploads/
 
+# PIDs e portas do quick_start
+.atelie-*.pid
+.atelie-ports
+
 # Logs e temporários
 *.log
 temp/

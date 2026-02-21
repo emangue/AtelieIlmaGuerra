@@ -442,7 +442,12 @@ export default function ClienteDetailPage() {
             Valores gastos por mês
           </h3>
           <div className="h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+                width="100%"
+                height="100%"
+                minHeight={200}
+                initialDimension={{ width: 300, height: 200 }}
+              >
               <BarChart
                 data={valoresPorMes}
                 margin={{ top: 5, right: 5, left: -10, bottom: 0 }}

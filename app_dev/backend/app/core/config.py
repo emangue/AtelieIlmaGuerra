@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     def is_postgres(self) -> bool:
         return self.DATABASE_URL.startswith("postgresql")
 
-    BACKEND_CORS_ORIGINS: Union[list[str], str] = "http://localhost:3000,http://127.0.0.1:3000"
+    BACKEND_CORS_ORIGINS: Union[list[str], str] = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002,http://localhost:3003,http://127.0.0.1:3003,http://localhost:3004,http://127.0.0.1:3004,http://localhost:3005,http://127.0.0.1:3005,http://localhost:3006,http://127.0.0.1:3006,http://localhost:3007,http://127.0.0.1:3007,http://localhost:3008,http://127.0.0.1:3008,http://localhost:3009,http://127.0.0.1:3009,http://localhost:3010,http://127.0.0.1:3010"
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 

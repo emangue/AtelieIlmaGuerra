@@ -35,6 +35,7 @@ const FORMAS_PAGAMENTO = ["Pix", "Parcelado", "Cartão de Crédito"];
 
 interface PedidoDetail {
   id: number;
+  cliente_id: number;
   cliente_nome: string;
   tipo_pedido_id: number | null;
   tipo_pedido_nome: string | null;
@@ -991,6 +992,13 @@ export default function PedidoDetailPage() {
               </span>
             </div>
           </div>
+          <Link
+            href={`/mobile/contratos/novo?cliente_id=${pedido.cliente_id}`}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-medium text-gray-700"
+          >
+            <FileText className="h-4 w-4" />
+            Contrato
+          </Link>
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,10 +98,29 @@ function buildPayload(form: FormData) {
 
 export default function NovoContratoPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const clienteId = searchParams.get("cliente_id");
   const [form, setForm] = useState<FormData>(defaultForm);
   const [loading, setLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!clienteId) return;
+    fetch(`${API_URL}/api/v1/clientes/${clienteId}`)
+      .then((res) => res.json())
+      .then((c: { nome?: string; cpf?: string; rg?: string; endereco?: string; telefone?: string }) => {
+        setForm((prev) => ({
+          ...prev,
+          nome_completo: c.nome || prev.nome_completo,
+          cpf: c.cpf || prev.cpf,
+          rg: c.rg || prev.rg,
+          endereco: c.endereco || prev.endereco,
+          telefone: c.telefone || prev.telefone,
+        }));
+      })
+      .catch(() => {});
+  }, [clienteId]);
 
   const update = (k: keyof FormData, v: string | boolean) => {
     setForm((p) => ({ ...p, [k]: v }));

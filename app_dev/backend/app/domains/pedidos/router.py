@@ -23,10 +23,13 @@ router = APIRouter(prefix="/pedidos", tags=["Pedidos"])
 
 
 @router.get("/todos", response_model=List[PedidoListItem])
-def list_pedidos_todos(db: Session = Depends(get_db)):
-    """Lista todos os pedidos, sem filtro de status."""
+def list_pedidos_todos(
+    mes: Optional[str] = Query(None, description="YYYYMM - filtra por data_entrega no mês"),
+    db: Session = Depends(get_db),
+):
+    """Lista todos os pedidos. Use mes=YYYYMM para filtrar por mês de entrega."""
     service = PedidoService(db)
-    pedidos = service.list_all()
+    pedidos = service.list_all(mes=mes)
     return [service.to_list_item(p) for p in pedidos]
 
 

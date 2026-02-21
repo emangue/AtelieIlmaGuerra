@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Pencil,
@@ -13,6 +14,10 @@ import {
   Loader2,
   ImageIcon,
   Search,
+  ChevronDown,
+  ChevronUp,
+  DollarSign,
+  FileText,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -29,6 +34,21 @@ interface PedidoItem {
   foto_url: string | null;
 }
 
+interface PecasPorTipo {
+  tipo: string;
+  quantidade: number;
+  valor: number;
+}
+
+function formatMoney(val: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(val);
+}
+
 function formatDate(iso: string) {
   try {
     const d = new Date(iso);
@@ -43,14 +63,21 @@ function formatDate(iso: string) {
 }
 
 export default function PedidosTodosPage() {
+  const searchParams = useSearchParams();
+  const mesFilter = searchParams.get("mes"); // YYYYMM
   const [pedidos, setPedidos] = useState<PedidoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [resumo, setResumo] = useState<PecasPorTipo[] | null>(null);
+  const [resumoExpanded, setResumoExpanded] = useState(false);
 
   const fetchPedidos = () => {
     setLoading(true);
-    fetch(`${API_URL}/api/v1/pedidos/todos`)
+    const url = mesFilter
+      ? `${API_URL}/api/v1/pedidos/todos?mes=${mesFilter}`
+      : `${API_URL}/api/v1/pedidos/todos`;
+    fetch(url)
       .then((res) => res.json())
       .then((data) => setPedidos(data))
       .catch(() => setPedidos([]))
@@ -59,7 +86,18 @@ export default function PedidosTodosPage() {
 
   useEffect(() => {
     fetchPedidos();
-  }, []);
+  }, [mesFilter]);
+
+  useEffect(() => {
+    if (!mesFilter) {
+      setResumo(null);
+      return;
+    }
+    fetch(`${API_URL}/api/v1/dashboard/pecas-por-tipo?mes=${mesFilter}`)
+      .then((res) => res.json())
+      .then((data: PecasPorTipo[]) => setResumo(data))
+      .catch(() => setResumo(null));
+  }, [mesFilter]);
 
   const handleStatusClick = async (pedido: PedidoItem, newStatus: string) => {
     setUpdatingId(pedido.id);
@@ -107,17 +145,86 @@ export default function PedidosTodosPage() {
   return (
     <div className="flex flex-1 flex-col gap-6 p-4 pb-24">
       <div className="flex flex-col gap-2">
-        <h2 className="text-xl font-semibold text-gray-900">Todos os Pedidos</h2>
+        <h2 className="text-xl font-semibold text-gray-900">
+          {mesFilter
+            ? `Pedidos de ${mesFilter.slice(4, 6)}/${mesFilter.slice(0, 4)}`
+            : "Todos os Pedidos"}
+        </h2>
         <p className="text-sm text-gray-500">
-          Lista completa, sem filtro de status
+          {mesFilter
+            ? "Pedidos com data de entrega neste mês"
+            : "Lista completa, sem filtro de status"}
         </p>
-        <Link
-          href="/mobile/pedidos"
-          className="text-sm text-red-600 hover:text-red-700 font-medium"
-        >
-          ← Ver apenas pedidos ativos
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/mobile/pedidos"
+            className="text-sm text-red-600 hover:text-red-700 font-medium"
+          >
+            ← Ver apenas pedidos ativos
+          </Link>
+          {mesFilter && (
+            <Link
+              href="/mobile/pedidos/todos"
+              className="text-sm text-gray-600 hover:text-gray-700 font-medium"
+            >
+              · Ver todos os pedidos
+            </Link>
+          )}
+        </div>
       </div>
+
+      {mesFilter && (
+        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setResumoExpanded((e) => !e)}
+            className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 transition"
+          >
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700">
+                Total entregue
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-base font-semibold text-gray-900">
+                {resumo
+                  ? formatMoney(resumo.reduce((s, r) => s + r.valor, 0))
+                  : "—"}
+              </span>
+              {resumo && resumo.length > 0 && (
+                resumoExpanded ? (
+                  <ChevronUp className="w-5 h-5 text-gray-500" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-gray-500" />
+                )
+              )}
+            </div>
+          </button>
+          {resumoExpanded && resumo && resumo.length > 0 && (
+            <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50">
+              <div className="space-y-2">
+                {resumo.map((r) => (
+                  <div
+                    key={r.tipo}
+                    className="flex justify-between items-center text-sm"
+                  >
+                    <span className="text-gray-700">{r.tipo}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-gray-500">
+                        {r.quantidade} un.
+                      </span>
+                      <span className="font-medium text-gray-900">
+                        {formatMoney(r.valor)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -176,12 +283,12 @@ export default function PedidosTodosPage() {
                     key={p.id}
                     className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm min-h-[100px]"
                   >
-                    <div className="flex gap-3">
+                    <div className="flex gap-2">
                       <Link
                         href={`/mobile/pedidos/${p.id}`}
-                        className="flex flex-1 min-w-0 gap-3"
+                        className="flex flex-1 min-w-0 gap-2"
                       >
-                        <div className="flex-shrink-0 w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center">
+                        <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center">
                           {p.foto_url ? (
                             <img
                               src={p.foto_url}
@@ -189,11 +296,11 @@ export default function PedidosTodosPage() {
                               className="w-full h-full object-cover rounded-lg"
                             />
                           ) : (
-                            <ImageIcon className="w-7 h-7 text-gray-400" />
+                            <ImageIcon className="w-6 h-6 text-gray-400" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-900 truncate">
+                          <p className="text-sm font-semibold text-gray-900 line-clamp-2 break-words">
                             {p.cliente_nome}
                           </p>
                           <p className="text-sm text-gray-600 mt-1 line-clamp-2">
@@ -208,6 +315,13 @@ export default function PedidosTodosPage() {
                         <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
                           {p.status}
                         </span>
+                        <Link
+                          href={`/mobile/contratos/novo?cliente_id=${p.cliente_id}`}
+                          className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+                          aria-label="Criar contrato"
+                        >
+                          <FileText className="h-4 w-4" />
+                        </Link>
                         <Link href={`/mobile/pedidos/${p.id}`}>
                           <button
                             className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
