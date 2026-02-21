@@ -1,0 +1,66 @@
+# Arquivos e pastas NUNCA enviados no deploy
+# Usado por scripts/deploy.sh (rsync --exclude-from)
+
+# Dependências (instaladas no servidor)
+node_modules/
+venv/
+__pycache__/
+*.pyc
+.pyo
+
+# Build (gerado no servidor)
+.next/
+
+# Variáveis de ambiente (criadas manualmente no servidor)
+.env
+.env.local
+.env.production
+.env.development
+
+# Banco de dados (dados sensíveis - NUNCA transferir)
+*.db
+*.sqlite
+*.sqlite3
+database/
+**/database/*.db
+app_dev/backend/database/
+
+# Uploads (dados de usuário - NUNCA transferir)
+uploads/
+app_dev/backend/uploads/
+
+# Logs e temporários
+*.log
+temp/
+tmp/
+logs/
+
+# Dados sensíveis / planilhas / contratos
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.docx
+*.doc
+Clientes*.xlsx
+Contrato*.pdf
+
+# Chaves e certificados
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Controle de versão
+.git/
+.gitignore
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Documentação de desenvolvimento (opcional - manter se quiser)
+# docs/

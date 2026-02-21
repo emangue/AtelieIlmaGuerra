@@ -1,0 +1,64 @@
+# Dependências
+node_modules/
+venv/
+__pycache__/
+*.pyc
+.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Build / cache
+.next/
+.nuxt/
+.cache/
+*.tsbuildinfo
+
+# Variáveis de ambiente (NUNCA commitar)
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Banco de dados (dados sensíveis)
+*.db
+*.sqlite
+*.sqlite3
+database/*.db
+app_dev/backend/database/*.db
+
+# Uploads e arquivos de usuário
+uploads/
+app_dev/backend/uploads/
+
+# Logs e temporários
+*.log
+temp/
+tmp/
+logs/
+.pids/
+
+# Arquivos sensíveis / dados de clientes
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.docx
+*.doc
+
+# Chaves e certificados
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Arquivo com nome problemático (espaço) - considerar renomear
+**/page 2.tsx
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
