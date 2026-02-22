@@ -17,6 +17,13 @@ __pycache__/
 .env.production
 .env.development
 
+# Configuração por ambiente (NÃO sobrescrever — cada servidor tem seu próprio)
+.atelie-env
+
+# Runtime — arquivos criados pelo quick_start.sh (não versionados, não transferir)
+.atelie-backend.pid
+.atelie-ports
+
 # Banco de dados (dados sensíveis - NUNCA transferir)
 *.db
 *.sqlite
