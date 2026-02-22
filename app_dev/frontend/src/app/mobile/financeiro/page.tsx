@@ -103,6 +103,7 @@ export default function FinanceiroPage() {
   const [pedidosEntregues, setPedidosEntregues] = useState<PedidoEntregueItem[]>([]);
   const [despesasRealizadas, setDespesasRealizadas] = useState<DespesaRealizadaItem[]>([]);
   const [planoTabAtiva, setPlanoTabAtiva] = useState<"receitas" | "despesas">("receitas");
+  const [busca, setBusca] = useState("");
 
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
