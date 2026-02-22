@@ -58,7 +58,13 @@ Uma única base com receitas e despesas, diferenciadas pelo campo `tipo`.
 - **Ano:** Scroll de anos. Gráfico: uma barra por ano (faturamento total) — anos fechados 24, 25, 26.
 - **YTD Fech.:** Scroll de anos. Gráfico: visão ano (uma barra por ano) com faturamento até o mês atual — "quanto ganhou até aqui" em 24, 25, 26.
 
-## 5. Próximos Passos (fase 2)
+## 5. Valor realizado (implementado)
+
+- **Base:** Tabela `plano_itens` criada, dados importados do Excel na primeira subida.
+- **Receita realizado:** Calculado em tempo real a partir dos pedidos com status=Entregue e data_entrega no mês. Atualiza automaticamente quando uma peça é marcada como entregue ou retirada de entregue (update_status define/limpa data_entrega).
+- **Despesas realizado:** Valor do campo `valor_realizado` no plano (importado do Excel; edição futura).
+
+## 6. Próximos Passos (fase 2)
 
 - **Edição:** Formulário para alterar itens do plano
 - **Acompanhamento:** Gráficos ou tabelas comparando planejado vs realizado

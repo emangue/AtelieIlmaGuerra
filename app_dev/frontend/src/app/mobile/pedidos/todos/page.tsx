@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -62,7 +62,7 @@ function formatDate(iso: string) {
   }
 }
 
-export default function PedidosTodosPage() {
+function PedidosTodosContent() {
   const searchParams = useSearchParams();
   const mesFilter = searchParams.get("mes"); // YYYYMM
   const [pedidos, setPedidos] = useState<PedidoItem[]>([]);
@@ -388,5 +388,13 @@ export default function PedidosTodosPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function PedidosTodosPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>}>
+      <PedidosTodosContent />
+    </Suspense>
   );
 }

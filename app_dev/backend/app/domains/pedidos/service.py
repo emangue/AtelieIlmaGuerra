@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from .models import Pedido, TipoPedido
 from .repository import PedidoRepository, TipoPedidoRepository
-from .schemas import PedidoCreate, PedidoUpdate, PedidoListItem, TipoPedidoItem
+from .schemas import PedidoCreate, PedidoUpdate, PedidoListItem, PedidoEntregueItem, TipoPedidoItem
 
 
 def _norm_foto_url(url: Optional[str]) -> Optional[str]:
@@ -38,6 +38,10 @@ class PedidoService:
     def list_all(self, mes: Optional[str] = None) -> List[Pedido]:
         """Lista todos os pedidos. Se mes=YYYYMM, filtra por data_entrega no mês."""
         return self.repo.list_all(mes=mes)
+
+    def list_entregues(self, mes: str) -> List[Pedido]:
+        """Lista pedidos entregues no mês (para transações do financeiro)."""
+        return self.repo.list_entregues(mes)
 
     def list_ativos(
         self,

@@ -89,6 +89,28 @@ class PedidoRepository:
                 pass
         return query.all()
 
+    def list_entregues(self, mes: str) -> List[Pedido]:
+        """Lista pedidos entregues no mês (status=Entregue, data_entrega no mês)."""
+        if not mes or len(mes) != 6:
+            return []
+        try:
+            ano = int(mes[:4])
+            num_mes = int(mes[4:6])
+            inicio = date(ano, num_mes, 1)
+            fim = date(ano + 1, 1, 1) if num_mes == 12 else date(ano, num_mes + 1, 1)
+        except (ValueError, TypeError):
+            return []
+        return (
+            self.db.query(Pedido)
+            .filter(
+                Pedido.status == "Entregue",
+                Pedido.data_entrega >= inicio,
+                Pedido.data_entrega < fim,
+            )
+            .order_by(Pedido.data_entrega.asc(), Pedido.id.asc())
+            .all()
+        )
+
     def list_ativos(
         self,
         excluir_status: Optional[List[str]] = None,
@@ -112,8 +134,16 @@ class PedidoRepository:
         if not pedido:
             return None
         update_data = data.model_dump(exclude_unset=True)
+        era_entregue = pedido.status == "Entregue"
         for key, value in update_data.items():
             setattr(pedido, key, value)
+        # Se status foi alterado, garantir data_entrega consistente (valor realizado)
+        if "status" in update_data:
+            status = update_data["status"]
+            if status == "Entregue" and pedido.data_entrega is None:
+                pedido.data_entrega = date.today()
+            elif status != "Entregue" and era_entregue:
+                pedido.data_entrega = None
         self.db.commit()
         self.db.refresh(pedido)
         return pedido
@@ -122,7 +152,17 @@ class PedidoRepository:
         pedido = self.get_by_id(pedido_id)
         if not pedido:
             return None
+        era_entregue = pedido.status == "Entregue"
         pedido.status = status
+        # Garantir que valor realizado (plano vs pedidos) seja sempre atualizado:
+        # ao marcar como Entregue -> data_entrega = hoje (para contar no mês)
+        # ao retirar de Entregue -> limpar data_entrega
+        if status == "Entregue":
+            if pedido.data_entrega is None:
+                pedido.data_entrega = date.today()
+        else:
+            if era_entregue:
+                pedido.data_entrega = None
         self.db.commit()
         self.db.refresh(pedido)
         return pedido

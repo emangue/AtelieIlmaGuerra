@@ -31,6 +31,18 @@ class PedidoListItem(BaseModel):
         from_attributes = True
 
 
+class PedidoEntregueItem(BaseModel):
+    """Pedido entregue no mês - para lista de transações no financeiro."""
+    id: int
+    tipo_pedido_nome: str
+    valor_pecas: float
+    data_entrega: date
+    cliente_nome: str
+
+    class Config:
+        from_attributes = True
+
+
 class PedidoStatusUpdate(BaseModel):
     status: str = Field(..., description="Orçamento, Encomenda, Cortado, Provado, Pronto, Entregue, Canelado")
 

@@ -82,7 +82,7 @@ export default function NovoOrcamentoPage() {
         }),
       });
       if (!res.ok) throw new Error("Erro ao salvar");
-      router.push("/mobile/orcamentos");
+      router.push("/mobile/pedidos/orcamentos");
     } catch {
       setLoading(false);
     }
@@ -91,7 +91,7 @@ export default function NovoOrcamentoPage() {
   return (
     <div className="flex flex-1 flex-col gap-6 p-4">
       <div className="flex items-center gap-2">
-        <Link href="/mobile/orcamentos">
+        <Link href="/mobile/pedidos/orcamentos">
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-5 w-5" />
           </Button>
@@ -240,7 +240,7 @@ export default function NovoOrcamentoPage() {
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Salvar
           </Button>
-          <Link href="/mobile/orcamentos">
+          <Link href="/mobile/pedidos/orcamentos">
             <Button type="button" variant="outline">
               Cancelar
             </Button>

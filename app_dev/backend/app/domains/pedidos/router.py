@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from app.core.database import get_db
 from sqlalchemy.orm import Session
 
-from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, TipoPedidoItem, FormaPecaItem
+from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem
 from .service import PedidoService, _norm_foto_url
 from .models import FormaPeca, FormaPecaMedida
 
@@ -31,6 +31,26 @@ def list_pedidos_todos(
     service = PedidoService(db)
     pedidos = service.list_all(mes=mes)
     return [service.to_list_item(p) for p in pedidos]
+
+
+@router.get("/entregues", response_model=List[PedidoEntregueItem])
+def list_pedidos_entregues(
+    mes: str = Query(..., description="YYYYMM - mês de referência"),
+    db: Session = Depends(get_db),
+):
+    """Lista pedidos entregues no mês (para transações do financeiro)."""
+    service = PedidoService(db)
+    pedidos = service.list_entregues(mes)
+    return [
+        PedidoEntregueItem(
+            id=p.id,
+            tipo_pedido_nome=p.tipo_pedido.nome if p.tipo_pedido else "Outros",
+            valor_pecas=float(p.valor_pecas or 0),
+            data_entrega=p.data_entrega,
+            cliente_nome=p.cliente.nome if p.cliente else "",
+        )
+        for p in pedidos
+    ]
 
 
 @router.get("/ativos", response_model=List[PedidoListItem])

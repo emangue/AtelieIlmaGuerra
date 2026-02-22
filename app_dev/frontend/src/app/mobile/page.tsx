@@ -1,31 +1,24 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import {
   Loader2,
-  TrendingUp,
   Clock,
   Package,
   DollarSign,
   Percent,
+  ChevronDown,
 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { MonthScrollPicker } from "@/components/mobile/month-scroll-picker";
 import { YearScrollPicker } from "@/components/mobile/year-scroll-picker";
 import { YTDToggle, PeriodView } from "@/components/mobile/ytd-toggle";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  LabelList,
-} from "recharts";
+
+const MobileDashboardCharts = dynamic(
+  () => import("@/components/mobile/mobile-dashboard-charts").then((m) => m.MobileDashboardCharts),
+  { ssr: false }
+);
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -66,6 +59,27 @@ interface PecasPorTipo {
   valor: number;
 }
 
+interface PlanoVsRealizadoItem {
+  tipo_item: string;
+  detalhe: string | null;
+  valor_planejado: number;
+  valor_realizado: number;
+  status: string;
+}
+
+interface PlanoVsRealizado {
+  anomes: string;
+  receita_planejada: number;
+  receita_realizada: number;
+  despesas_planejadas: number;
+  despesas_realizadas: number;
+  lucro_planejado: number;
+  lucro_realizado: number;
+  percentual_atingimento: number;
+  itens_receita: PlanoVsRealizadoItem[];
+  itens_despesas: PlanoVsRealizadoItem[];
+}
+
 const CORES_STATUS: Record<string, string> = {
   Encomenda: "#3b82f6",
   Cortado: "#f59e0b",
@@ -78,8 +92,17 @@ function getCorStatus(status: string) {
   return CORES_STATUS[status] || "#6b7280";
 }
 
+const GOAL_COLORS = [
+  "#001D39", "#0A4174", "#2D5A7B", "#49769F", "#4E8EA2",
+  "#5E9AB0", "#6EA2B3", "#7BBDE8", "#9AC9E8", "#BDD8E9", "#D4E8F0",
+];
+function getGoalColor(nome: string, index: number): string {
+  const hash = nome.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const idx = (hash + index) % GOAL_COLORS.length;
+  return GOAL_COLORS[Math.abs(idx)];
+}
+
 export default function PainelPage() {
-  const router = useRouter();
   const hoje = new Date();
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
   const [selectedYear, setSelectedYear] = useState<number>(hoje.getFullYear());
@@ -92,6 +115,8 @@ export default function PainelPage() {
   const [lucroPorAno, setLucroPorAno] = useState<{ ano: number; dados: LucroMensal[] }[]>([]);
   const [lucroPorAnoTotal, setLucroPorAnoTotal] = useState<{ ano: number; valor: number }[]>([]);
   const [pecasPorTipo, setPecasPorTipo] = useState<PecasPorTipo[]>([]);
+  const [planoVsRealizado, setPlanoVsRealizado] = useState<PlanoVsRealizado | null>(null);
+  const [planoTabAtiva, setPlanoTabAtiva] = useState<"receitas" | "despesas">("receitas");
 
   const handleError = () => {
     setKpis(null);
@@ -100,6 +125,7 @@ export default function PainelPage() {
     setLucroPorAno([]);
     setLucroPorAnoTotal([]);
     setPecasPorTipo([]);
+    setPlanoVsRealizado(null);
     setError("Não foi possível carregar. Verifique se o backend está rodando (porta 8000).");
   };
 
@@ -139,19 +165,22 @@ export default function PainelPage() {
 
     if (isMonth) {
       const lucroUrl = `${API_URL}/api/v1/dashboard/lucro-mensal?meses=12`;
+      const planoUrl = `${API_URL}/api/v1/plano/plano-vs-realizado?mes=${mesParam}`;
       Promise.all([
         fetchWithTimeout(kpisUrl),
         fetchWithTimeout(mixUrl),
         fetchWithTimeout(lucroUrl),
         fetchWithTimeout(pecasUrl),
+        fetchWithTimeout(planoUrl).catch(() => null),
       ])
-        .then(([k, m, l, p]) => {
+        .then(([k, m, l, p, plano]) => {
           setKpis(k);
           setMixStatus(m);
           setLucroMensal(l);
           setPecasPorTipo(p);
           setLucroPorAno([]);
           setLucroPorAnoTotal([]);
+          setPlanoVsRealizado(plano);
         })
         .catch(handleError)
         .finally(() => setLoading(false));
@@ -380,199 +409,186 @@ export default function PainelPage() {
             </div>
           </div>
 
-          {/* Gráfico Mix Status (donut) */}
-          {mixParaPie.length > 0 && (
-            <div className="rounded-xl border border-gray-200 bg-white p-4 mb-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-4">
-                {period === "month"
-                  ? "Mix de status (pedidos do mês)"
-                  : `Mix de status (pedidos do ano ${selectedYear})`}
-              </h3>
-              <div className="h-[200px] min-h-[200px] w-full min-w-0">
-                <ResponsiveContainer
-                  width="100%"
-                  height="100%"
-                  minHeight={200}
-                  initialDimension={{ width: 300, height: 200 }}
-                >
-                  <PieChart>
-                    <Pie
-                      data={mixParaPie}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
-                      paddingAngle={2}
-                      dataKey="value"
-                      nameKey="name"
+          {/* Card Plano vs Realizado - layout ProjetoFinancasV5 (Despesas vs Plano / Rendimentos) */}
+          {period === "month" && planoVsRealizado &&
+            (planoVsRealizado.itens_receita.length > 0 || planoVsRealizado.itens_despesas.length > 0) && (
+            <Collapsible defaultOpen={false} className="group rounded-xl border border-gray-200 bg-gray-50 overflow-hidden mb-6">
+              <CollapsibleTrigger className="w-full p-4 hover:bg-gray-100 transition-colors text-left">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">Lucro realizado do plano</h3>
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      Orçado: {formatMoney(planoVsRealizado.lucro_planejado)} ·{" "}
+                      {planoVsRealizado.lucro_planejado !== 0
+                        ? planoVsRealizado.lucro_realizado >= planoVsRealizado.lucro_planejado
+                          ? `Acima ${formatMoney(planoVsRealizado.lucro_realizado - planoVsRealizado.lucro_planejado)}`
+                          : `Abaixo ${formatMoney(planoVsRealizado.lucro_planejado - planoVsRealizado.lucro_realizado)}`
+                        : "Sem plano definido"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={`text-sm font-bold ${
+                        planoVsRealizado.lucro_realizado >= 0 ? "text-emerald-600" : "text-red-500"
+                      }`}
                     >
-                      {mixParaPie.map((entry, i) => (
-                        <Cell key={i} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(val: number | undefined) => [val != null ? `${val} pedidos` : "", "Quantidade"]}
-                      contentStyle={{
-                        borderRadius: "8px",
-                        border: "1px solid #e5e7eb",
+                      {formatMoney(planoVsRealizado.lucro_realizado)}
+                    </span>
+                    <ChevronDown className="w-5 h-5 text-gray-400 group-data-[state=open]:rotate-180 transition-transform" />
+                  </div>
+                </div>
+                {/* Barra preta: preenchida com lucro (receitas - custos), sempre visível */}
+                <div className="mt-2">
+                  <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden relative">
+                    <div
+                      className="h-full rounded-full bg-gray-900 transition-all"
+                      style={{
+                        width: (() => {
+                          const p = planoVsRealizado.lucro_planejado;
+                          const r = planoVsRealizado.lucro_realizado;
+                          if (p > 0) {
+                            return `${Math.max(0, Math.min(120, (r / p) * 100))}%`;
+                          }
+                          if (p < 0) {
+                            const range = 0 - p;
+                            const pos = r - p;
+                            return `${Math.max(0, Math.min(120, (pos / range) * 100))}%`;
+                          }
+                          return "0%";
+                        })(),
                       }}
                     />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="flex flex-wrap gap-3 mt-3 justify-center">
-                {mixParaPie.map((s) => (
-                  <span
-                    key={s.name}
-                    className="inline-flex items-center gap-1.5 text-xs"
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[9px] text-gray-400">
+                      {planoVsRealizado.lucro_planejado >= 0 ? "R$ 0" : formatMoney(planoVsRealizado.lucro_planejado)}
+                    </span>
+                    <span className="text-[9px] text-gray-400">
+                      {planoVsRealizado.lucro_planejado >= 0 ? formatMoney(planoVsRealizado.lucro_planejado) : "R$ 0"}
+                    </span>
+                  </div>
+                </div>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="px-4 pb-4">
+                {/* Abas Receitas | Despesas */}
+                <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-4 mt-2">
+                  <button
+                    onClick={() => setPlanoTabAtiva("receitas")}
+                    className={`flex-1 py-2 rounded-md text-sm font-semibold transition ${
+                      planoTabAtiva === "receitas" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
+                    }`}
                   >
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ backgroundColor: s.fill }}
-                    />
-                    {s.name}
-                  </span>
-                ))}
-              </div>
-            </div>
+                    Receitas
+                  </button>
+                  <button
+                    onClick={() => setPlanoTabAtiva("despesas")}
+                    className={`flex-1 py-2 rounded-md text-sm font-semibold transition ${
+                      planoTabAtiva === "despesas" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
+                    }`}
+                  >
+                    Despesas
+                  </button>
+                </div>
+                {/* Lista estilo V5 */}
+                {planoTabAtiva === "receitas" && (
+                  <div className="space-y-3.5">
+                    {planoVsRealizado.itens_receita
+                      .filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0)
+                      .map((i, idx) => {
+                        const diff = i.valor_realizado - i.valor_planejado;
+                        const pct = i.valor_planejado > 0 ? (i.valor_realizado / i.valor_planejado) * 100 : 0;
+                        const highlightText = diff >= 0 ? `+${formatMoney(diff)}` : `-${formatMoney(-diff)}`;
+                        const highlightClass =
+                          diff > 0 ? "text-emerald-600 font-semibold" : diff < 0 ? "text-red-500 font-semibold" : "text-gray-500 font-medium";
+                        const color = getGoalColor(i.tipo_item, idx);
+                        return (
+                          <div key={idx}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-2 shrink-0 min-w-0">
+                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                                <span className="text-sm text-gray-800 truncate">
+                                  {i.tipo_item}
+                                  {i.detalhe ? ` (${i.detalhe})` : ""}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                                <span className={`text-xs ${highlightClass}`}>{highlightText}</span>
+                                <span className="text-sm font-semibold text-gray-900">{formatMoney(i.valor_realizado)}</span>
+                                <span className="text-[9px] text-gray-400">/ {formatMoney(i.valor_planejado)}</span>
+                              </div>
+                            </div>
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${Math.min(pct, 100)}%`,
+                                  backgroundColor: diff >= 0 ? color : "#f87171",
+                                }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    {planoVsRealizado.itens_receita.filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0).length === 0 && (
+                      <p className="text-xs text-gray-400 py-2">Sem receitas no período</p>
+                    )}
+                  </div>
+                )}
+                {planoTabAtiva === "despesas" && (
+                  <div className="space-y-3.5">
+                    {planoVsRealizado.itens_despesas
+                      .filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0)
+                      .map((i, idx) => {
+                        const diff = i.valor_realizado - i.valor_planejado;
+                        const pct = i.valor_planejado > 0 ? (i.valor_realizado / i.valor_planejado) * 100 : 0;
+                        const isOver = i.valor_realizado > i.valor_planejado;
+                        const highlightText = diff >= 0 ? `+${formatMoney(diff)}` : `-${formatMoney(-diff)}`;
+                        const highlightClass =
+                          diff > 0 ? "text-red-500 font-semibold" : diff < 0 ? "text-emerald-600 font-semibold" : "text-gray-500 font-medium";
+                        const color = getGoalColor(i.detalhe || i.tipo_item, idx);
+                        return (
+                          <div key={idx}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-2 shrink-0 min-w-0">
+                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                                <span className="text-sm text-gray-800 truncate">{i.detalhe || i.tipo_item}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                                <span className={`text-xs ${highlightClass}`}>{highlightText}</span>
+                                <span className="text-sm font-semibold text-gray-900">{formatMoney(i.valor_realizado)}</span>
+                                <span className="text-[9px] text-gray-400">/ {formatMoney(i.valor_planejado)}</span>
+                              </div>
+                            </div>
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${Math.min(pct, 100)}%`,
+                                  backgroundColor: isOver ? "#f87171" : color,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    {planoVsRealizado.itens_despesas.filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0).length === 0 && (
+                      <p className="text-xs text-gray-400 py-2">Sem despesas no período</p>
+                    )}
+                  </div>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
           )}
 
-          {/* Gráfico Lucro / Faturamento (barras) */}
-          {(lucroMensal.length > 0 || chartDataYTD.length > 0 || chartDataYTDClosed.length > 0 || chartDataAno.length > 0) && (
-            <div className="rounded-xl border border-gray-200 bg-white p-4 mb-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-4">
-                {period === "month" && "Lucro mensal (últimos 12 meses)"}
-                {period === "ytd" && "Faturamento por mês (ano completo)"}
-                {period === "ytd-closed" && `Faturamento até ${MESES_LABELS[mesAtual]} (por ano)`}
-                {period === "year" && "Faturamento por ano (anos fechados)"}
-              </h3>
-              <div className="h-[220px] min-h-[220px] w-full min-w-0">
-                <ResponsiveContainer
-                  width="100%"
-                  height="100%"
-                  minHeight={220}
-                  initialDimension={{ width: 300, height: 220 }}
-                >
-                  {period === "month" && lucroMensal.length > 0 && (
-                    <BarChart
-                      data={lucroMensal}
-                      margin={{ top: 20, right: 5, left: 5, bottom: 0 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis
-                        dataKey="label"
-                        tick={{ fontSize: 10 }}
-                        tickFormatter={(v) => v.split("/")[0]}
-                      />
-                      <YAxis hide />
-                      <Tooltip
-                        formatter={(val: number | undefined) => [val != null ? formatMoney(val) : "", "Lucro"]}
-                        contentStyle={{ borderRadius: "8px", border: "1px solid #e5e7eb" }}
-                        labelFormatter={(l) => `Mês: ${l}`}
-                      />
-                      <Bar
-                        dataKey="valor"
-                        fill="#6366f1"
-                        radius={[4, 4, 0, 0]}
-                        name="Lucro"
-                        cursor="pointer"
-                        onClick={(data) => {
-                          if (data?.mes) router.push(`/mobile/pedidos/todos?mes=${data.mes}`);
-                        }}
-                      >
-                        <LabelList
-                          position="insideTop"
-                          formatter={(val: number) =>
-                            val >= 1000 ? `${(val / 1000).toFixed(0)}k` : String(val)
-                          }
-                          style={{ fontSize: 10, fill: "white", fontWeight: 600 }}
-                        />
-                      </Bar>
-                    </BarChart>
-                  )}
-                  {period === "ytd" && chartDataYTD.length > 0 && (
-                    <BarChart
-                      data={chartDataYTD}
-                      margin={{ top: 20, right: 5, left: 5, bottom: 0 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                      <YAxis hide />
-                      <Tooltip
-                        formatter={(val: number | undefined) => [val != null ? formatMoney(val) : "", ""]}
-                        contentStyle={{ borderRadius: "8px", border: "1px solid #e5e7eb" }}
-                        labelFormatter={(l) => `Mês: ${l}`}
-                      />
-                      {lucroPorAnoOrdenado.map(({ ano }) => (
-                        <Bar
-                          key={ano}
-                          dataKey={String(ano)}
-                          fill={CORES_ANOS[ano] ?? "#94a3b8"}
-                          radius={[4, 4, 0, 0]}
-                          name={String(ano)}
-                        >
-                          <LabelList
-                            position="insideTop"
-                            formatter={(val: number) =>
-                              val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val > 0 ? String(val) : ""
-                            }
-                            style={{ fontSize: 9, fill: "white", fontWeight: 600 }}
-                          />
-                        </Bar>
-                      ))}
-                    </BarChart>
-                  )}
-                  {(period === "year" || period === "ytd-closed") &&
-                    (period === "year" ? chartDataAno : chartDataYTDClosed).length > 0 && (
-                    <BarChart
-                      data={period === "year" ? chartDataAno : chartDataYTDClosed}
-                      margin={{ top: 20, right: 5, left: 5, bottom: 0 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                      <YAxis hide />
-                      <Tooltip
-                        formatter={(val: number | undefined) => [val != null ? formatMoney(val) : "", "Faturamento"]}
-                        contentStyle={{ borderRadius: "8px", border: "1px solid #e5e7eb" }}
-                        labelFormatter={(l) => `Ano: ${l}`}
-                      />
-                      <Bar
-                        dataKey="valor"
-                        fill="#6366f1"
-                        radius={[4, 4, 0, 0]}
-                        name="Faturamento"
-                        cursor="pointer"
-                        onClick={(data) => {
-                          if (data?.ano) router.push(`/mobile/pedidos/todos?mes=${data.ano}01`);
-                        }}
-                      >
-                        <LabelList
-                          position="insideTop"
-                          formatter={(val: number) =>
-                            val >= 1000 ? `${(val / 1000).toFixed(0)}k` : String(val)
-                          }
-                          style={{ fontSize: 10, fill: "white", fontWeight: 600 }}
-                        />
-                      </Bar>
-                    </BarChart>
-                  )}
-                </ResponsiveContainer>
-              </div>
-              {period === "ytd" && lucroPorAnoOrdenado.length > 0 && (
-                <div className="flex flex-wrap gap-3 mt-3 justify-center">
-                  {lucroPorAnoOrdenado.map(({ ano }) => (
-                    <span key={ano} className="inline-flex items-center gap-1.5 text-xs">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full"
-                        style={{ backgroundColor: CORES_ANOS[ano] ?? "#94a3b8" }}
-                      />
-                      {ano}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <MobileDashboardCharts
+            period={period}
+            lucroMensal={lucroMensal}
+            chartDataYTD={chartDataYTD}
+            chartDataYTDClosed={chartDataYTDClosed}
+            chartDataAno={chartDataAno}
+            lucroPorAnoOrdenado={lucroPorAnoOrdenado}
+            mixParaPie={mixParaPie}
+          />
 
           {/* Peças por tipo */}
           {pecasPorTipo.length > 0 && (

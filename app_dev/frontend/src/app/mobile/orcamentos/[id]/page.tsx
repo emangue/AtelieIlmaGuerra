@@ -59,7 +59,7 @@ export default function OrcamentoDetailPage() {
     return (
       <div className="p-4">
         <p className="text-gray-500">Orçamento não encontrado.</p>
-        <Link href="/mobile/orcamentos">
+        <Link href="/mobile/pedidos/orcamentos">
           <Button variant="link" className="mt-2">
             Voltar
           </Button>
@@ -71,7 +71,7 @@ export default function OrcamentoDetailPage() {
   return (
     <div className="flex flex-1 flex-col gap-6 p-4">
       <div className="flex items-center gap-2">
-        <Link href="/mobile/orcamentos">
+        <Link href="/mobile/pedidos/orcamentos">
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-5 w-5" />
           </Button>

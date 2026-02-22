@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -96,7 +96,7 @@ function buildPayload(form: FormData) {
   };
 }
 
-export default function NovoContratoPage() {
+function NovoContratoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const clienteId = searchParams.get("cliente_id");
@@ -471,5 +471,13 @@ export default function NovoContratoPage() {
         </div>
       </form>
     </div>
+  );
+}
+
+export default function NovoContratoPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>}>
+      <NovoContratoContent />
+    </Suspense>
   );
 }
