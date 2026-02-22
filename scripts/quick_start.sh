@@ -1,8 +1,21 @@
 #!/bin/bash
 # Inicia backend e frontend - Ateliê Ilma Guerra
 # Tenta portas alternativas automaticamente se a preferida estiver ocupada
+#
+# ⚙️  Configuração por ambiente:
+#   Crie um arquivo .atelie-env na raiz do projeto para sobrescrever as portas padrão.
+#   Exemplo (servidor de produção, /var/www/atelie/.atelie-env):
+#     ATELIE_BACKEND_PORT=8001
+#     ATELIE_FRONTEND_PORT=3001
+#   Este arquivo NÃO é versionado (está no .gitignore).
 set -e
 cd "$(dirname "$0")/.."
+
+# Carrega configurações locais se existirem (não versionado, específico por ambiente)
+if [ -f .atelie-env ]; then
+  # shellcheck disable=SC1091
+  source .atelie-env
+fi
 
 # Encontra a primeira porta livre a partir de start_port
 find_free_port() {
@@ -21,10 +34,28 @@ find_free_port() {
   echo ""  # nenhuma livre
 }
 
+# Verifica se já está rodando (evita duplicar processos)
+if [ -f .atelie-backend.pid ]; then
+  RUNNING=0
+  while read pid; do
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      RUNNING=$((RUNNING + 1))
+    fi
+  done < .atelie-backend.pid
+  if [ $RUNNING -gt 0 ]; then
+    echo "⚠️  O Ateliê já está rodando ($RUNNING processo(s) ativos)."
+    echo "   Portas em uso:"
+    [ -f .atelie-ports ] && cat .atelie-ports | while read p; do echo "     • http://localhost:$p"; done
+    echo "   Para reiniciar: bash scripts/quick_stop.sh && bash scripts/quick_start.sh"
+    exit 0
+  fi
+fi
+
 echo "🔍 Verificando portas disponíveis..."
 
-BACKEND_PORT=$(find_free_port 8000)
-FRONTEND_PORT=$(find_free_port 3001)
+# Usa porta preferida via env (ex: ATELIE_BACKEND_PORT=8001 em produção)
+BACKEND_PORT=$(find_free_port "${ATELIE_BACKEND_PORT:-8000}")
+FRONTEND_PORT=$(find_free_port "${ATELIE_FRONTEND_PORT:-3001}")
 
 if [ -z "$BACKEND_PORT" ]; then
   echo "❌ Nenhuma porta livre para backend (8000-8009)"

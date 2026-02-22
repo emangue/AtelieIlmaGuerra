@@ -1,28 +1,33 @@
 #!/bin/bash
 # Para backend e frontend - Ateliê Ilma Guerra
+# ⚠️  IMPORTANTE: mata APENAS os processos deste app (via PID file)
+#     NUNCA mata por faixa de portas — o servidor pode ter outros apps nessas portas
 set -e
 cd "$(dirname "$0")/.."
 
 echo "🛑 Parando Ateliê Ilma Guerra..."
 
-# Tenta matar por PID (salvos pelo quick_start)
-if [ -f .atelie-backend.pid ]; then
-  while read pid; do
-    if [ -n "$pid" ] && kill -0 $pid 2>/dev/null; then
-      echo "   Parando PID $pid..."
-      kill $pid 2>/dev/null || true
-    fi
-  done < .atelie-backend.pid
-  rm -f .atelie-backend.pid .atelie-ports
+if [ ! -f .atelie-backend.pid ]; then
+  echo "⚠️  Nenhum PID salvo (.atelie-backend.pid não encontrado)."
+  echo "   Os servidores já estavam parados ou foram iniciados de outra forma."
+  echo "   Para encontrar os processos manualmente: grep 'Listening on\|running on' logs/backend.log logs/frontend.log 2>/dev/null | tail -5"
+  exit 0
 fi
 
-# Fallback: mata processos nas portas usadas (8000-8009 backend, 3001-3010 frontend)
-for port in 8000 8001 8002 8003 8004 8005 8006 8007 8008 8009 3001 3002 3003 3004 3005 3006 3007 3008 3009 3010; do
-  pid=$(lsof -ti :$port 2>/dev/null || true)
-  if [ -n "$pid" ]; then
-    echo "   Parando porta $port (PID $pid)..."
-    kill $pid 2>/dev/null || true
+# Mata APENAS os PIDs que este app registrou — nunca por faixa de portas
+STOPPED=0
+while read pid; do
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    echo "   Parando PID $pid..."
+    kill "$pid" 2>/dev/null || true
+    STOPPED=$((STOPPED + 1))
   fi
-done
+done < .atelie-backend.pid
 
-echo "✅ Servidores parados."
+rm -f .atelie-backend.pid .atelie-ports
+
+if [ $STOPPED -gt 0 ]; then
+  echo "✅ $STOPPED processo(s) parado(s)."
+else
+  echo "⚠️  PIDs do arquivo já não estavam rodando."
+fi
