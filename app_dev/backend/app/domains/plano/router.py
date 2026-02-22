@@ -149,6 +149,57 @@ def evolucao_mensal(
     return list(reversed(result))
 
 
+@router.get("/detalhes")
+def get_detalhes(
+    tipo: Optional[str] = Query(None, description="receita | despesa"),
+    db: Session = Depends(get_db),
+):
+    """Retorna lista de detalhes únicos cadastrados no plano (para uso no formulário)."""
+    q = db.query(PlanoItem.detalhe).filter(
+        PlanoItem.detalhe.isnot(None),
+        PlanoItem.detalhe != "",
+    )
+    if tipo:
+        q = q.filter(PlanoItem.tipo == tipo)
+    detalhes = sorted(set(d[0] for d in q.distinct().all() if d[0]))
+    return detalhes
+
+
+@router.post("/copiar-mes", status_code=201)
+def copiar_mes(
+    mes_origem: str = Query(..., description="YYYYMM - mês de origem"),
+    mes_destino: str = Query(..., description="YYYYMM - mês de destino"),
+    db: Session = Depends(get_db),
+):
+    """Copia os itens de plano de um mês para outro (apenas valor_planejado, zera valor_realizado)."""
+    for m in (mes_origem, mes_destino):
+        if len(m) != 6 or not m.isdigit():
+            raise HTTPException(status_code=400, detail=f"Mês inválido: {m}. Use o formato YYYYMM.")
+    if mes_origem == mes_destino:
+        raise HTTPException(status_code=400, detail="Mês de origem e destino não podem ser iguais.")
+    existing = db.query(PlanoItem).filter(PlanoItem.anomes == mes_destino).count()
+    if existing > 0:
+        raise HTTPException(status_code=400, detail="O mês de destino já possui itens no plano.")
+    itens_origem = db.query(PlanoItem).filter(PlanoItem.anomes == mes_origem).all()
+    if not itens_origem:
+        raise HTTPException(status_code=404, detail="Nenhum item encontrado no mês de origem.")
+    novos = [
+        PlanoItem(
+            anomes=mes_destino,
+            tipo=i.tipo,
+            categoria=i.categoria,
+            tipo_item=i.tipo_item,
+            detalhe=i.detalhe,
+            valor_planejado=i.valor_planejado,
+            valor_realizado=None,
+        )
+        for i in itens_origem
+    ]
+    db.add_all(novos)
+    db.commit()
+    return {"copiados": len(novos), "mes_destino": mes_destino}
+
+
 @router.patch("/{item_id}", response_model=PlanoItemOut)
 def update_plano_item_realizado(
     item_id: int,

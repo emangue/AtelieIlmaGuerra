@@ -9,8 +9,14 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { MonthScrollPicker } from "@/components/mobile/month-scroll-picker";
 import { YearScrollPicker } from "@/components/mobile/year-scroll-picker";
 import { YTDToggle, PeriodView } from "@/components/mobile/ytd-toggle";
-import { Plus, Loader2, ChevronDown, TrendingUp, CreditCard } from "lucide-react";
+import { Plus, Loader2, ChevronDown, TrendingUp, CreditCard, X, Copy, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+function mesLabel(anomes: string): string {
+  const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  const m = parseInt(anomes.slice(4), 10);
+  return MESES[m - 1] ?? anomes;
+}
 
 const ChartComparacaoMensal = dynamic(
   () => import("@/components/mobile/chart-comparacao-mensal").then((m) => m.ChartComparacaoMensal),
@@ -100,6 +106,7 @@ export default function FinanceiroPage() {
 
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   const [formModo, setFormModo] = useState<"plano" | "realizado">("realizado");
   const [formTipo, setFormTipo] = useState<"receita" | "despesa">("despesa");
@@ -107,10 +114,26 @@ export default function FinanceiroPage() {
   const [formCategoria, setFormCategoria] = useState("Custo Fixo");
   const [formDetalhe, setFormDetalhe] = useState("");
   const [formValor, setFormValor] = useState("");
+  const [detalhes, setDetalhes] = useState<string[]>([]);
+  const [showCustomDetalhe, setShowCustomDetalhe] = useState(false);
 
   const ano = selectedMonth.getFullYear();
   const mes = selectedMonth.getMonth() + 1;
   const mesParam = `${ano}${mes.toString().padStart(2, "0")}`;
+
+  const mesAnteriorParam = (() => {
+    const d = new Date(selectedMonth);
+    d.setDate(1);
+    d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}${(d.getMonth() + 1).toString().padStart(2, "0")}`;
+  })();
+
+  const mesProximoParam = (() => {
+    const d = new Date(selectedMonth);
+    d.setDate(1);
+    d.setMonth(d.getMonth() + 1);
+    return `${d.getFullYear()}${(d.getMonth() + 1).toString().padStart(2, "0")}`;
+  })();
 
   const fetchPlano = useCallback(() => {
     if (period !== "month") return;
@@ -140,6 +163,61 @@ export default function FinanceiroPage() {
     fetchPlano();
   }, [fetchPlano]);
 
+  // Carrega detalhes quando o form abre ou o tipo muda
+  useEffect(() => {
+    if (!showForm) return;
+    fetch(`${API_URL}/api/v1/plano/detalhes?tipo=${formTipo}`)
+      .then((res) => res.json())
+      .then((data) => setDetalhes(Array.isArray(data) ? data : []))
+      .catch(() => setDetalhes([]));
+  }, [showForm, formTipo]);
+
+  const openForm = () => {
+    setFormModo("realizado");
+    setFormTipo("despesa");
+    setFormTipoItem("Outros");
+    setFormCategoria("Custo Fixo");
+    setFormDetalhe("");
+    setFormValor("");
+    setShowCustomDetalhe(false);
+    setShowForm(true);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setShowCustomDetalhe(false);
+    setFormDetalhe("");
+    setFormValor("");
+  };
+
+  const copiarMes = async (mesOrigem: string) => {
+    setCopying(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/plano/copiar-mes?mes_origem=${mesOrigem}&mes_destino=${mesParam}`,
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert((err as { detail?: string }).detail || "Erro ao copiar o mês");
+        return;
+      }
+      fetchPlano();
+    } catch {
+      alert("Erro ao copiar o mês");
+    } finally {
+      setCopying(false);
+    }
+  };
+
+  const isEmptyMonth =
+    !loading &&
+    planoVsRealizado !== null &&
+    planoVsRealizado.itens_receita.length === 0 &&
+    planoVsRealizado.itens_despesas.length === 0 &&
+    pedidosEntregues.length === 0 &&
+    despesasRealizadas.length === 0;
+
   const handleSubmitNovo = async (e: React.FormEvent) => {
     e.preventDefault();
     const v = parseFloat(formValor.replace(",", "."));
@@ -161,9 +239,7 @@ export default function FinanceiroPage() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("Erro");
-      setShowForm(false);
-      setFormValor("");
-      setFormDetalhe("");
+      closeForm();
       fetchPlano();
     } catch {
       // ignore
@@ -213,7 +289,33 @@ export default function FinanceiroPage() {
           </div>
         ) : (
           <>
-            {/* Resumo do Mês - receitas, despesas, lucro (estilo V5) */}
+            {/* Estado vazio: sem dados para o mês */}
+            {isEmptyMonth && (
+              <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center mb-6">
+                <p className="text-sm font-medium text-gray-700 mb-1">Nenhum dado para este mês</p>
+                <p className="text-xs text-gray-400 mb-5">Copiar plano financeiro de:</p>
+                <div className="flex gap-3 justify-center">
+                  <button
+                    onClick={() => copiarMes(mesAnteriorParam)}
+                    disabled={copying}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 shadow-sm transition"
+                  >
+                    {copying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                    ← {mesLabel(mesAnteriorParam)}
+                  </button>
+                  <button
+                    onClick={() => copiarMes(mesProximoParam)}
+                    disabled={copying}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 shadow-sm transition"
+                  >
+                    {copying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                    {mesLabel(mesProximoParam)} →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Resumo do Mês */}
             {planoVsRealizado && (
               <div className="rounded-xl border border-gray-200 bg-white p-4 mb-6">
                 <div className="flex items-center justify-between mb-4">
@@ -464,20 +566,66 @@ export default function FinanceiroPage() {
             {/* Transações - pedidos entregues do mês + despesas realizadas do plano */}
             {(pedidosEntregues.length > 0 || despesasRealizadas.length > 0) && (
               <div className="rounded-xl border border-gray-200 bg-white overflow-hidden mb-6">
-                <h3 className="text-sm font-bold text-gray-900 px-4 py-3 border-b border-gray-100">
-                  Transações
-                </h3>
+                {/* Header + barra de busca */}
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <h3 className="text-sm font-bold text-gray-900 mb-2">Transações</h3>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={busca}
+                      onChange={(e) => setBusca(e.target.value)}
+                      placeholder="Buscar por nome, data, peça..."
+                      className="w-full pl-9 pr-3 h-9 rounded-lg border border-gray-200 bg-gray-50 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                    />
+                    {busca && (
+                      <button
+                        onClick={() => setBusca("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <div className="divide-y divide-gray-100">
                   {(() => {
-                    const porData = pedidosEntregues.reduce<Record<string, PedidoEntregueItem[]>>((acc, p) => {
+                    const q = busca.toLowerCase().trim();
+                    const pedidosFiltrados = pedidosEntregues.filter((p) => {
+                      if (!q) return true;
+                      return (
+                        p.cliente_nome?.toLowerCase().includes(q) ||
+                        p.tipo_pedido_nome?.toLowerCase().includes(q) ||
+                        p.data_entrega?.includes(q)
+                      );
+                    });
+                    const despesasFiltradas = despesasRealizadas.filter((i) => {
+                      if (!q) return true;
+                      return (
+                        i.detalhe?.toLowerCase().includes(q) ||
+                        i.tipo_item?.toLowerCase().includes(q) ||
+                        i.categoria?.toLowerCase().includes(q)
+                      );
+                    });
+
+                    const porData = pedidosFiltrados.reduce<Record<string, PedidoEntregueItem[]>>((acc, p) => {
                       const d = p.data_entrega || "";
                       if (!acc[d]) acc[d] = [];
                       acc[d].push(p);
                       return acc;
                     }, {});
-                    const datasOrdenadas = Object.keys(porData).sort();
+                    // Ordenar do mais recente para o mais antigo
+                    const datasOrdenadas = Object.keys(porData).sort().reverse();
+
+                    const semResultados = datasOrdenadas.length === 0 && despesasFiltradas.length === 0;
+
                     return (
                       <>
+                        {semResultados && (
+                          <p className="text-xs text-gray-400 px-4 py-5 text-center">
+                            Nenhuma transação encontrada para &quot;{busca}&quot;
+                          </p>
+                        )}
                         {datasOrdenadas.map((dataStr) => (
                           <div key={dataStr}>
                             <p className="text-xs text-gray-500 px-4 pt-3 pb-1">
@@ -509,10 +657,10 @@ export default function FinanceiroPage() {
                             ))}
                           </div>
                         ))}
-                        {despesasRealizadas.length > 0 ? (
+                        {despesasFiltradas.length > 0 && (
                           <div>
                             <p className="text-xs text-gray-500 px-4 pt-3 pb-1">Despesas</p>
-                            {despesasRealizadas.map((i) => (
+                            {despesasFiltradas.map((i) => (
                               <div key={`desp-${i.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50/50">
                                 <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
                                   <CreditCard className="w-5 h-5 text-gray-600" />
@@ -529,7 +677,7 @@ export default function FinanceiroPage() {
                               </div>
                             ))}
                           </div>
-                        ) : null}
+                        )}
                       </>
                     );
                   })()}
@@ -537,143 +685,221 @@ export default function FinanceiroPage() {
               </div>
             )}
 
-            {/* Form Adicionar: despesa ou receita, plano ou realizado */}
-            {showForm ? (
-              <form
-                onSubmit={handleSubmitNovo}
-                className="rounded-xl border border-gray-200 bg-white p-4 space-y-4 mb-6"
-              >
-                <h3 className="font-medium text-gray-900">Adicionar receita ou despesa</h3>
-                <div>
-                  <Label>Adicionar como</Label>
-                  <div className="flex gap-2 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => setFormModo("plano")}
-                      className={cn(
-                        "flex-1 py-2 rounded-lg text-sm font-medium border transition",
-                        formModo === "plano"
-                          ? "bg-gray-900 text-white border-gray-900"
-                          : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
-                      )}
-                    >
-                      Novo tema no plano
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFormModo("realizado")}
-                      className={cn(
-                        "flex-1 py-2 rounded-lg text-sm font-medium border transition",
-                        formModo === "realizado"
-                          ? "bg-gray-900 text-white border-gray-900"
-                          : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
-                      )}
-                    >
-                      Valor realizado
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <Label>Tipo</Label>
-                  <div className="flex gap-2 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => { setFormTipo("receita"); setFormTipoItem("Outros"); }}
-                      className={cn(
-                        "flex-1 py-2 rounded-lg text-sm font-medium border transition",
-                        formTipo === "receita"
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                          : "bg-white text-gray-600 border-gray-200"
-                      )}
-                    >
-                      Receita
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setFormTipo("despesa"); setFormTipoItem("Outros"); }}
-                      className={cn(
-                        "flex-1 py-2 rounded-lg text-sm font-medium border transition",
-                        formTipo === "despesa"
-                          ? "bg-red-50 text-red-700 border-red-300"
-                          : "bg-white text-gray-600 border-gray-200"
-                      )}
-                    >
-                      Despesa
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <Label>{formTipo === "receita" ? "Tipo de receita" : "Tipo de despesa"} *</Label>
-                  <select
-                    value={formTipoItem}
-                    onChange={(e) => setFormTipoItem(e.target.value)}
-                    className={cn(selectClass, "mt-1")}
-                    required
-                  >
-                    {(formTipo === "receita" ? TIPOS_RECEITA : TIPOS_DESPESA).map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                {formTipo === "despesa" && (
-                  <div>
-                    <Label>Categoria</Label>
-                    <select
-                      value={formCategoria}
-                      onChange={(e) => setFormCategoria(e.target.value)}
-                      className={cn(selectClass, "mt-1")}
-                    >
-                      {CATEGORIAS.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div>
-                  <Label>Detalhe (ex: Esli, Aluguel)</Label>
-                  <Input
-                    value={formDetalhe}
-                    onChange={(e) => setFormDetalhe(e.target.value)}
-                    placeholder="Opcional"
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label>Valor (R$) *</Label>
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={formValor}
-                    onChange={(e) => setFormValor(e.target.value)}
-                    placeholder="0,00"
-                    required
-                    className="mt-1"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={saving} className="flex-1">
-                    {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Adicionar
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
-                    Cancelar
-                  </Button>
-                </div>
-              </form>
-            ) : null}
           </>
         )}
       </div>
 
-      {/* FAB + flutuante (estilo V5) */}
+      {/* FAB + flutuante */}
       {period === "month" && !showForm && (
         <button
-          onClick={() => setShowForm(true)}
+          onClick={openForm}
           className="fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg hover:bg-blue-700 active:scale-95 transition-transform"
           aria-label="Adicionar receita ou despesa"
         >
           <Plus className="w-6 h-6" />
         </button>
+      )}
+
+      {/* ── Bottom Sheet: Adicionar receita/despesa ── */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-end">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/50" onClick={closeForm} />
+
+          {/* Sheet */}
+          <div className="relative w-full bg-white rounded-t-2xl max-h-[92vh] flex flex-col shadow-2xl">
+            {/* Handle visual */}
+            <div className="flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-10 h-1 rounded-full bg-gray-300" />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 shrink-0">
+              <h3 className="text-base font-semibold text-gray-900">Adicionar receita ou despesa</h3>
+              <button
+                onClick={closeForm}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition"
+              >
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Formulário com scroll */}
+            <form onSubmit={handleSubmitNovo} className="overflow-y-auto flex-1 flex flex-col">
+              <div className="px-4 py-4 space-y-4 flex-1">
+              {/* Modo: plano ou realizado */}
+              <div>
+                <Label>Adicionar como</Label>
+                <div className="flex gap-2 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setFormModo("plano")}
+                    className={cn(
+                      "flex-1 py-2 rounded-lg text-sm font-medium border transition",
+                      formModo === "plano"
+                        ? "bg-gray-900 text-white border-gray-900"
+                        : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                    )}
+                  >
+                    Novo tema no plano
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormModo("realizado")}
+                    className={cn(
+                      "flex-1 py-2 rounded-lg text-sm font-medium border transition",
+                      formModo === "realizado"
+                        ? "bg-gray-900 text-white border-gray-900"
+                        : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                    )}
+                  >
+                    Valor realizado
+                  </button>
+                </div>
+              </div>
+
+              {/* Tipo: receita ou despesa */}
+              <div>
+                <Label>Tipo</Label>
+                <div className="flex gap-2 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => { setFormTipo("receita"); setFormTipoItem("Outros"); }}
+                    className={cn(
+                      "flex-1 py-2 rounded-lg text-sm font-medium border transition",
+                      formTipo === "receita"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                        : "bg-white text-gray-600 border-gray-200"
+                    )}
+                  >
+                    Receita
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setFormTipo("despesa"); setFormTipoItem("Outros"); }}
+                    className={cn(
+                      "flex-1 py-2 rounded-lg text-sm font-medium border transition",
+                      formTipo === "despesa"
+                        ? "bg-red-50 text-red-700 border-red-300"
+                        : "bg-white text-gray-600 border-gray-200"
+                    )}
+                  >
+                    Despesa
+                  </button>
+                </div>
+              </div>
+
+              {/* Tipo item */}
+              <div>
+                <Label>{formTipo === "receita" ? "Tipo de receita" : "Tipo de despesa"} *</Label>
+                <select
+                  value={formTipoItem}
+                  onChange={(e) => setFormTipoItem(e.target.value)}
+                  className={cn(selectClass, "mt-1")}
+                  required
+                >
+                  {(formTipo === "receita" ? TIPOS_RECEITA : TIPOS_DESPESA).map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Categoria (só para despesa) */}
+              {formTipo === "despesa" && (
+                <div>
+                  <Label>Categoria</Label>
+                  <select
+                    value={formCategoria}
+                    onChange={(e) => setFormCategoria(e.target.value)}
+                    className={cn(selectClass, "mt-1")}
+                  >
+                    {CATEGORIAS.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Detalhe: dropdown com opção de adicionar novo */}
+              <div>
+                <Label>Detalhe (ex: Esli, Aluguel)</Label>
+                <div className="flex gap-2 mt-1">
+                  {showCustomDetalhe ? (
+                    <>
+                      <Input
+                        value={formDetalhe}
+                        onChange={(e) => setFormDetalhe(e.target.value)}
+                        placeholder="Digite o novo detalhe..."
+                        className="flex-1"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setShowCustomDetalhe(false); setFormDetalhe(""); }}
+                        className="w-10 h-10 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-500 hover:bg-gray-50 shrink-0 transition"
+                        title="Cancelar novo detalhe"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <select
+                        value={formDetalhe}
+                        onChange={(e) => setFormDetalhe(e.target.value)}
+                        className={cn(selectClass, "flex-1")}
+                      >
+                        <option value="">— Opcional —</option>
+                        {detalhes.map((d) => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => { setShowCustomDetalhe(true); setFormDetalhe(""); }}
+                        className="w-10 h-10 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-700 hover:bg-gray-50 shrink-0 transition"
+                        title="Adicionar novo detalhe"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+                {showCustomDetalhe && (
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Novo detalhe — ficará disponível para seleção em lançamentos futuros
+                  </p>
+                )}
+              </div>
+
+              {/* Valor */}
+              <div>
+                <Label>Valor (R$) *</Label>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={formValor}
+                  onChange={(e) => setFormValor(e.target.value)}
+                  placeholder="0,00"
+                  required
+                  className="mt-1"
+                />
+              </div>
+
+              </div>
+              {/* Botões — sticky no rodapé do sheet */}
+              <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 py-3 flex gap-2">
+                <Button type="submit" disabled={saving} className="flex-1">
+                  {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Confirmar
+                </Button>
+                <Button type="button" variant="outline" onClick={closeForm}>
+                  Cancelar
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
