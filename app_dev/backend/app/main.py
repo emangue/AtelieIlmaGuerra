@@ -93,7 +93,7 @@ def startup():
             print("Migration: pedidos.medida_seio_a_seio -> medida_distancia_busto")
     except Exception as e:
         err = str(e).lower()
-        if "no such column" in err or "duplicate column" in err:
+        if "no such column" in err or "duplicate column" in err or "does not exist" in err or "undefined" in err:
             pass
         else:
             raise
@@ -105,7 +105,7 @@ def startup():
             print("Migration: clientes.medida_seio_a_seio -> medida_distancia_busto")
     except Exception as e:
         err = str(e).lower()
-        if "no such column" in err or "duplicate column" in err:
+        if "no such column" in err or "duplicate column" in err or "does not exist" in err or "undefined" in err:
             pass
         else:
             raise

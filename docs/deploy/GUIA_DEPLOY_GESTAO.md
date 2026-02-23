@@ -41,7 +41,7 @@ O projeto fica **isolado** em uma pasta dedicada:
 | **HTTP→HTTPS** | ✅ Redirect 301 | Automático |
 | **Firewall UFW** | ✅ Ativo | Apenas 22, 80, 443 |
 | **Backend (8001)** | ✅ localhost | Escuta 127.0.0.1 apenas |
-| **Frontend (3001)** | ✅ Protegido | Atrás do Nginx, UFW bloqueia acesso direto |
+| **Frontend (3004)** | ✅ Protegido | Atrás do Nginx, UFW bloqueia acesso direto |
 | **PostgreSQL** | ✅ localhost | 127.0.0.1:5432 (atelie_db + finup_db) |
 | **Arquivo .env** | ✅ 600 | Permissões restritas |
 | **DEBUG** | ✅ false | Produção |

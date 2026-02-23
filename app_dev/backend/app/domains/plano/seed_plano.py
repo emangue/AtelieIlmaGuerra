@@ -10,7 +10,6 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[5]
 sys.path.insert(0, str(ROOT))
 
-import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -20,8 +19,9 @@ from app.domains.plano.models import PlanoItem
 EXCEL_PATH = ROOT / "PLANO 2026 ATELIE ILMA GUERRA.xlsx"
 
 
-def _import_receita(db: Session, df: pd.DataFrame) -> int:
+def _import_receita(db: Session, df: "pd.DataFrame") -> int:
     """Importa MetaReceita."""
+    import pandas as pd  # noqa: F401 - só usado via df
     count = 0
     for _, row in df.iterrows():
         anomes = str(int(row["anomes"])) if pd.notna(row["anomes"]) else None
@@ -47,8 +47,9 @@ def _import_receita(db: Session, df: pd.DataFrame) -> int:
     return count
 
 
-def _import_despesas(db: Session, df: pd.DataFrame) -> int:
+def _import_despesas(db: Session, df: "pd.DataFrame") -> int:
     """Importa MetaDespesas."""
+    import pandas as pd  # noqa: F401 - só usado via df
     count = 0
     for _, row in df.iterrows():
         anomes = str(int(row["anomes"])) if pd.notna(row["anomes"]) else None
@@ -75,6 +76,7 @@ def _import_despesas(db: Session, df: pd.DataFrame) -> int:
 
 def seed_plano(db: Session, excel_path: Optional[Path] = None) -> tuple[int, int]:
     """Importa receita e despesas do Excel. Retorna (n_receita, n_despesas)."""
+    import pandas as pd
     path = excel_path or EXCEL_PATH
     if not path.exists():
         print(f"Arquivo não encontrado: {path}")
