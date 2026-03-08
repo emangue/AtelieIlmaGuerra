@@ -92,20 +92,105 @@ Plano de Lucro    - Lucro Realizado    = Variação do Lucro
 
 ---
 
-## 5. Resumo das Mudanças por Área
+## 5. Tela de Detalhe Mensal do Plano
+
+### Objetivo
+Dar visibilidade completa do que está sendo considerado em **um mês específico** — todas as transações de receita e despesa, tanto do plano quanto do realizado — e permitir edição e inclusão direto dessa tela.
+
+### Acesso
+A partir da visão mensal (ex: calendário ou lista de meses), tocar em um mês abre o **Detalhe do Mês**.
+
+### O que a tela exibe
+
+```
+[ Março 2026 ]  ← seletor de mês/ano
+
+RECEITAS
+────────────────────────────────────────
+  Categoria        Plano     Realizado
+  Enxovais         R$ 800    R$ 650
+  Vestidos         R$ 1.200  —
+  ...
+  TOTAL            R$ 2.000  R$ 650
+────────────────────────────────────────
+
+DESPESAS
+────────────────────────────────────────
+  Categoria        Plano     Realizado
+  Tecidos          R$ 400    R$ 420
+  Aluguel          R$ 600    R$ 600
+  ...
+  TOTAL            R$ 1.000  R$ 1.020
+────────────────────────────────────────
+
+LUCRO
+  Plano:      R$ 1.000
+  Realizado:  R$ -370
+  Variação:   R$ -1.370  ⚠️
+
+[ + Adicionar ]
+```
+
+### Ações disponíveis na tela
+
+| Ação | Descrição |
+|------|-----------|
+| Tocar em um item | Abre edição do valor daquele item (plano ou realizado) |
+| Editar valor do plano | Altera o valor planejado para aquela categoria no mês |
+| Editar realizado | Registra ou corrige o valor realizado daquela categoria |
+| `+ Adicionar` | Abre formulário para incluir novo item (ver seção 5.1) |
+
+### 5.1 Formulário de inclusão de novo item
+
+Ao tocar em `+ Adicionar`, o usuário escolhe:
+
+**Tipo de lançamento:**
+- `Plano` — item que ainda não existe no plano
+- `Realizado` — despesa ou receita que aconteceu
+
+**Campos do formulário:**
+
+| Campo | Tipo | Observação |
+|-------|------|------------|
+| Tipo de transação | `receita` / `despesa` | |
+| Categoria | Seleção (lista existente ou nova) | |
+| Descrição | Texto livre | |
+| Valor | Numérico | |
+| Período | Mês/Ano | Pré-preenchido com o mês atual da tela |
+
+**Recorrência (apenas para Plano):**
+
+> Itens do plano geralmente se repetem ao longo do ano. Por isso, ao incluir um item no plano, o app deve perguntar:
+
+```
+Repetir este item no plano?
+  ○ Somente este mês
+  ○ Até o final do ano  (ex: março → dezembro 2026)
+  ○ Escolher período...
+```
+
+- Se "Até o final do ano": cria o mesmo item em todos os meses restantes do ano com o mesmo valor.
+- Se "Escolher período": exibe seletores de mês início e mês fim.
+- Itens do **realizado não têm recorrência** — cada lançamento é pontual.
+
+---
+
+## 6. Resumo das Mudanças por Área
 
 | Área | Mudança |
 |------|---------|
 | Plano | Edição pelo app (não só via Excel) |
-| Realizado | Novo lançamento de despesas reais |
+| Realizado | Novo lançamento de despesas e receitas reais |
 | Parâmetros – Despesas | Calculado automaticamente do plano/realizado |
 | Parâmetros – Lucro | Novo campo: Receita − Despesa = Lucro esperado |
+| Nova tela | Detalhe mensal com todas as transações, edição e inclusão |
 
 ---
 
 ## Próximos passos
 
-- [ ] Definir layout das telas de edição de plano
-- [ ] Definir layout da tela de lançamento de despesas reais
+- [ ] Definir layout da tela de Detalhe Mensal
+- [ ] Definir layout do formulário de inclusão (com opção de recorrência)
+- [ ] Definir layout das telas de edição de plano geral
 - [ ] Ajustar tela de parâmetros para refletir os novos campos
 - [ ] Atualizar modelo de dados (`PLANO_RECEITA_DESPESAS.md`)
