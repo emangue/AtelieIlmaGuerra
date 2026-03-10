@@ -9,6 +9,7 @@ from sqlalchemy import func
 
 from app.domains.pedidos.models import Pedido, TipoPedido
 from .models import PlanoItem
+from .transacoes_models import DespesaTransacao
 from .schemas import PlanoVsRealizado, PlanoVsRealizadoItem, TIPO_PEDIDO_TO_PLANO
 
 
@@ -60,7 +61,15 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
 
     receita_planejada = sum(i.valor_planejado for i in itens_rec)
     despesas_planejadas = sum(i.valor_planejado for i in itens_desp)
-    despesas_realizadas = sum(i.valor_realizado or 0 for i in itens_desp)
+
+    # Despesas realizadas: soma das transações (ou fallback para valor_realizado legado)
+    trans_soma = (
+        db.query(DespesaTransacao.plano_item_id, func.coalesce(func.sum(DespesaTransacao.valor), 0).label("total"))
+        .filter(DespesaTransacao.anomes == mes)
+        .group_by(DespesaTransacao.plano_item_id)
+    )
+    trans_map = {r.plano_item_id: float(r.total) for r in trans_soma}
+    despesas_realizadas = sum(trans_map.get(i.id, i.valor_realizado or 0) for i in itens_desp)
 
     # Agrupar receita realizado por tipo_item do plano (pedidos + receitas manuais)
     rec_por_plano_tipo: Dict[str, float] = {}
@@ -116,7 +125,7 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
 
     itens_despesas: List[PlanoVsRealizadoItem] = []
     for i in itens_desp:
-        real = float(i.valor_realizado or 0)
+        real = float(trans_map.get(i.id, i.valor_realizado or 0))
         itens_despesas.append(PlanoVsRealizadoItem(
             tipo_item=i.tipo_item,
             detalhe=i.detalhe,

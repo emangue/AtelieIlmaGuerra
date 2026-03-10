@@ -22,8 +22,16 @@ class PlanoItemOut(BaseModel):
 
 
 class PlanoItemUpdateRealizado(BaseModel):
-    """Atualiza apenas valor_realizado (despesas)."""
+    """Atualiza apenas valor_realizado (despesas). Deprecado: use transações."""
     valor_realizado: Optional[float] = None
+
+
+class PlanoItemUpdate(BaseModel):
+    """Atualiza campos do plano. valor_realizado vem das transações."""
+    valor_planejado: Optional[float] = None
+    quantidade: Optional[int] = None
+    ticket_medio: Optional[float] = None
+    detalhe: Optional[str] = None
 
 
 class PlanoItemCreateDespesa(BaseModel):
@@ -48,11 +56,14 @@ class PlanoItemCreate(BaseModel):
 
 
 class PlanoResumoMes(BaseModel):
-    """Resumo por mês: receita planejada, despesas planejadas, lucro planejado."""
+    """Resumo por mês: planejado e realizado."""
     anomes: str
     receita_planejada: float
     despesas_planejadas: float
     lucro_planejado: float
+    receita_realizada: float = 0
+    despesas_realizadas: float = 0
+    lucro_realizado: float = 0
 
 
 # Mapeamento TipoPedido.nome -> plano tipo_item (para receita realizado)
@@ -87,6 +98,46 @@ class DespesaRealizadaItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OpcaoDespesa(BaseModel):
+    """Opção para dropdown ao adicionar despesa realizada."""
+    plano_item_id: Optional[int] = None
+    label: str  # "Pró-Labore (Colaboradores)"
+    tipo_item: str
+    detalhe: Optional[str] = None
+    categoria: str
+
+
+class DespesaTransacaoCreate(BaseModel):
+    """Cria transação de despesa. Use plano_item_id OU (tipo_item, detalhe, categoria) para catálogo."""
+    anomes: str  # YYYYMM
+    plano_item_id: Optional[int] = None  # Se informado, usa este item
+    tipo_item: Optional[str] = None  # Para criar item do catálogo
+    detalhe: Optional[str] = None
+    categoria: Optional[str] = None  # Custo Fixo | Custo Variável
+    valor: float
+    data: Optional[str] = None  # YYYY-MM-DD
+    descricao: Optional[str] = None
+
+
+class DespesaTransacaoUpdate(BaseModel):
+    """Atualiza transação."""
+    valor: Optional[float] = None
+    data: Optional[str] = None
+    descricao: Optional[str] = None
+
+
+class DespesaTransacaoOut(BaseModel):
+    """Transação de despesa para resposta."""
+    id: int
+    anomes: str
+    plano_item_id: int
+    valor: float
+    data: Optional[str] = None
+    descricao: Optional[str] = None
+    tipo_item: Optional[str] = None
+    detalhe: Optional[str] = None
 
 
 class PlanoVsRealizado(BaseModel):
