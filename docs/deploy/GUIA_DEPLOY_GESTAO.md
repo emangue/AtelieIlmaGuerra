@@ -1,8 +1,7 @@
 # 🚀 Deploy - Gestão Ateliê Ilma Guerra
 
 **Subdomínio:** gestao.atelieilmaguerra.com.br  
-**Stack:** FastAPI (Backend) + Next.js (Frontend) + SQLite/PostgreSQL  
-**Referência:** ProjetoFinancasV5 (meufinup.com.br)
+**Stack:** FastAPI (Backend) + Next.js (Frontend) + SQLite/PostgreSQL
 
 ---
 
@@ -40,9 +39,9 @@ O projeto fica **isolado** em uma pasta dedicada:
 | **SSL/HTTPS** | ✅ Ativo | Let's Encrypt, válido até 16/05/2026 |
 | **HTTP→HTTPS** | ✅ Redirect 301 | Automático |
 | **Firewall UFW** | ✅ Ativo | Apenas 22, 80, 443 |
-| **Backend (8001)** | ✅ localhost | Escuta 127.0.0.1 apenas |
+| **Backend (8001)** | ✅ host | Escuta 0.0.0.0 (Nginx em Docker acessa via 172.20.0.1) |
 | **Frontend (3004)** | ✅ Protegido | Atrás do Nginx, UFW bloqueia acesso direto |
-| **PostgreSQL** | ✅ localhost | 127.0.0.1:5432 (atelie_db + finup_db) |
+| **PostgreSQL** | ✅ localhost | 127.0.0.1:5432 (atelie_db) |
 | **Arquivo .env** | ✅ 600 | Permissões restritas |
 | **DEBUG** | ✅ false | Produção |
 | **JWT_SECRET** | ✅ Configurado | Único, 64+ chars |
@@ -211,7 +210,8 @@ User=deploy
 Group=deploy
 WorkingDirectory=/var/www/atelie/app_dev/backend
 Environment="PATH=/var/www/atelie/app_dev/backend/venv/bin"
-ExecStart=/var/www/atelie/app_dev/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+# 0.0.0.0 necessário quando Nginx está em Docker
+ExecStart=/var/www/atelie/app_dev/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 2
 
 PrivateTmp=true
 NoNewPrivileges=true
@@ -235,7 +235,7 @@ User=deploy
 Group=deploy
 WorkingDirectory=/var/www/atelie/app_dev/frontend
 Environment="NODE_ENV=production"
-Environment="PORT=3000"
+Environment="PORT=3004"
 ExecStart=/usr/bin/npm start
 
 PrivateTmp=true
@@ -297,7 +297,7 @@ server {
 
     # Frontend
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3004;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -309,7 +309,6 @@ server {
     }
 
     # Backend API (mantém path: /api/v1/... → backend:8001/api/v1/...)
-    # Nota: usar 8001 se a porta 8000 estiver ocupada (ex: FinUp)
     location /api/ {
         proxy_pass http://127.0.0.1:8001;
         proxy_http_version 1.1;
@@ -381,7 +380,7 @@ BACKEND_CORS_ORIGINS="https://gestao.atelieilmaguerra.com.br"
 
 # Server
 HOST=127.0.0.1
-PORT=8000
+PORT=8001
 
 # JWT (OBRIGATÓRIO - gerar com: openssl rand -hex 32)
 JWT_SECRET_KEY=SUA_CHAVE_ALEATORIA_64_CARACTERES
@@ -422,7 +421,7 @@ NODE_ENV=production
 - [x] `DEBUG=false` no backend
 - [x] CORS restrito a `https://gestao.atelieilmaguerra.com.br`
 - [x] SSL/HTTPS ativo (Certbot)
-- [x] Backend escutando apenas em `127.0.0.1` (porta 8001)
+- [x] Backend escutando em `0.0.0.0:8001` (Nginx em Docker precisa acessar o host)
 - [x] Firewall UFW ativo (22, 80, 443)
 - [x] `.env` com permissão 600
 - [x] Cookie `auth_token` com `Secure` e `HttpOnly` em produção
@@ -512,11 +511,6 @@ Verifique se o backend está rodando na porta correta (8001) e se o `proxy_pass`
 Confirme que `DATABASE_URL` está no `.env` e que `psycopg2-binary` está instalado (`pip install psycopg2-binary`).
 
 ---
-
-## 📚 REFERÊNCIAS
-
-- **V5 (FinUp):** `ProjetoFinancasV5/docs/deploy/GUIA_DEPLOY_PRODUCAO.md`
-- **Auth:** `ProjetoFinancasV5/docs/features/PLANO_AUTENTICACAO.md`
 
 ---
 

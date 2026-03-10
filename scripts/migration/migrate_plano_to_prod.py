@@ -1,37 +1,43 @@
 #!/usr/bin/env python3
 """
 Migração APENAS de plano_itens e despesas_transacoes
-SQLite (local) → PostgreSQL (produção)
-
 NÃO altera: clientes, pedidos, orçamentos, contracts, etc.
 
-Uso:
-    export ATELIE_POSTGRES_DSN="postgresql://atelie_user:SENHA@HOST:5432/atelie_db"
-    python scripts/migration/migrate_plano_to_prod.py [--dry-run]
+Suporta dois destinos:
+  1) PostgreSQL: export ATELIE_POSTGRES_DSN="postgresql://..."
+  2) SQLite:     export ATELIE_SQLITE_DEST="/caminho/para/atelie.db"
 
-Ou com SQLite customizado:
-    export ATELIE_SQLITE_PATH="/caminho/para/atelie.db"
+Uso PostgreSQL:
+    export ATELIE_POSTGRES_DSN="postgresql://atelie_user:SENHA@HOST:5432/atelie_db"
     python scripts/migration/migrate_plano_to_prod.py
+
+Uso SQLite (ex: prod na VM usa SQLite):
+    # 1. Copiar banco local para a VM
+    scp app_dev/backend/database/atelie.db minha-vps:/tmp/atelie_local.db
+
+    # 2. Na VM: migrar plano do arquivo copiado para o banco de prod
+    ssh minha-vps "cd /var/www/atelie && \
+      ATELIE_SQLITE_PATH=/tmp/atelie_local.db \
+      ATELIE_SQLITE_DEST=/var/www/atelie/app_dev/backend/database/atelie.db \
+      python scripts/migration/migrate_plano_to_prod.py"
+
+    # Ou rodar localmente se o dest estiver montado/acessível
+    ATELIE_SQLITE_DEST=/caminho/remoto/atelie.db python scripts/migration/migrate_plano_to_prod.py
+
+Dry-run (só mostra contagens):
+    python scripts/migration/migrate_plano_to_prod.py --dry-run
 """
 
 import os
 import sqlite3
 import sys
 from pathlib import Path
-from datetime import datetime
-
-try:
-    import psycopg2
-    from psycopg2 import extras
-except ImportError:
-    print("❌ Instale psycopg2-binary: pip install psycopg2-binary")
-    sys.exit(1)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SQLITE = PROJECT_ROOT / "app_dev" / "backend" / "database" / "atelie.db"
 POSTGRES_DSN = os.environ.get("ATELIE_POSTGRES_DSN", "")
+SQLITE_DEST = os.environ.get("ATELIE_SQLITE_DEST", "")
 
-# Ordem: plano_itens primeiro (despesas_transacoes tem FK para plano_itens)
 TABLES = ["plano_itens", "despesas_transacoes"]
 
 
@@ -49,26 +55,27 @@ def get_table_columns(cursor, table: str):
     return [col[1] for col in cursor.fetchall()]
 
 
-def migrate_table(sqlite_conn, postgres_conn, table: str, dry_run: bool) -> int:
-    sqlite_cur = sqlite_conn.cursor()
-    postgres_cur = postgres_conn.cursor()
-
-    # Verificar se tabela existe no SQLite
-    sqlite_cur.execute(
+def migrate_to_sqlite(
+    sqlite_conn: sqlite3.Connection,
+    dest_path: Path,
+    table: str,
+    dry_run: bool,
+) -> int:
+    cur = sqlite_conn.cursor()
+    cur.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
         (table,),
     )
-    if not sqlite_cur.fetchone():
-        print(f"  ⏭️  {table}: Não existe no SQLite, pulando...")
+    if not cur.fetchone():
+        print(f"  ⏭️  {table}: Não existe no SQLite origem, pulando...")
         return 0
 
-    columns = get_table_columns(sqlite_cur, table)
+    columns = get_table_columns(cur, table)
     if not columns:
-        print(f"  ⚠️  {table}: Sem colunas")
         return 0
 
-    sqlite_cur.execute(f"SELECT COUNT(*) FROM {table}")
-    count = sqlite_cur.fetchone()[0]
+    cur.execute(f"SELECT COUNT(*) FROM {table}")
+    count = cur.fetchone()[0]
     if count == 0:
         print(f"  ⏭️  {table}: Vazia, pulando...")
         return 0
@@ -77,29 +84,107 @@ def migrate_table(sqlite_conn, postgres_conn, table: str, dry_run: bool) -> int:
         print(f"  🔍 [DRY-RUN] {table}: {count} registros seriam migrados")
         return count
 
-    # Buscar dados
     cols_str = ", ".join(columns)
-    sqlite_cur.execute(f"SELECT {cols_str} FROM {table}")
-    rows = sqlite_cur.fetchall()
+    cur.execute(f"SELECT {cols_str} FROM {table}")
+    rows = cur.fetchall()
 
-    # Limpar no PostgreSQL (CASCADE para despesas_transacoes se truncar plano_itens)
-    postgres_cur.execute(f'TRUNCATE TABLE "{table}" CASCADE')
-    postgres_conn.commit()
+    dest_conn = sqlite3.connect(str(dest_path))
+    dest_cur = dest_conn.cursor()
+
+    # Verificar se tabela existe no destino
+    dest_cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    )
+    if not dest_cur.fetchone():
+        print(f"  ⚠️  {table}: Tabela não existe no destino (criar com deploy primeiro)")
+        dest_conn.close()
+        return 0
+
+    # Limpar destino
+    dest_cur.execute(f"DELETE FROM {table}")
+    dest_conn.commit()
 
     # Inserir
-    placeholders = ", ".join(["%s"] * len(columns))
+    placeholders = ", ".join(["?"] * len(columns))
     cols_quoted = ", ".join(f'"{c}"' for c in columns)
     insert_sql = f'INSERT INTO "{table}" ({cols_quoted}) VALUES ({placeholders})'
-    extras.execute_batch(postgres_cur, insert_sql, rows, page_size=500)
-    postgres_conn.commit()
+    dest_cur.executemany(insert_sql, rows)
+    dest_conn.commit()
+    dest_conn.close()
 
     print(f"  ✅ {table}: {count} registros migrados")
     return count
 
 
-def reset_sequences(postgres_conn):
-    print("\n🔄 Resetando sequences...")
-    cur = postgres_conn.cursor()
+def migrate_to_postgres(
+    sqlite_conn: sqlite3.Connection,
+    table: str,
+    dry_run: bool,
+) -> int:
+    try:
+        import psycopg2
+        from psycopg2 import extras
+    except ImportError:
+        print("❌ Para destino PostgreSQL: pip install psycopg2-binary")
+        return 0
+
+    postgres_conn = psycopg2.connect(POSTGRES_DSN)
+    postgres_cur = postgres_conn.cursor()
+    sqlite_cur = sqlite_conn.cursor()
+
+    sqlite_cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    )
+    if not sqlite_cur.fetchone():
+        print(f"  ⏭️  {table}: Não existe no SQLite, pulando...")
+        postgres_conn.close()
+        return 0
+
+    columns = get_table_columns(sqlite_cur, table)
+    if not columns:
+        postgres_conn.close()
+        return 0
+
+    sqlite_cur.execute(f"SELECT COUNT(*) FROM {table}")
+    count = sqlite_cur.fetchone()[0]
+    if count == 0:
+        print(f"  ⏭️  {table}: Vazia, pulando...")
+        postgres_conn.close()
+        return 0
+
+    if dry_run:
+        print(f"  🔍 [DRY-RUN] {table}: {count} registros seriam migrados")
+        postgres_conn.close()
+        return count
+
+    cols_str = ", ".join(columns)
+    sqlite_cur.execute(f"SELECT {cols_str} FROM {table}")
+    rows = sqlite_cur.fetchall()
+
+    postgres_cur.execute(f'TRUNCATE TABLE "{table}" CASCADE')
+    postgres_conn.commit()
+
+    placeholders = ", ".join(["%s"] * len(columns))
+    cols_quoted = ", ".join(f'"{c}"' for c in columns)
+    insert_sql = f'INSERT INTO "{table}" ({cols_quoted}) VALUES ({placeholders})'
+    extras.execute_batch(postgres_cur, insert_sql, rows, page_size=500)
+    postgres_conn.commit()
+    postgres_conn.close()
+
+    print(f"  ✅ {table}: {count} registros migrados")
+    return count
+
+
+def reset_postgres_sequences():
+    try:
+        import psycopg2
+    except ImportError:
+        return
+    conn = psycopg2.connect(POSTGRES_DSN)
+    cur = conn.cursor()
+    print("\n🔄 Resetando sequences (PostgreSQL)...")
     for table in TABLES:
         try:
             cur.execute(
@@ -111,82 +196,92 @@ def reset_sequences(postgres_conn):
             )
             for (col_name,) in cur.fetchall():
                 cur.execute(
-                    f"""
-                    SELECT setval(
-                        pg_get_serial_sequence(%s, %s),
-                        COALESCE((SELECT MAX("{col_name}") FROM "{table}"), 1),
-                        true
-                    )
-                    """,
+                    f'SELECT setval(pg_get_serial_sequence(%s, %s), '
+                    f'COALESCE((SELECT MAX("{col_name}") FROM "{table}"), 1), true)',
                     (table, col_name),
                 )
-                postgres_conn.commit()
+                conn.commit()
                 print(f"  ✅ {table}.{col_name}")
         except Exception as e:
             print(f"  ⏭️  {table}: {e}")
+    conn.close()
 
 
 def main():
     sqlite_path = get_sqlite_path()
     dry_run = "--dry-run" in sys.argv
 
-    if not POSTGRES_DSN and not dry_run:
-        print("❌ Defina ATELIE_POSTGRES_DSN")
-        print("   Ex: export ATELIE_POSTGRES_DSN='postgresql://atelie_user:SENHA@HOST:5432/atelie_db'")
-        return 1
     if not sqlite_path.exists():
-        print(f"❌ SQLite não encontrado: {sqlite_path}")
+        print(f"❌ SQLite origem não encontrado: {sqlite_path}")
         return 1
 
+    use_sqlite_dest = bool(SQLITE_DEST)
+    use_postgres = bool(POSTGRES_DSN)
+
+    if not dry_run and not use_sqlite_dest and not use_postgres:
+        print("❌ Defina o destino:")
+        print("   PostgreSQL: export ATELIE_POSTGRES_DSN='postgresql://...'")
+        print("   SQLite:     export ATELIE_SQLITE_DEST='/caminho/atelie.db'")
+        return 1
+
+    if not dry_run and use_sqlite_dest and use_postgres:
+        print("❌ Defina apenas um destino (ATELIE_SQLITE_DEST ou ATELIE_POSTGRES_DSN)")
+        return 1
+
+    target = "SQLite" if use_sqlite_dest else ("PostgreSQL" if use_postgres else "(dry-run)")
     print("=" * 60)
-    print("📤 MIGRAÇÃO PLANO: SQLite → PostgreSQL")
-    print("   (apenas plano_itens e despesas_transacoes)")
+    print("📤 MIGRAÇÃO PLANO (apenas plano_itens e despesas_transacoes)")
     print("=" * 60)
-    print(f"📂 SQLite:     {sqlite_path}")
-    print(f"🐘 PostgreSQL: {POSTGRES_DSN.split('@')[-1] if '@' in POSTGRES_DSN else '(dry-run: não conecta)'}")
+    print(f"📂 Origem:  {sqlite_path}")
+    print(f"📂 Destino: {target}")
+    if use_sqlite_dest:
+        print(f"            {SQLITE_DEST}")
+    elif use_postgres:
+        print(f"            {POSTGRES_DSN.split('@')[-1] if '@' in POSTGRES_DSN else '...'}")
     print("=" * 60)
 
-    if dry_run and not POSTGRES_DSN:
+    if dry_run and not use_sqlite_dest and not use_postgres:
         sqlite_conn = sqlite3.connect(str(sqlite_path))
         for table in TABLES:
-            sqlite_cur = sqlite_conn.cursor()
-            sqlite_cur.execute(
+            cur = sqlite_conn.cursor()
+            cur.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
                 (table,),
             )
-            if not sqlite_cur.fetchone():
-                print(f"  ⏭️  {table}: Não existe no SQLite")
+            if not cur.fetchone():
+                print(f"  ⏭️  {table}: Não existe")
                 continue
-            sqlite_cur.execute(f"SELECT COUNT(*) FROM {table}")
-            n = sqlite_cur.fetchone()[0]
+            cur.execute(f"SELECT COUNT(*) FROM {table}")
+            n = cur.fetchone()[0]
             print(f"  🔍 [DRY-RUN] {table}: {n} registros seriam migrados")
         sqlite_conn.close()
-        print("\n✅ Dry-run concluído. Para migrar de verdade, defina ATELIE_POSTGRES_DSN.")
+        print("\n✅ Dry-run concluído. Defina ATELIE_SQLITE_DEST ou ATELIE_POSTGRES_DSN para migrar.")
         return 0
 
     if not dry_run and "--yes" not in sys.argv:
-        confirm = input("\n⚠️  Sobrescrever plano no PostgreSQL? (sim/não): ")
+        confirm = input("\n⚠️  Sobrescrever dados do plano no destino? (sim/não): ")
         if confirm.lower() not in ["sim", "s", "yes", "y"]:
             print("❌ Cancelado")
             return 1
 
-    try:
-        sqlite_conn = sqlite3.connect(str(sqlite_path))
-        postgres_conn = psycopg2.connect(POSTGRES_DSN)
-    except Exception as e:
-        print(f"❌ Erro ao conectar: {e}")
-        return 1
-
+    sqlite_conn = sqlite3.connect(str(sqlite_path))
     total = 0
-    for table in TABLES:
-        total += migrate_table(sqlite_conn, postgres_conn, table, dry_run)
 
-    if not dry_run and total > 0:
-        reset_sequences(postgres_conn)
+    if use_sqlite_dest:
+        dest_path = Path(SQLITE_DEST)
+        if not dest_path.exists():
+            print(f"❌ Destino não encontrado: {dest_path}")
+            sqlite_conn.close()
+            return 1
+        for table in TABLES:
+            total += migrate_to_sqlite(sqlite_conn, dest_path, table, dry_run)
+    else:
+        for table in TABLES:
+            total += migrate_to_postgres(sqlite_conn, table, dry_run)
+        if not dry_run and total > 0:
+            reset_postgres_sequences()
 
     sqlite_conn.close()
-    postgres_conn.close()
-
     print("\n✅ Migração do plano concluída.")
     return 0
 

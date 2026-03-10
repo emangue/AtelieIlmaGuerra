@@ -91,33 +91,45 @@ CREATE INDEX IF NOT EXISTS ix_despesas_transacoes_plano_item_id ON despesas_tran
 
 ### 3.3 Migração dos dados do plano (local → prod)
 
-Para **subir os dados** de `plano_itens` e `despesas_transacoes` do banco local (SQLite) para produção (PostgreSQL):
+#### Opção A: Produção usa **SQLite** (caso da VM atual)
 
-**Pré-requisito:** PostgreSQL de produção acessível (ex.: via IP ou túnel SSH).
+Use o script que copia o banco e migra na VM:
 
 ```bash
-# 1. Definir a URL do PostgreSQL de produção
-export ATELIE_POSTGRES_DSN="postgresql://atelie_user:SENHA@148.230.78.91:5432/atelie_db"
+# Um comando faz tudo: SCP + migração na VM
+./scripts/migration/sync_plano_sqlite_to_vm.sh
 
-# 2. Executar a migração (apenas plano_itens e despesas_transacoes)
-cd /Users/emangue/Documents/ProjetoVSCode/AtelieIlmaGuerra
+# Ou com host customizado:
+./scripts/migration/sync_plano_sqlite_to_vm.sh minha-vps-hostinger
+```
+
+Ou manualmente:
+
+```bash
+# 1. Copiar banco local para a VM
+scp app_dev/backend/database/atelie.db minha-vps:/tmp/atelie_local.db
+
+# 2. Na VM: migrar plano
+ssh minha-vps "cd /var/www/atelie && source app_dev/backend/venv/bin/activate && \
+  ATELIE_SQLITE_PATH=/tmp/atelie_local.db \
+  ATELIE_SQLITE_DEST=/var/www/atelie/app_dev/backend/database/atelie.db \
+  python scripts/migration/migrate_plano_to_prod.py --yes"
+```
+
+#### Opção B: Produção usa **PostgreSQL**
+
+```bash
+export ATELIE_POSTGRES_DSN="postgresql://atelie_user:SENHA@HOST:5432/atelie_db"
 python scripts/migration/migrate_plano_to_prod.py
+```
 
-# Dry-run (sem alterar nada):
+#### Dry-run (qualquer destino)
+
+```bash
 python scripts/migration/migrate_plano_to_prod.py --dry-run
 ```
 
-O script:
-- Lê `plano_itens` e `despesas_transacoes` do SQLite local
-- **Substitui** os dados no PostgreSQL (TRUNCATE + INSERT)
-- **Não altera** clientes, pedidos ou outras tabelas
-
-**Caminho do SQLite:** Por padrão usa `app_dev/backend/database/atelie.db`. Para outro arquivo:
-
-```bash
-export ATELIE_SQLITE_PATH="/caminho/para/atelie.db"
-python scripts/migration/migrate_plano_to_prod.py
-```
+O script **não altera** clientes, pedidos ou outras tabelas.
 
 ### 3.4 Seed do plano (alternativa)
 
@@ -202,7 +214,7 @@ curl -s "https://gestao.atelieilmaguerra.com.br/api/v1/plano/opcoes-despesa?mes=
 | 3 | `./scripts/deploy.sh` (local) | ☐ |
 | 4 | `bash scripts/deploy/pos_deploy_vm.sh` (VM) | ☐ |
 | 5 | Verificar criação de `despesas_transacoes` | ☐ |
-| 6 | **Migrar dados do plano:** `python scripts/migration/migrate_plano_to_prod.py` | ☐ |
+| 6 | **Migrar dados do plano:** `./scripts/migration/sync_plano_sqlite_to_vm.sh` (SQLite) ou `migrate_plano_to_prod.py` (PostgreSQL) | ☐ |
 | 7 | Testar `/api/v1/plano/opcoes-despesa?mes=202601` | ☐ |
 | 8 | Testar tela Plano no frontend (login + /mobile/plano) | ☐ |
 
@@ -232,6 +244,6 @@ Se houver problema:
 
 | Situação | Ação |
 |----------|------|
-| **Prod vazia** | Rodar `migrate_plano_to_prod.py` após o deploy para subir os dados do SQLite local |
-| **Prod já tem dados** | O script **substitui** os dados (TRUNCATE + INSERT). Faça backup antes |
-| **Sem acesso ao Postgres remoto** | Exportar SQL do SQLite e importar manualmente na VM (ver script para gerar .sql) |
+| **Prod SQLite (VM atual)** | Usar `sync_plano_sqlite_to_vm.sh` — copia o banco e migra na VM |
+| **Prod PostgreSQL** | Usar `migrate_plano_to_prod.py` com `ATELIE_POSTGRES_DSN` |
+| **Prod já tem dados** | O script **substitui** os dados do plano. Faça backup antes |

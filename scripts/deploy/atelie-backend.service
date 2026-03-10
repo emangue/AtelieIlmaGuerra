@@ -1,0 +1,20 @@
+[Unit]
+Description=Ateliê Ilma Guerra - FastAPI Backend
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/var/www/atelie/app_dev/backend
+Environment="PATH=/var/www/atelie/app_dev/backend/venv/bin"
+# 0.0.0.0 necessário: Nginx roda em Docker e acessa o host via 172.20.0.1
+ExecStart=/var/www/atelie/app_dev/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 2
+
+PrivateTmp=true
+NoNewPrivileges=true
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
