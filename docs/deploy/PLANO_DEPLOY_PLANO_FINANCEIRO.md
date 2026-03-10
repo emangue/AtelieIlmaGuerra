@@ -85,13 +85,43 @@ CREATE INDEX IF NOT EXISTS ix_despesas_transacoes_plano_item_id ON despesas_tran
 
 ### 3.2 Base `plano_itens`
 
-- **Sem alteração de schema.** A tabela já existe.
+- **Sem alteração de schema.** A tabela é criada pelo `create_all` se não existir.
 - O campo `valor_realizado` continua existindo; passa a ser calculado a partir de `despesas_transacoes` quando houver transações.
 - Dados legados em `valor_realizado` continuam válidos (fallback).
 
-### 3.3 Seed do plano (se necessário)
+### 3.3 Migração dos dados do plano (local → prod)
 
-Se a base `plano_itens` estiver vazia no servidor:
+Para **subir os dados** de `plano_itens` e `despesas_transacoes` do banco local (SQLite) para produção (PostgreSQL):
+
+**Pré-requisito:** PostgreSQL de produção acessível (ex.: via IP ou túnel SSH).
+
+```bash
+# 1. Definir a URL do PostgreSQL de produção
+export ATELIE_POSTGRES_DSN="postgresql://atelie_user:SENHA@148.230.78.91:5432/atelie_db"
+
+# 2. Executar a migração (apenas plano_itens e despesas_transacoes)
+cd /Users/emangue/Documents/ProjetoVSCode/AtelieIlmaGuerra
+python scripts/migration/migrate_plano_to_prod.py
+
+# Dry-run (sem alterar nada):
+python scripts/migration/migrate_plano_to_prod.py --dry-run
+```
+
+O script:
+- Lê `plano_itens` e `despesas_transacoes` do SQLite local
+- **Substitui** os dados no PostgreSQL (TRUNCATE + INSERT)
+- **Não altera** clientes, pedidos ou outras tabelas
+
+**Caminho do SQLite:** Por padrão usa `app_dev/backend/database/atelie.db`. Para outro arquivo:
+
+```bash
+export ATELIE_SQLITE_PATH="/caminho/para/atelie.db"
+python scripts/migration/migrate_plano_to_prod.py
+```
+
+### 3.4 Seed do plano (alternativa)
+
+Se preferir importar do Excel em vez de migrar do SQLite:
 
 ```bash
 cd /var/www/atelie/app_dev/backend
@@ -99,7 +129,7 @@ source venv/bin/activate
 python -m app.domains.plano.seed_plano
 ```
 
-Requer o arquivo `PLANO 2026 ATELIE ILMA GUERRA.xlsx` na raiz do projeto (ou ajustar o path no seed).
+Requer o arquivo `PLANO 2026 ATELIE ILMA GUERRA.xlsx` na raiz do projeto.
 
 ---
 
@@ -172,8 +202,9 @@ curl -s "https://gestao.atelieilmaguerra.com.br/api/v1/plano/opcoes-despesa?mes=
 | 3 | `./scripts/deploy.sh` (local) | ☐ |
 | 4 | `bash scripts/deploy/pos_deploy_vm.sh` (VM) | ☐ |
 | 5 | Verificar criação de `despesas_transacoes` | ☐ |
-| 6 | Testar `/api/v1/plano/opcoes-despesa?mes=202601` | ☐ |
-| 7 | Testar tela Plano no frontend (login + /mobile/plano) | ☐ |
+| 6 | **Migrar dados do plano:** `python scripts/migration/migrate_plano_to_prod.py` | ☐ |
+| 7 | Testar `/api/v1/plano/opcoes-despesa?mes=202601` | ☐ |
+| 8 | Testar tela Plano no frontend (login + /mobile/plano) | ☐ |
 
 ---
 
@@ -191,6 +222,16 @@ Se houver problema:
 
 - **Bases alteradas:** nenhuma existente (clientes, pedidos intactas)
 - **Nova base:** `despesas_transacoes`
-- **Base plano_itens:** sem alteração de schema, apenas nova lógica
+- **Base plano_itens:** sem alteração de schema; dados migrados do local via `migrate_plano_to_prod.py`
 - **Frontend:** tela Plano atualizada
 - **Backend:** novos endpoints e service ajustado
+
+---
+
+## 10. Base plano_itens — o que fazemos
+
+| Situação | Ação |
+|----------|------|
+| **Prod vazia** | Rodar `migrate_plano_to_prod.py` após o deploy para subir os dados do SQLite local |
+| **Prod já tem dados** | O script **substitui** os dados (TRUNCATE + INSERT). Faça backup antes |
+| **Sem acesso ao Postgres remoto** | Exportar SQL do SQLite e importar manualmente na VM (ver script para gerar .sql) |
