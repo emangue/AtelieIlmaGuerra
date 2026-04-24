@@ -1,0 +1,1352 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mockup — Movimentações · Ateliê Ilma Guerra</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ── TOKENS ── */
+    :root {
+      --paper-00:  #FFFFFF;
+      --paper-50:  #FAF8F3;
+      --paper-100: #F3EFE6;
+      --ink-900:   #0B1220;
+      --ink-700:   #1E2A3A;
+      --ink-500:   #4B5468;
+      --ink-300:   #8A93A5;
+      --ink-100:   #E6E4DE;
+      --brass-500: #A9852E;
+      --brass-300: #C9A95E;
+      --moss-700:  #1F4D35;
+      --moss-500:  #2F6B4B;
+      --moss-bg:   rgba(99,122,85,.12);
+      --oxblood-700: #6E1F27;
+      --oxblood-500: #8B2A33;
+      --oxblood-bg:  rgba(110,31,39,.08);
+      /* cat colors */
+      --cat-sage:    #637A55;
+      --cat-sage-bg: rgba(99,122,85,.11);
+      --cat-mineral: #334E68;
+      --cat-mineral-bg: rgba(51,78,104,.11);
+      --cat-sand:    #A68A5B;
+      --cat-sand-bg: rgba(166,138,91,.13);
+      --cat-bronze:  #6E4A2A;
+      --cat-bronze-bg: rgba(110,74,42,.11);
+      --cat-claret:  #7A3139;
+      --cat-claret-bg: rgba(122,49,57,.10);
+      --cat-graphite: #4A4A4A;
+      --cat-graphite-bg: rgba(74,74,74,.10);
+
+      --r-sm: 6px;
+      --r-md: 10px;
+      --r-lg: 14px;
+      --f-sans: 'Inter', sans-serif;
+      --f-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #D8D4CC;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      padding: 48px 16px;
+      font-family: var(--f-sans);
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+
+    /* ── PHONE SHELL ── */
+    .phone-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .phone-label {
+      font-family: var(--f-sans); font-size: 11px; letter-spacing: .16em;
+      text-transform: uppercase; color: #888; font-weight: 600;
+    }
+    .phone {
+      width: 375px;
+      background: var(--paper-50);
+      border-radius: 44px;
+      box-shadow: 0 32px 80px rgba(0,0,0,.28), 0 0 0 1px rgba(0,0,0,.12);
+      overflow: hidden;
+      position: relative;
+    }
+    .notch {
+      width: 120px; height: 28px;
+      background: #0B1220;
+      border-radius: 0 0 18px 18px;
+      margin: 0 auto;
+    }
+    .status-bar {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 22px 0;
+      font-size: 11px; font-weight: 600; color: var(--ink-900);
+    }
+    .status-bar .icons { display: flex; gap: 5px; align-items: center; }
+    .status-bar svg { width: 14px; height: 14px; }
+
+    /* ── SCREEN CONTENT ── */
+    .screen {
+      height: 760px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: var(--paper-50);
+    }
+
+    /* header top bar */
+    .m-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px 6px;
+      flex-shrink: 0;
+    }
+    .m-header .back {
+      width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+      color: var(--ink-700);
+    }
+    .m-header .back svg { width: 20px; height: 20px; }
+    .m-header .filter svg { width: 18px; height: 18px; color: var(--ink-500); }
+
+    /* page title */
+    .m-pagetitle {
+      padding: 2px 20px 14px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--ink-100);
+    }
+    .eyebrow-xs {
+      font-size: 10px; letter-spacing: .22em; text-transform: uppercase;
+      color: var(--brass-500); font-weight: 700;
+    }
+    .m-pagetitle h1 {
+      font-family: var(--f-sans); font-size: 28px; font-weight: 700;
+      color: var(--ink-900); line-height: 1.1; margin-top: 2px;
+      letter-spacing: -.02em;
+    }
+
+    /* resumo topo */
+    .summary-row {
+      display: flex; gap: 0;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--ink-100);
+      flex-shrink: 0;
+      background: var(--paper-00);
+    }
+    .summary-item { flex: 1; }
+    .summary-item + .summary-item { border-left: 1px solid var(--ink-100); padding-left: 14px; }
+    .summary-item .s-label {
+      font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
+      color: var(--ink-300); font-weight: 600; margin-bottom: 2px;
+    }
+    .summary-item .s-value {
+      font-family: var(--f-mono); font-size: 14px; font-weight: 500;
+      font-variant-numeric: tabular-nums;
+    }
+    .s-value.pos { color: var(--moss-700); }
+    .s-value.neg { color: var(--oxblood-700); }
+    .s-value.neutral { color: var(--ink-900); }
+
+    /* filter chips */
+    .chips {
+      display: flex; gap: 6px; padding: 10px 20px;
+      flex-shrink: 0;
+      background: var(--paper-50);
+    }
+    .chip {
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+      border: 1px solid var(--ink-100);
+      color: var(--ink-500);
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .chip.active {
+      background: var(--ink-900); color: var(--paper-50); border-color: var(--ink-900);
+    }
+    .chip.receita.active {
+      background: var(--moss-bg); color: var(--moss-700); border-color: var(--cat-sage);
+    }
+    .chip.despesa.active {
+      background: var(--oxblood-bg); color: var(--oxblood-700); border-color: var(--oxblood-500);
+    }
+
+    /* scroll area */
+    .tx-scroll {
+      flex: 1; overflow-y: auto;
+      padding-bottom: 72px;
+    }
+    .tx-scroll::-webkit-scrollbar { display: none; }
+
+    /* date group header */
+    .date-header {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 14px 20px 6px;
+      position: sticky; top: 0;
+      background: var(--paper-50);
+      z-index: 2;
+    }
+    .date-header .d-label {
+      font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+      color: var(--ink-500); font-weight: 700;
+    }
+    .date-header .d-saldo {
+      font-family: var(--f-mono); font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+    .date-header .d-saldo.neg { color: var(--oxblood-700); }
+    .date-header .d-saldo.pos { color: var(--moss-700); }
+
+    /* transaction row */
+    .tx {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--ink-100);
+      background: var(--paper-00);
+      transition: background .12s;
+    }
+    .tx:hover { background: var(--paper-100); }
+    .tx:last-child { border-bottom: none; }
+
+    /* icon circle */
+    .tx-icon {
+      width: 38px; height: 38px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .tx-icon svg { width: 16px; height: 16px; }
+
+    .ic-receita   { background: var(--moss-bg); color: var(--cat-sage); }
+    .ic-colab     { background: var(--cat-sage-bg); color: var(--cat-sage); }
+    .ic-espaco    { background: var(--cat-sage-bg); color: var(--cat-sage); }
+    .ic-marketing { background: var(--cat-mineral-bg); color: var(--cat-mineral); }
+    .ic-transp    { background: var(--cat-bronze-bg); color: var(--cat-bronze); }
+    .ic-contas    { background: var(--cat-sand-bg); color: var(--cat-sand); }
+    .ic-outros    { background: var(--cat-claret-bg); color: var(--cat-claret); }
+    .ic-maq       { background: var(--cat-graphite-bg); color: var(--cat-graphite); }
+
+    .tx-body { flex: 1; min-width: 0; }
+    .tx-name {
+      font-size: 13px; font-weight: 600; color: var(--ink-900);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .tx-cat {
+      font-size: 11px; color: var(--ink-500); margin-top: 1px;
+      letter-spacing: .04em; text-transform: uppercase; font-size: 9.5px;
+      font-weight: 600;
+    }
+    .tx-amt {
+      font-family: var(--f-mono); font-size: 13px; font-weight: 500;
+      font-variant-numeric: tabular-nums; flex-shrink: 0;
+    }
+    .tx-amt.pos { color: var(--moss-700); }
+    .tx-amt.neg { color: var(--oxblood-700); }
+
+    /* group divider */
+    .group-divider {
+      height: 6px; background: var(--paper-100); border-top: 1px solid var(--ink-100);
+      border-bottom: 1px solid var(--ink-100);
+    }
+
+    /* sem data block */
+    .no-date-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 14px 20px 6px;
+    }
+    .no-date-header .nd-label {
+      font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+      color: var(--ink-300); font-weight: 700;
+    }
+    .no-date-header .nd-dot {
+      width: 20px; height: 1px; background: var(--ink-100);
+    }
+
+    /* bottom nav */
+    .m-nav {
+      display: flex;
+      border-top: 1px solid var(--ink-100);
+      background: var(--paper-00);
+      padding: 8px 0 4px;
+      position: absolute; bottom: 0; left: 0; right: 0;
+      z-index: 10;
+    }
+    .tab {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; gap: 3px;
+      font-size: 10px; color: var(--ink-300); font-weight: 500;
+      padding: 2px 0;
+    }
+    .tab svg { width: 20px; height: 20px; }
+    .tab.active { color: var(--ink-900); }
+    .tab .dot {
+      width: 4px; height: 4px; border-radius: 50%;
+      background: var(--brass-500); margin-top: 1px;
+    }
+
+    /* month scroll */
+    .month-scroll {
+      display: flex; gap: 8px; padding: 12px 16px; overflow-x: auto;
+      flex-shrink: 0; background: var(--paper-00);
+      border: 1px solid var(--ink-100); border-radius: var(--r-lg);
+      margin: 10px 16px 0;
+    }
+    .month-scroll::-webkit-scrollbar { display: none; }
+    .month-chip {
+      flex-shrink: 0; width: 64px; text-align: center;
+      padding: 8px 6px; border-radius: var(--r-md);
+      font-size: 13px; font-weight: 600; color: var(--ink-500);
+      cursor: pointer;
+    }
+    .month-chip .m-year { font-size: 10px; font-weight: 500; color: var(--ink-300); margin-top: 1px; }
+    .month-chip.active { background: var(--ink-900); color: var(--paper-50); }
+    .month-chip.active .m-year { color: rgba(250,248,243,.6); }
+
+    /* ytd toggle */
+    .ytd-toggle {
+      display: flex; gap: 2px; padding: 3px;
+      background: var(--paper-100); border-radius: var(--r-md);
+      margin: 10px auto; width: fit-content;
+    }
+    .ytd-btn {
+      padding: 7px 16px; border-radius: calc(var(--r-md) - 2px);
+      font-size: 12px; font-weight: 600; color: var(--ink-500); cursor: pointer;
+    }
+    .ytd-btn.active {
+      background: var(--paper-00); color: var(--ink-900);
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+
+    /* resumo card */
+    .resumo-card {
+      margin: 12px 16px 0;
+      background: var(--paper-00); border: 1px solid var(--ink-100);
+      border-radius: var(--r-lg); padding: 14px;
+    }
+    .resumo-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+    }
+    .resumo-header .r-title { font-size: 13px; font-weight: 700; color: var(--ink-900); }
+    .resumo-badge {
+      font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+      background: #FEF3C7; color: #92400E;
+    }
+    .resumo-cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; }
+    .resumo-col { padding-right: 10px; }
+    .resumo-col + .resumo-col { border-left: 1px solid var(--ink-100); padding-left: 10px; padding-right: 0; }
+    .resumo-col .rc-label { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-300); font-weight: 600; margin-bottom: 2px; }
+    .resumo-col .rc-val { font-size: 15px; font-weight: 700; }
+    .resumo-col .rc-sub { font-size: 9px; color: var(--ink-300); margin-top: 2px; line-height: 1.3; }
+
+    /* grafico placeholder */
+    .chart-card {
+      margin: 12px 16px 0;
+      background: var(--paper-00); border: 1px solid var(--ink-100);
+      border-radius: var(--r-lg); padding: 16px 14px 12px;
+    }
+    .chart-card .c-title { font-size: 13px; font-weight: 600; color: var(--ink-700); margin-bottom: 16px; }
+    .chart-area {
+      display: flex; align-items: flex-end; gap: 10px;
+      height: 100px; position: relative;
+    }
+    /* linhas de grade */
+    .chart-area::before, .chart-area::after {
+      content: ''; position: absolute; left: 0; right: 0; height: 1px;
+      background: repeating-linear-gradient(90deg, var(--ink-100) 0, var(--ink-100) 4px, transparent 4px, transparent 8px);
+    }
+    .chart-area::before { bottom: 20px; }
+    .chart-area::after  { bottom: 50px; }
+    .bar-pair { display: flex; align-items: flex-end; gap: 2px; flex: 1; position: relative; }
+    .bar-pair .bp-label {
+      position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
+      font-size: 8.5px; color: var(--ink-300); font-weight: 500; white-space: nowrap;
+    }
+    .bar-pair.current .bp-label { color: var(--brass-500); font-weight: 700; }
+    .bar-single { flex: 1; border-radius: 2px 2px 0 0; position: relative; min-height: 3px; }
+    .bar-single .bv {
+      position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
+      font-size: 8px; font-weight: 600; white-space: nowrap; font-family: var(--f-mono);
+    }
+    .b-real  { background: var(--ink-900); }
+    .b-plan  { background: #D0D4DC; }
+    .b-real .bv { color: var(--ink-700); }
+    .b-plan .bv { color: var(--ink-300); }
+    .bar-pair.current .b-real .bv { color: var(--brass-500); }
+    .chart-footer { height: 20px; } /* espaço para labels */
+
+    /* lucro plano card (collapsed) */
+    .lucro-card {
+      margin: 12px 16px 0;
+      background: var(--paper-100); border: 1px solid var(--ink-100);
+      border-radius: var(--r-lg); padding: 14px;
+    }
+    .lucro-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .lucro-header .l-info .l-title { font-size: 13px; font-weight: 700; color: var(--ink-900); }
+    .lucro-header .l-info .l-sub { font-size: 9px; color: var(--ink-300); margin-top: 2px; }
+    .lucro-header .l-right { display: flex; align-items: center; gap: 8px; }
+    .lucro-header .l-val { font-size: 13px; font-weight: 700; color: var(--moss-700); font-family: var(--f-mono); }
+    .lucro-header svg { width: 16px; height: 16px; color: var(--ink-300); }
+    .lucro-bar { height: 8px; background: var(--ink-100); border-radius: 4px; overflow: hidden; margin-top: 10px; }
+    .lucro-bar .lb-fill { height: 100%; background: var(--ink-900); border-radius: 4px; width: 42%; }
+
+    /* section divider label */
+    .section-eyebrow {
+      padding: 18px 20px 2px;
+      flex-shrink: 0;
+    }
+    .section-eyebrow .se-label {
+      font-size: 10px; letter-spacing: .22em; text-transform: uppercase;
+      color: var(--brass-500); font-weight: 700;
+    }
+    .doc-note {
+      max-width: 340px; color: #555;
+      font-family: var(--f-sans); font-size: 13px; line-height: 1.65;
+    }
+    .doc-note h2 {
+      font-size: 18px; color: #222; font-weight: 700; margin-bottom: 12px;
+      letter-spacing: -.01em;
+    }
+    .doc-note h3 {
+      font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
+      color: var(--brass-500); font-weight: 700; margin: 20px 0 6px;
+    }
+    .doc-note ul { padding-left: 18px; }
+    .doc-note li { margin-bottom: 5px; }
+    .swatch {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin: 3px 0;
+    }
+    .swatch .dot {
+      width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+    }
+    .swatch code {
+      font-family: var(--f-mono); font-size: 11px; color: #666;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── PHONE 1: ESTADO NORMAL (TODAS) ── -->
+  <div class="phone-wrap">
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="status-bar">
+        <span>9:41</span>
+        <div class="icons">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 22h20v-2H2zM20 8v10h-2V8zM15 12v6h-2v-6zM10 14v4H8v-4zM5 16v2H3v-2z"/></svg>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3C7.58 3 3.5 4.44 0 6.85L12 21.85 24 6.85C20.5 4.44 16.42 3 12 3z"/></svg>
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="7" width="18" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="4" y="9" width="13" height="6" rx="1"/></svg>
+        </div>
+      </div>
+
+      <div class="screen" style="height:760px; overflow-y:auto;">
+        <!-- header -->
+        <div class="m-header">
+          <div class="back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          </div>
+          <div class="filter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="3" y1="6" x2="21" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/></svg>
+          </div>
+        </div>
+
+        <!-- month scroll -->
+        <div class="month-scroll">
+          <div class="month-chip"><div>Fev</div><div class="m-year">2026</div></div>
+          <div class="month-chip"><div>Mar</div><div class="m-year">2026</div></div>
+          <div class="month-chip active"><div>Abr</div><div class="m-year">2026</div></div>
+          <div class="month-chip"><div>Mai</div><div class="m-year">2026</div></div>
+          <div class="month-chip"><div>Jun</div><div class="m-year">2026</div></div>
+        </div>
+
+        <!-- ytd toggle -->
+        <div style="display:flex; justify-content:center; margin-top:10px;">
+          <div class="ytd-toggle">
+            <div class="ytd-btn active">Mês</div>
+            <div class="ytd-btn">YTD</div>
+            <div class="ytd-btn">Ano</div>
+            <div class="ytd-btn">YTD Fech.</div>
+          </div>
+        </div>
+
+        <!-- resumo do mês -->
+        <div class="resumo-card">
+          <div class="resumo-header">
+            <span class="r-title">Resumo do Mês</span>
+            <span class="resumo-badge">Acima do plano</span>
+          </div>
+          <div class="resumo-cols">
+            <div class="resumo-col">
+              <div class="rc-label">Receitas</div>
+              <div class="rc-val" style="color:var(--moss-500)">R$ 11.850</div>
+              <div class="rc-sub">Acima R$ 0</div>
+            </div>
+            <div class="resumo-col">
+              <div class="rc-label">Despesas</div>
+              <div class="rc-val" style="color:var(--oxblood-500)">R$ 7.430</div>
+              <div class="rc-sub">R$ 5.869 abaixo</div>
+            </div>
+            <div class="resumo-col">
+              <div class="rc-label">Lucro</div>
+              <div class="rc-val" style="color:var(--moss-500)">R$ 4.420</div>
+              <div class="rc-sub">37% do plano</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- comparação mensal (gráfico placeholder) -->
+        <div class="chart-card">
+          <div class="c-title">Comparação Mensal</div>
+          <div class="chart-area">
+            <!-- Out -->
+            <div class="bar-pair">
+              <div class="bar-single b-real" style="height:62px"><div class="bv">19k</div></div>
+              <div class="bar-single b-plan" style="height:58px"></div>
+              <span class="bp-label">Out</span>
+            </div>
+            <!-- Nov -->
+            <div class="bar-pair">
+              <div class="bar-single b-real" style="height:58px"><div class="bv">18k</div></div>
+              <div class="bar-single b-plan" style="height:54px"></div>
+              <span class="bp-label">Nov</span>
+            </div>
+            <!-- Dez -->
+            <div class="bar-pair">
+              <div class="bar-single b-real" style="height:72px"><div class="bv">21k</div></div>
+              <div class="bar-single b-plan" style="height:68px"></div>
+              <span class="bp-label">Dez</span>
+            </div>
+            <!-- Jan -->
+            <div class="bar-pair">
+              <div class="bar-single b-real" style="height:28px"><div class="bv">9k</div></div>
+              <div class="bar-single b-plan" style="height:34px"></div>
+              <span class="bp-label">Jan</span>
+            </div>
+            <!-- Fev -->
+            <div class="bar-pair">
+              <div class="bar-single b-real" style="height:4px"><div class="bv">1k</div></div>
+              <div class="bar-single b-plan" style="height:38px"></div>
+              <span class="bp-label">Fev</span>
+            </div>
+            <!-- Mar -->
+            <div class="bar-pair">
+              <div class="bar-single b-real" style="height:28px"><div class="bv">9k</div></div>
+              <div class="bar-single b-plan" style="height:38px"></div>
+              <span class="bp-label">Mar</span>
+            </div>
+            <!-- Abr (atual) -->
+            <div class="bar-pair current">
+              <div class="bar-single b-real" style="height:38px"><div class="bv">12k</div></div>
+              <div class="bar-single b-plan" style="height:38px"></div>
+              <span class="bp-label">Abr</span>
+            </div>
+          </div>
+          <div class="chart-footer"></div>
+        </div>
+
+        <!-- lucro realizado do plano (colapsado) -->
+        <div class="lucro-card">
+          <div class="lucro-header">
+            <div class="l-info">
+              <div class="l-title">Lucro realizado do plano</div>
+              <div class="l-sub">Orçado: R$ 11.850 · Abaixo R$ 7.430</div>
+            </div>
+            <div class="l-right">
+              <span class="l-val">R$ 4.420</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+          </div>
+          <div class="lucro-bar"><div class="lb-fill"></div></div>
+        </div>
+
+        <!-- divisor seção movimentações -->
+        <div class="section-eyebrow" style="padding-top:20px;">
+          <div class="se-label">Movimentações · Abril</div>
+        </div>
+
+        <!-- chips filtro -->
+        <div class="chips" style="padding-top:6px;">
+          <div class="chip active">Todas</div>
+          <div class="chip receita">Receitas</div>
+          <div class="chip despesa">Despesas</div>
+        </div>
+
+        <!-- lista de transações (sem scroll independente, tudo no scroll da tela) -->
+        <div style="padding-bottom: 72px;">
+
+          <!-- grupo: 24 ABR -->
+          <div class="date-header">
+            <span class="d-label">Qui · 24 Abr</span>
+            <span class="d-saldo pos">+3.200,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-receita">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Vestido de Noiva · Ana Beatriz</div>
+              <div class="tx-cat">Receita · Pedido entregue</div>
+            </div>
+            <div class="tx-amt pos">+3.200,00</div>
+          </div>
+
+          <div class="group-divider"></div>
+
+          <!-- grupo: 22 ABR -->
+          <div class="date-header">
+            <span class="d-label">Ter · 22 Abr</span>
+            <span class="d-saldo pos">+1.850,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-receita">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Vestido Festa · Fernanda</div>
+              <div class="tx-cat">Receita · Pedido entregue</div>
+            </div>
+            <div class="tx-amt pos">+2.400,00</div>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-contas">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Energia elétrica · Enel</div>
+              <div class="tx-cat">Despesa · Custo Fixo</div>
+            </div>
+            <div class="tx-amt neg">−550,00</div>
+          </div>
+
+          <div class="group-divider"></div>
+
+          <!-- grupo: 19 ABR -->
+          <div class="date-header">
+            <span class="d-label">Sáb · 19 Abr</span>
+            <span class="d-saldo neg">−1.200,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-colab">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Costureira · Esli</div>
+              <div class="tx-cat">Despesa · Colaboradores</div>
+            </div>
+            <div class="tx-amt neg">−800,00</div>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-transp">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 5v3h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Motoboy · entrega Fernanda</div>
+              <div class="tx-cat">Despesa · Transporte</div>
+            </div>
+            <div class="tx-amt neg">−400,00</div>
+          </div>
+
+          <div class="group-divider"></div>
+
+          <!-- grupo: 15 ABR -->
+          <div class="date-header">
+            <span class="d-label">Ter · 15 Abr</span>
+            <span class="d-saldo pos">+5.800,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-receita">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Ajuste vestido · Camila Rocha</div>
+              <div class="tx-cat">Receita · Pedido entregue</div>
+            </div>
+            <div class="tx-amt pos">+450,00</div>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-receita">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Vestido Noiva · Juliana</div>
+              <div class="tx-cat">Receita · Pedido entregue</div>
+            </div>
+            <div class="tx-amt pos">+5.800,00</div>
+          </div>
+
+          <div class="group-divider"></div>
+
+          <!-- grupo: 10 ABR -->
+          <div class="date-header">
+            <span class="d-label">Qui · 10 Abr</span>
+            <span class="d-saldo neg">−2.130,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-espaco">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Aluguel do ateliê</div>
+              <div class="tx-cat">Despesa · Espaço Físico</div>
+            </div>
+            <div class="tx-amt neg">−1.800,00</div>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-marketing">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Instagram Ads · abril</div>
+              <div class="tx-cat">Despesa · Marketing</div>
+            </div>
+            <div class="tx-amt neg">−330,00</div>
+          </div>
+
+          <div class="group-divider"></div>
+
+          <!-- sem data -->
+          <div class="no-date-header">
+            <div class="nd-dot"></div>
+            <span class="nd-label">Sem data cadastrada</span>
+            <div class="nd-dot" style="flex:1"></div>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-maq">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Manutenção máquina de costura</div>
+              <div class="tx-cat">Despesa · Maquinário</div>
+            </div>
+            <div class="tx-amt neg">−200,00</div>
+          </div>
+
+        </div><!-- /lista -->
+
+        <!-- nav -->
+        <div class="m-nav">
+          <div class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+            <span>Painel</span>
+          </div>
+          <div class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5h6l3 4v12H6V9l3-4zM6 13h12M6 17h12"/></svg>
+            <span>Pedidos</span>
+          </div>
+          <div class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            <span>Novo</span>
+          </div>
+          <div class="tab active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            <span>Financeiro</span>
+            <div class="dot"></div>
+          </div>
+          <div class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5h6l3 4v12H6V9l3-4z"/></svg>
+            <span>Contratos</span>
+          </div>
+        </div>
+
+      </div><!-- /screen -->
+    </div>
+    <div class="phone-label">Todas as movimentações</div>
+  </div>
+
+  <!-- ── PHONE 2: FILTRO RECEITAS ── -->
+  <div class="phone-wrap">
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="status-bar">
+        <span>9:41</span>
+        <div class="icons">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 22h20v-2H2zM20 8v10h-2V8zM15 12v6h-2v-6zM10 14v4H8v-4zM5 16v2H3v-2z"/></svg>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3C7.58 3 3.5 4.44 0 6.85L12 21.85 24 6.85C20.5 4.44 16.42 3 12 3z"/></svg>
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="7" width="18" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="4" y="9" width="13" height="6" rx="1"/></svg>
+        </div>
+      </div>
+
+      <div class="screen">
+        <div class="m-header">
+          <div class="back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          </div>
+          <div class="filter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="3" y1="6" x2="21" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/></svg>
+          </div>
+        </div>
+        <div class="m-pagetitle">
+          <div class="eyebrow-xs">Movimentações</div>
+          <h1>Abril</h1>
+        </div>
+        <div class="summary-row">
+          <div class="summary-item">
+            <div class="s-label">Receitas</div>
+            <div class="s-value pos">+11.850</div>
+          </div>
+          <div class="summary-item">
+            <div class="s-label">Despesas</div>
+            <div class="s-value neg">−7.430</div>
+          </div>
+          <div class="summary-item">
+            <div class="s-label">Resultado</div>
+            <div class="s-value neutral">+4.420</div>
+          </div>
+        </div>
+        <div class="chips">
+          <div class="chip">Todas</div>
+          <div class="chip receita active">Receitas</div>
+          <div class="chip despesa">Despesas</div>
+        </div>
+
+        <div class="tx-scroll">
+          <div class="date-header">
+            <span class="d-label">Qui · 24 Abr</span>
+            <span class="d-saldo pos">+3.200,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-receita">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Vestido de Noiva · Ana Beatriz</div>
+              <div class="tx-cat">Receita · Pedido entregue</div>
+            </div>
+            <div class="tx-amt pos">+3.200,00</div>
+          </div>
+          <div class="group-divider"></div>
+          <div class="date-header">
+            <span class="d-label">Ter · 22 Abr</span>
+            <span class="d-saldo pos">+2.400,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-receita">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Vestido Festa · Fernanda</div>
+              <div class="tx-cat">Receita · Pedido entregue</div>
+            </div>
+            <div class="tx-amt pos">+2.400,00</div>
+          </div>
+          <div class="group-divider"></div>
+          <div class="date-header">
+            <span class="d-label">Ter · 15 Abr</span>
+            <span class="d-saldo pos">+6.250,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-receita">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Ajuste vestido · Camila Rocha</div>
+              <div class="tx-cat">Receita · Pedido entregue</div>
+            </div>
+            <div class="tx-amt pos">+450,00</div>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-receita">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Vestido Noiva · Juliana</div>
+              <div class="tx-cat">Receita · Pedido entregue</div>
+            </div>
+            <div class="tx-amt pos">+5.800,00</div>
+          </div>
+        </div>
+
+        <div class="m-nav">
+          <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg><span>Painel</span></div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5h6l3 4v12H6V9l3-4zM6 13h12M6 17h12"/></svg><span>Pedidos</span></div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg><span>Novo</span></div>
+          <div class="tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg><span>Financeiro</span><div class="dot"></div></div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5h6l3 4v12H6V9l3-4z"/></svg><span>Contratos</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="phone-label">Filtro · Receitas</div>
+  </div>
+
+  <!-- ── PHONE 3: FILTRO DESPESAS ── -->
+  <div class="phone-wrap">
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="status-bar">
+        <span>9:41</span>
+        <div class="icons">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 22h20v-2H2zM20 8v10h-2V8zM15 12v6h-2v-6zM10 14v4H8v-4zM5 16v2H3v-2z"/></svg>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3C7.58 3 3.5 4.44 0 6.85L12 21.85 24 6.85C20.5 4.44 16.42 3 12 3z"/></svg>
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="7" width="18" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="4" y="9" width="13" height="6" rx="1"/></svg>
+        </div>
+      </div>
+
+      <div class="screen">
+        <div class="m-header">
+          <div class="back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          </div>
+          <div class="filter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="3" y1="6" x2="21" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/></svg>
+          </div>
+        </div>
+        <div class="m-pagetitle">
+          <div class="eyebrow-xs">Movimentações</div>
+          <h1>Abril</h1>
+        </div>
+        <div class="summary-row">
+          <div class="summary-item">
+            <div class="s-label">Receitas</div>
+            <div class="s-value pos">+11.850</div>
+          </div>
+          <div class="summary-item">
+            <div class="s-label">Despesas</div>
+            <div class="s-value neg">−7.430</div>
+          </div>
+          <div class="summary-item">
+            <div class="s-label">Resultado</div>
+            <div class="s-value neutral">+4.420</div>
+          </div>
+        </div>
+        <div class="chips">
+          <div class="chip">Todas</div>
+          <div class="chip receita">Receitas</div>
+          <div class="chip despesa active">Despesas</div>
+        </div>
+
+        <div class="tx-scroll">
+          <div class="date-header">
+            <span class="d-label">Ter · 22 Abr</span>
+            <span class="d-saldo neg">−550,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-contas">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Energia elétrica · Enel</div>
+              <div class="tx-cat">Despesa · Custo Fixo</div>
+            </div>
+            <div class="tx-amt neg">−550,00</div>
+          </div>
+          <div class="group-divider"></div>
+          <div class="date-header">
+            <span class="d-label">Sáb · 19 Abr</span>
+            <span class="d-saldo neg">−1.200,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-colab">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Costureira · Esli</div>
+              <div class="tx-cat">Despesa · Colaboradores</div>
+            </div>
+            <div class="tx-amt neg">−800,00</div>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-transp">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 5v3h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Motoboy · entrega Fernanda</div>
+              <div class="tx-cat">Despesa · Transporte</div>
+            </div>
+            <div class="tx-amt neg">−400,00</div>
+          </div>
+          <div class="group-divider"></div>
+          <div class="date-header">
+            <span class="d-label">Qui · 10 Abr</span>
+            <span class="d-saldo neg">−2.130,00</span>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-espaco">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Aluguel do ateliê</div>
+              <div class="tx-cat">Despesa · Espaço Físico</div>
+            </div>
+            <div class="tx-amt neg">−1.800,00</div>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-marketing">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Instagram Ads · abril</div>
+              <div class="tx-cat">Despesa · Marketing</div>
+            </div>
+            <div class="tx-amt neg">−330,00</div>
+          </div>
+          <div class="group-divider"></div>
+          <div class="no-date-header">
+            <div class="nd-dot"></div>
+            <span class="nd-label">Sem data cadastrada</span>
+            <div class="nd-dot" style="flex:1"></div>
+          </div>
+          <div class="tx">
+            <div class="tx-icon ic-maq">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            </div>
+            <div class="tx-body">
+              <div class="tx-name">Manutenção máquina de costura</div>
+              <div class="tx-cat">Despesa · Maquinário</div>
+            </div>
+            <div class="tx-amt neg">−200,00</div>
+          </div>
+        </div>
+
+        <div class="m-nav">
+          <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg><span>Painel</span></div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5h6l3 4v12H6V9l3-4zM6 13h12M6 17h12"/></svg><span>Pedidos</span></div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg><span>Novo</span></div>
+          <div class="tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg><span>Financeiro</span><div class="dot"></div></div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5h6l3 4v12H6V9l3-4z"/></svg><span>Contratos</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="phone-label">Filtro · Despesas</div>
+  </div>
+
+  <!-- ── PHONE 4: DETALHE / EDIÇÃO DE TRANSAÇÃO ── -->
+  <div class="phone-wrap">
+    <div class="phone-label">Detalhe · Editar transação</div>
+    <div class="phone" style="height:760px;">
+      <div class="notch"></div>
+
+      <!-- tela desfocada por baixo (lista) -->
+      <div style="position:absolute;inset:0;background:rgba(11,18,32,.45);border-radius:44px;z-index:10;"></div>
+
+      <!-- bottom sheet -->
+      <div style="
+        position:absolute; bottom:0; left:0; right:0;
+        background:var(--paper-00);
+        border-radius: 22px 22px 0 0;
+        z-index:20;
+        padding-bottom: 32px;
+        box-shadow: 0 -8px 40px rgba(0,0,0,.22);
+      ">
+        <!-- drag handle -->
+        <div style="display:flex;justify-content:center;padding:12px 0 4px;">
+          <div style="width:36px;height:4px;background:var(--ink-100);border-radius:9px;"></div>
+        </div>
+
+        <!-- cabeçalho sheet -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 20px 16px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <!-- ícone categoria receita -->
+            <div style="width:38px;height:38px;border-radius:10px;background:var(--cat-sage-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cat-sage)" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--ink-900);">Vestido Festa · Fernanda</div>
+              <div style="font-size:9.5px;color:var(--ink-300);margin-top:1px;text-transform:uppercase;letter-spacing:.12em;">Receita · Pedido entregue</div>
+            </div>
+          </div>
+          <!-- btn fechar -->
+          <div style="width:30px;height:30px;border-radius:50%;background:var(--paper-100);display:flex;align-items:center;justify-content:center;cursor:pointer;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-500)" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </div>
+        </div>
+
+        <div style="height:1px;background:var(--ink-100);margin:0 20px;"></div>
+
+        <!-- campos do formulário -->
+        <div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:14px;">
+
+          <!-- Valor -->
+          <div>
+            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-300);font-weight:600;display:block;margin-bottom:5px;">Valor recebido</label>
+            <div style="
+              display:flex;align-items:center;gap:8px;
+              background:var(--paper-50);border:1.5px solid var(--ink-100);
+              border-radius:var(--r-md);padding:11px 14px;
+            ">
+              <span style="font-size:12px;color:var(--ink-300);font-family:var(--f-mono);">R$</span>
+              <span style="font-size:16px;font-weight:700;color:var(--moss-700);font-family:var(--f-mono);letter-spacing:-.5px;">2.400,00</span>
+              <svg style="margin-left:auto;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-300)" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </div>
+          </div>
+
+          <!-- Data realizado -->
+          <div>
+            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-300);font-weight:600;display:block;margin-bottom:5px;">Data de recebimento</label>
+            <div style="
+              display:flex;align-items:center;gap:8px;
+              background:var(--paper-50);border:1.5px solid var(--brass-300);
+              border-radius:var(--r-md);padding:11px 14px;
+              box-shadow: 0 0 0 3px rgba(169,133,46,.1);
+            ">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brass-500)" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              <span style="font-size:13px;font-weight:600;color:var(--ink-900);flex:1;">Ter, 22 de Abril de 2025</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-300)" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+            <div style="font-size:9px;color:var(--brass-500);margin-top:4px;padding-left:2px;">
+              ✦ Campo novo — informe quando o pagamento foi recebido
+            </div>
+          </div>
+
+          <!-- Descrição -->
+          <div>
+            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-300);font-weight:600;display:block;margin-bottom:5px;">Descrição</label>
+            <div style="
+              background:var(--paper-50);border:1.5px solid var(--ink-100);
+              border-radius:var(--r-md);padding:11px 14px;
+              font-size:13px;color:var(--ink-700);
+            ">Vestido Festa · Fernanda</div>
+          </div>
+
+          <!-- Categoria (somente leitura p/ pedido) -->
+          <div style="display:flex;gap:10px;">
+            <div style="flex:1;">
+              <label style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-300);font-weight:600;display:block;margin-bottom:5px;">Tipo</label>
+              <div style="
+                background:var(--moss-bg);border:1.5px solid transparent;
+                border-radius:var(--r-md);padding:10px 12px;
+                display:flex;align-items:center;gap:6px;
+              ">
+                <div style="width:7px;height:7px;background:var(--moss-700);border-radius:50%;"></div>
+                <span style="font-size:12px;font-weight:600;color:var(--moss-700);">Receita</span>
+              </div>
+            </div>
+            <div style="flex:1;">
+              <label style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-300);font-weight:600;display:block;margin-bottom:5px;">Origem</label>
+              <div style="
+                background:var(--paper-50);border:1.5px solid var(--ink-100);
+                border-radius:var(--r-md);padding:10px 12px;
+                display:flex;align-items:center;justify-content:space-between;
+              ">
+                <span style="font-size:12px;color:var(--ink-700);">Pedido</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-300)" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ações: salvar + deletar -->
+        <div style="padding:20px 20px 0;display:flex;flex-direction:column;gap:10px;">
+          <!-- btn salvar -->
+          <div style="
+            background:var(--ink-900);color:white;
+            border-radius:var(--r-md);padding:14px;
+            text-align:center;font-size:14px;font-weight:700;
+            letter-spacing:.02em;cursor:pointer;
+          ">Salvar alterações</div>
+          <!-- btn deletar -->
+          <div style="
+            background:var(--oxblood-bg);color:var(--oxblood-700);
+            border:1px solid rgba(110,31,39,.18);
+            border-radius:var(--r-md);padding:12px;
+            text-align:center;font-size:13px;font-weight:600;
+            display:flex;align-items:center;justify-content:center;gap:7px;
+            cursor:pointer;
+          ">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/></svg>
+            Excluir transação
+          </div>
+        </div>
+
+      </div><!-- /bottom sheet -->
+    </div>
+    <div class="phone-label">Detalhe · Receita (pedido)</div>
+  </div>
+
+  <!-- ── PHONE 5: DETALHE / EDIÇÃO DE DESPESA ── -->
+  <div class="phone-wrap">
+    <div class="phone-label">Detalhe · Despesa</div>
+    <div class="phone" style="height:760px;">
+      <div class="notch"></div>
+
+      <!-- overlay desfocado -->
+      <div style="position:absolute;inset:0;background:rgba(11,18,32,.45);border-radius:44px;z-index:10;"></div>
+
+      <!-- bottom sheet -->
+      <div style="
+        position:absolute; bottom:0; left:0; right:0;
+        background:var(--paper-00);
+        border-radius: 22px 22px 0 0;
+        z-index:20;
+        padding-bottom: 32px;
+        box-shadow: 0 -8px 40px rgba(0,0,0,.22);
+      ">
+        <!-- drag handle -->
+        <div style="display:flex;justify-content:center;padding:12px 0 4px;">
+          <div style="width:36px;height:4px;background:var(--ink-100);border-radius:9px;"></div>
+        </div>
+
+        <!-- cabeçalho -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 20px 16px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <!-- ícone categoria despesa (sand = contas/fixo) -->
+            <div style="width:38px;height:38px;border-radius:10px;background:var(--cat-sand-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cat-sand)" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--ink-900);">Energia elétrica · Enel</div>
+              <div style="font-size:9.5px;color:var(--ink-300);margin-top:1px;text-transform:uppercase;letter-spacing:.12em;">Despesa · Custo Fixo</div>
+            </div>
+          </div>
+          <div style="width:30px;height:30px;border-radius:50%;background:var(--paper-100);display:flex;align-items:center;justify-content:center;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-500)" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </div>
+        </div>
+
+        <div style="height:1px;background:var(--ink-100);margin:0 20px;"></div>
+
+        <!-- campos -->
+        <div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:14px;">
+
+          <!-- Valor -->
+          <div>
+            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-300);font-weight:600;display:block;margin-bottom:5px;">Valor pago</label>
+            <div style="
+              display:flex;align-items:center;gap:8px;
+              background:var(--paper-50);border:1.5px solid var(--ink-100);
+              border-radius:var(--r-md);padding:11px 14px;
+            ">
+              <span style="font-size:12px;color:var(--ink-300);font-family:var(--f-mono);">R$</span>
+              <span style="font-size:16px;font-weight:700;color:var(--oxblood-700);font-family:var(--f-mono);letter-spacing:-.5px;">550,00</span>
+              <svg style="margin-left:auto;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-300)" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </div>
+          </div>
+
+          <!-- Data realizado -->
+          <div>
+            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-300);font-weight:600;display:block;margin-bottom:5px;">Data do pagamento</label>
+            <div style="
+              display:flex;align-items:center;gap:8px;
+              background:var(--paper-50);border:1.5px solid var(--brass-300);
+              border-radius:var(--r-md);padding:11px 14px;
+              box-shadow: 0 0 0 3px rgba(169,133,46,.1);
+            ">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brass-500)" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              <span style="font-size:13px;font-weight:600;color:var(--ink-900);flex:1;">Ter, 22 de Abril de 2025</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-300)" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+            <div style="font-size:9px;color:var(--brass-500);margin-top:4px;padding-left:2px;">✦ Campo novo — informe quando o pagamento foi realizado</div>
+          </div>
+
+          <!-- Descrição -->
+          <div>
+            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-300);font-weight:600;display:block;margin-bottom:5px;">Descrição</label>
+            <div style="
+              background:var(--paper-50);border:1.5px solid var(--brass-300);
+              border-radius:var(--r-md);padding:11px 14px;
+              font-size:13px;color:var(--ink-700);
+              box-shadow: 0 0 0 3px rgba(169,133,46,.1);
+            ">Energia elétrica · Enel</div>
+          </div>
+
+          <!-- Categoria + Tipo -->
+          <div style="display:flex;gap:10px;">
+            <div style="flex:1;">
+              <label style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-300);font-weight:600;display:block;margin-bottom:5px;">Tipo</label>
+              <div style="
+                background:var(--oxblood-bg);border:1.5px solid transparent;
+                border-radius:var(--r-md);padding:10px 12px;
+                display:flex;align-items:center;gap:6px;
+              ">
+                <div style="width:7px;height:7px;background:var(--oxblood-700);border-radius:50%;"></div>
+                <span style="font-size:12px;font-weight:600;color:var(--oxblood-700);">Despesa</span>
+              </div>
+            </div>
+            <div style="flex:1;">
+              <label style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-300);font-weight:600;display:block;margin-bottom:5px;">Categoria</label>
+              <div style="
+                background:var(--paper-50);border:1.5px solid var(--ink-100);
+                border-radius:var(--r-md);padding:10px 12px;
+                display:flex;align-items:center;justify-content:space-between;
+              ">
+                <span style="font-size:12px;color:var(--ink-700);">Custo Fixo</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-300)" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recorrência (exclusivo despesa) -->
+          <div style="
+            background:var(--paper-50);border:1px solid var(--ink-100);
+            border-radius:var(--r-md);padding:12px 14px;
+            display:flex;align-items:center;justify-content:space-between;
+          ">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--ink-900);">Despesa recorrente</div>
+              <div style="font-size:9.5px;color:var(--ink-300);margin-top:2px;">Repete todo mês automaticamente</div>
+            </div>
+            <!-- toggle ON -->
+            <div style="
+              width:38px;height:22px;border-radius:11px;
+              background:var(--ink-900);position:relative;flex-shrink:0;
+            ">
+              <div style="
+                width:18px;height:18px;background:white;border-radius:50%;
+                position:absolute;top:2px;right:2px;
+                box-shadow:0 1px 4px rgba(0,0,0,.3);
+              "></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ações -->
+        <div style="padding:20px 20px 0;display:flex;flex-direction:column;gap:10px;">
+          <div style="
+            background:var(--ink-900);color:white;
+            border-radius:var(--r-md);padding:14px;
+            text-align:center;font-size:14px;font-weight:700;
+          ">Salvar alterações</div>
+          <div style="
+            background:var(--oxblood-bg);color:var(--oxblood-700);
+            border:1px solid rgba(110,31,39,.18);
+            border-radius:var(--r-md);padding:12px;
+            text-align:center;font-size:13px;font-weight:600;
+            display:flex;align-items:center;justify-content:center;gap:7px;
+          ">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/></svg>
+            Excluir despesa
+          </div>
+        </div>
+
+      </div><!-- /bottom sheet -->
+    </div>
+    <div class="phone-label">Detalhe · Despesa</div>
+  </div>
+
+  <!-- ── NOTAS DE DESIGN ── -->
+  <div class="doc-note" style="margin-top: 8px;">
+    <h2>Tokens de design</h2>
+
+    <h3>Positivo / Negativo</h3>
+    <div class="swatch"><div class="dot" style="background:#1F4D35"></div> <code>moss-700 #1F4D35</code> — receitas</div><br>
+    <div class="swatch"><div class="dot" style="background:#6E1F27"></div> <code>oxblood-700 #6E1F27</code> — despesas</div>
+
+    <h3>Superfície</h3>
+    <div class="swatch"><div class="dot" style="background:#FAF8F3; border:1px solid #ccc"></div> <code>paper-50 #FAF8F3</code> — fundo marfim</div><br>
+    <div class="swatch"><div class="dot" style="background:#FFFFFF; border:1px solid #ccc"></div> <code>white</code> — cards / linhas</div>
+
+    <h3>Categorias de ícone</h3>
+    <div class="swatch"><div class="dot" style="background:#637A55"></div> <code>sage</code> — Receita, Espaço Físico, Colab.</div><br>
+    <div class="swatch"><div class="dot" style="background:#334E68"></div> <code>mineral</code> — Marketing</div><br>
+    <div class="swatch"><div class="dot" style="background:#A68A5B"></div> <code>sand</code> — Contas, Maquinário</div><br>
+    <div class="swatch"><div class="dot" style="background:#6E4A2A"></div> <code>bronze</code> — Transporte</div><br>
+    <div class="swatch"><div class="dot" style="background:#7A3139"></div> <code>claret</code> — Outros</div>
+
+    <h3>Acento único</h3>
+    <div class="swatch"><div class="dot" style="background:#A9852E"></div> <code>brass-500 #A9852E</code> — eyebrow, dot nav ativo</div>
+
+    <h3>Tipografia</h3>
+    <ul>
+      <li><strong>Eyebrow</strong>: 10px, uppercase, brass-500, tracking .22em</li>
+      <li><strong>Título (Abril)</strong>: 28px, Inter 700, ink-900</li>
+      <li><strong>Data (SEX · 19 ABR)</strong>: 10px, uppercase, ink-500, tracking .18em</li>
+      <li><strong>Nome transação</strong>: 13px, Inter 600, ink-900</li>
+      <li><strong>Categoria</strong>: 9.5px, uppercase, ink-500</li>
+      <li><strong>Valores</strong>: JetBrains Mono 13px, tabular-nums</li>
+    </ul>
+  </div>
+
+</body>
+</html>
