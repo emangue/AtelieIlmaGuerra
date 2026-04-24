@@ -1,0 +1,20 @@
+---
+description: Regras do projeto Ateliê Ilma Guerra - Gerador de contratos
+alwaysApply: true
+---
+
+# Ateliê Ilma Guerra - Regras do Projeto
+
+## Estrutura
+- Backend: FastAPI em `app_dev/backend/`
+- Frontend: Next.js em `app_dev/frontend/`
+- Tudo dentro de `/Users/emangue/Documents/ProjetoVSCode/AtelieIlmaGuerra`
+
+## Padrões
+- **Mobile-first:** UI focada em celular
+- **shadcn/ui:** Usar componentes de `components/ui/`
+- **Domínios:** Backend organizado em domains (auth, contracts)
+- **Contratos:** PDF via ReportLab em `domains/contracts/pdf_generator.py`
+
+## Mapeamento do Contrato
+Ver `docs/MAPEAMENTO_CONTRATO.md` para campos do formulário.

@@ -35,11 +35,15 @@ def _format_currency(valor: float) -> str:
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def _format_date(d: date) -> str:
+def _format_date(d) -> str:
+    if d is None:
+        return "a definir"
     return d.strftime("%d/%m/%Y")
 
 
-def _format_date_range(d1: date, d2: date) -> str:
+def _format_date_range(d1, d2) -> str:
+    if d1 is None and d2 is None:
+        return "a definir"
     return f"{_format_date(d1)} a {_format_date(d2)}"
 
 

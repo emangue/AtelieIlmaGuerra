@@ -2,7 +2,6 @@
 
 /**
  * MonthScrollPicker - Scroll horizontal de meses
- * Adaptado do ProjetoFinancasV5
  */
 import * as React from "react";
 import { format, addMonths, subMonths, startOfMonth, isSameMonth } from "date-fns";

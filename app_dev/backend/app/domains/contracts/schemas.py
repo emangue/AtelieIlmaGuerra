@@ -34,9 +34,9 @@ class ContractData(BaseModel):
 
     # Datas
     primeira_prova_mes: str = Field(default="março")
-    prova_final_data: date
-    semana_revisao_inicio: date
-    semana_revisao_fim: date
+    prova_final_data: Optional[date] = None
+    semana_revisao_inicio: Optional[date] = None
+    semana_revisao_fim: Optional[date] = None
     data_contrato: date
     cidade_contrato: str = Field(default="Araraquara")
 

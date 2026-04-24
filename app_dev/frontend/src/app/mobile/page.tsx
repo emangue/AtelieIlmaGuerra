@@ -409,7 +409,7 @@ export default function PainelPage() {
             </div>
           </div>
 
-          {/* Card Plano vs Realizado - layout ProjetoFinancasV5 (Despesas vs Plano / Rendimentos) */}
+          {/* Card Plano vs Realizado */}
           {period === "month" && planoVsRealizado &&
             (planoVsRealizado.itens_receita.length > 0 || planoVsRealizado.itens_despesas.length > 0) && (
             <Collapsible defaultOpen={false} className="group rounded-xl border border-gray-200 bg-gray-50 overflow-hidden mb-6">

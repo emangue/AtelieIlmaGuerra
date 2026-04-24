@@ -70,6 +70,25 @@ const defaultForm: FormData = {
   testemunha2_cpf: "",
 };
 
+function extractErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return "Erro desconhecido";
+}
+
+function parseApiError(body: { detail?: unknown }): string {
+  if (!body.detail) return "Erro ao processar a requisição";
+  if (typeof body.detail === "string") return body.detail;
+  if (Array.isArray(body.detail)) {
+    return body.detail
+      .map((e: { loc?: string[]; msg?: string }) => {
+        const campo = e.loc ? e.loc.slice(1).join(" → ") : "";
+        return campo ? `${campo}: ${e.msg}` : e.msg || "erro";
+      })
+      .join(" | ");
+  }
+  return JSON.stringify(body.detail);
+}
+
 function buildPayload(form: FormData) {
   return {
     nome_completo: form.nome_completo.trim(),
@@ -103,7 +122,8 @@ function NovoContratoContent() {
   const [form, setForm] = useState<FormData>(defaultForm);
   const [loading, setLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormData, string>>>({});
 
   useEffect(() => {
     if (!clienteId) return;
@@ -124,12 +144,47 @@ function NovoContratoContent() {
 
   const update = (k: keyof FormData, v: string | boolean) => {
     setForm((p) => ({ ...p, [k]: v }));
-    setError(null);
+    setFieldErrors((prev) => { const next = { ...prev }; delete next[k]; return next; });
+    setApiError(null);
+  };
+
+  const validate = (): boolean => {
+    const errs: Partial<Record<keyof FormData, string>> = {};
+    if (!form.nome_completo.trim() || form.nome_completo.trim().length < 3)
+      errs.nome_completo = "Nome completo é obrigatório (mín. 3 caracteres)";
+    const cpfDigits = form.cpf.replace(/\D/g, "");
+    if (cpfDigits.length < 11)
+      errs.cpf = "CPF inválido — informe os 11 dígitos";
+    if (!form.endereco.trim() || form.endereco.trim().length < 5)
+      errs.endereco = "Endereço é obrigatório";
+    if (!form.telefone.trim() || form.telefone.replace(/\D/g, "").length < 10)
+      errs.telefone = "Telefone inválido — informe DDD + número";
+    if (!form.especificacoes.trim())
+      errs.especificacoes = "Especificações são obrigatórias";
+    if (!form.tecidos.trim())
+      errs.tecidos = "Tecidos são obrigatórios";
+    if (!form.valor_total || parseFloat(form.valor_total) <= 0)
+      errs.valor_total = "Informe um valor total válido";
+    if (!form.data_contrato)
+      errs.data_contrato = "Data do contrato é obrigatória";
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
   };
 
   const handlePreview = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    if (!validate()) return;
+    await executePreview();
+  };
+
+  const handleGenerate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
+    await executeGenerate();
+  };
+
+  const executePreview = async () => {
+    setApiError(null);
     setPreviewLoading(true);
     try {
       const payload = buildPayload(form);
@@ -139,23 +194,22 @@ function NovoContratoContent() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Erro ao gerar preview");
+        const body = await res.json();
+        throw new Error(parseApiError(body));
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank", "noopener,noreferrer");
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Erro ao gerar preview");
+      setApiError(extractErrorMessage(err));
     } finally {
       setPreviewLoading(false);
     }
   };
 
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
+  const executeGenerate = async () => {
+    setApiError(null);
     setLoading(true);
     try {
       const payload = buildPayload(form);
@@ -165,8 +219,8 @@ function NovoContratoContent() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Erro ao gerar contrato");
+        const body = await res.json();
+        throw new Error(parseApiError(body));
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -177,7 +231,7 @@ function NovoContratoContent() {
       URL.revokeObjectURL(url);
       router.push("/mobile/contratos");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Erro ao gerar contrato");
+      setApiError(extractErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -197,9 +251,9 @@ function NovoContratoContent() {
       </div>
 
       <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-        {error && (
+        {apiError && (
           <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>{apiError}</AlertDescription>
           </Alert>
         )}
 
@@ -216,8 +270,9 @@ function NovoContratoContent() {
                 value={form.nome_completo}
                 onChange={(e) => update("nome_completo", e.target.value)}
                 placeholder="Ex: Maria Silva"
-                required
+                className={fieldErrors.nome_completo ? "border-red-500" : ""}
               />
+              {fieldErrors.nome_completo && <p className="text-xs text-red-500">{fieldErrors.nome_completo}</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -227,8 +282,9 @@ function NovoContratoContent() {
                   value={form.cpf}
                   onChange={(e) => update("cpf", e.target.value)}
                   placeholder="000.000.000-00"
-                  required
+                  className={fieldErrors.cpf ? "border-red-500" : ""}
                 />
+                {fieldErrors.cpf && <p className="text-xs text-red-500">{fieldErrors.cpf}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="rg">RG</Label>
@@ -247,8 +303,9 @@ function NovoContratoContent() {
                 value={form.endereco}
                 onChange={(e) => update("endereco", e.target.value)}
                 placeholder="Rua, número, bairro"
-                required
+                className={fieldErrors.endereco ? "border-red-500" : ""}
               />
+              {fieldErrors.endereco && <p className="text-xs text-red-500">{fieldErrors.endereco}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="telefone">Telefone</Label>
@@ -257,8 +314,9 @@ function NovoContratoContent() {
                 value={form.telefone}
                 onChange={(e) => update("telefone", e.target.value)}
                 placeholder="(16) 99999-9999"
-                required
+                className={fieldErrors.telefone ? "border-red-500" : ""}
               />
+              {fieldErrors.telefone && <p className="text-xs text-red-500">{fieldErrors.telefone}</p>}
             </div>
           </CardContent>
         </Card>
@@ -276,8 +334,9 @@ function NovoContratoContent() {
                 value={form.especificacoes}
                 onChange={(e) => update("especificacoes", e.target.value)}
                 rows={6}
-                required
+                className={fieldErrors.especificacoes ? "border-red-500" : ""}
               />
+              {fieldErrors.especificacoes && <p className="text-xs text-red-500">{fieldErrors.especificacoes}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="tecidos">Tecidos</Label>
@@ -286,8 +345,9 @@ function NovoContratoContent() {
                 value={form.tecidos}
                 onChange={(e) => update("tecidos", e.target.value)}
                 rows={3}
-                required
+                className={fieldErrors.tecidos ? "border-red-500" : ""}
               />
+              {fieldErrors.tecidos && <p className="text-xs text-red-500">{fieldErrors.tecidos}</p>}
             </div>
           </CardContent>
         </Card>
@@ -306,8 +366,9 @@ function NovoContratoContent() {
                   step="0.01"
                   value={form.valor_total}
                   onChange={(e) => update("valor_total", e.target.value)}
-                  required
+                  className={fieldErrors.valor_total ? "border-red-500" : ""}
                 />
+                {fieldErrors.valor_total && <p className="text-xs text-red-500">{fieldErrors.valor_total}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="valor_vestir">Serviço vestir (R$/h)</Label>
@@ -347,8 +408,9 @@ function NovoContratoContent() {
                   type="date"
                   value={form.data_contrato}
                   onChange={(e) => update("data_contrato", e.target.value)}
-                  required
+                  className={fieldErrors.data_contrato ? "border-red-500" : ""}
                 />
+                {fieldErrors.data_contrato && <p className="text-xs text-red-500">{fieldErrors.data_contrato}</p>}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -470,6 +532,7 @@ function NovoContratoContent() {
           </Button>
         </div>
       </form>
+
     </div>
   );
 }
