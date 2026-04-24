@@ -43,3 +43,8 @@ class UserListResponse(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     nova_senha: str = Field(..., min_length=6)
+
+
+class ChangePasswordRequest(BaseModel):
+    senha_atual: str = Field(..., min_length=1)
+    nova_senha: str = Field(..., min_length=6)

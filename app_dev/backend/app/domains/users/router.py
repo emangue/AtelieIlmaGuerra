@@ -5,12 +5,22 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.shared.dependencies import require_admin
+from app.shared.dependencies import require_admin, get_current_user_id
 from .service import UserService
-from .schemas import UserCreate, UserUpdate, UserResponse, UserListResponse, PasswordResetRequest
+from .schemas import UserCreate, UserUpdate, UserResponse, UserListResponse, PasswordResetRequest, ChangePasswordRequest
 from .models import User
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
+
+@router.post("/me/change-password")
+def change_password(
+    data: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Altera a senha do usuário autenticado (requer senha atual)."""
+    return UserService(db).change_password(user_id, data)
 
 
 @router.get("", response_model=UserListResponse)

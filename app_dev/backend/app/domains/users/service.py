@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from .models import User
 from .repository import UserRepository
-from .schemas import UserCreate, UserUpdate, UserResponse, UserListResponse, PasswordResetRequest
-from ..auth.password_utils import hash_password
+from .schemas import UserCreate, UserUpdate, UserResponse, UserListResponse, PasswordResetRequest, ChangePasswordRequest
+from ..auth.password_utils import hash_password, verify_password
 
 
 class UserService:
@@ -80,6 +80,17 @@ class UserService:
         user = self.repo.get_by_id(user_id)
         if not user:
             raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        user.password_hash = hash_password(data.nova_senha)
+        user.updated_at = datetime.now()
+        self.repo.update(user)
+        return {"message": "Senha alterada com sucesso"}
+
+    def change_password(self, user_id: int, data: ChangePasswordRequest) -> dict:
+        user = self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        if not verify_password(data.senha_atual, user.password_hash):
+            raise HTTPException(status_code=400, detail="Senha atual incorreta")
         user.password_hash = hash_password(data.nova_senha)
         user.updated_at = datetime.now()
         self.repo.update(user)
