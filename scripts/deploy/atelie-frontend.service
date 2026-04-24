@@ -1,0 +1,20 @@
+[Unit]
+Description=Ateliê Ilma Guerra - Next.js Frontend
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/var/www/atelie/app_dev/frontend
+Environment="NODE_ENV=production"
+Environment="PORT=3004"
+ExecStart=/usr/bin/npm start
+
+PrivateTmp=true
+NoNewPrivileges=true
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

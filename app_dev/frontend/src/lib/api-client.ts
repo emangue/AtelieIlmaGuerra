@@ -1,6 +1,5 @@
 /**
  * Cliente API com autenticação e tratamento 401
- * Baseado na estrutura do ProjetoFinancasV5
  *
  * - Usa credentials: "include" para enviar cookie auth_token
  * - Redireciona para /auth/login em caso de 401

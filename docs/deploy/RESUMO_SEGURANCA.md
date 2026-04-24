@@ -1,6 +1,5 @@
 # 🔐 Resumo da Estrutura de Segurança
 
-**Baseado em:** ProjetoFinancasV5 (meufinup.com.br)  
 **Data:** 14/02/2026
 
 ---

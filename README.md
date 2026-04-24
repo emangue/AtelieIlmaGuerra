@@ -1,6 +1,6 @@
 # Ateliê Ilma Guerra - Gerador de Contratos
 
-Sistema para geração de contratos de vestido de noiva sob medida. Estrutura baseada no ProjetoFinancasV5, com back, front, login e foco mobile.
+Sistema para geração de contratos de vestido de noiva sob medida. Backend FastAPI, frontend Next.js, login e foco mobile.
 
 ## Estrutura
 
