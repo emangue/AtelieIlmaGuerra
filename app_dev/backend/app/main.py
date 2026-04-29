@@ -206,8 +206,16 @@ def startup():
                     descricao = descricao,
                 ))
 
-            db2.commit()
-            print("Migration: pagamentos populados")
+            try:
+                db2.commit()
+                print("Migration: pagamentos populados")
+            except Exception as _mig_err:
+                db2.rollback()
+                _err_str = str(_mig_err).lower()
+                if "unique" in _err_str or "duplicate" in _err_str:
+                    print("Migration: pagamentos já populados por outro worker (ignorando)")
+                else:
+                    raise
     finally:
         db2.close()
 
@@ -239,9 +247,17 @@ def startup():
                 db3.add(despesa)
                 db3.flush()
                 pag.despesa_id = despesa.id
-            db3.commit()
-            if pags_despesa:
-                print(f"Migration: {len(pags_despesa)} despesas criadas a partir de pagamentos")
+            try:
+                db3.commit()
+                if pags_despesa:
+                    print(f"Migration: {len(pags_despesa)} despesas criadas a partir de pagamentos")
+            except Exception as _mig_err2:
+                db3.rollback()
+                _err_str2 = str(_mig_err2).lower()
+                if "unique" in _err_str2 or "duplicate" in _err_str2:
+                    print("Migration: despesas já populadas por outro worker (ignorando)")
+                else:
+                    raise
     finally:
         db3.close()
 
