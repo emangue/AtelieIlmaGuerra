@@ -152,3 +152,111 @@ class PlanoVsRealizado(BaseModel):
     percentual_atingimento: float  # lucro_realizado / lucro_planejado * 100 (ou 0 se planejado=0)
     itens_receita: List[PlanoVsRealizadoItem]
     itens_despesas: List[PlanoVsRealizadoItem]
+
+
+# ── Movimentações unificadas (legado — mantido para compatibilidade) ─────────
+class MovimentacaoItem(BaseModel):
+    id: int
+    origem: str          # "pedido" | "transacao"
+    tipo: str            # "receita" | "despesa"
+    descricao: str
+    categoria: str
+    valor: float
+    data: Optional[str]  # YYYY-MM-DD ou None
+    icon_key: str
+
+    class Config:
+        from_attributes = True
+
+
+class MovimentacoesResponse(BaseModel):
+    mes: str
+    total_receitas: float
+    total_despesas: float
+    saldo: float
+    itens: List[MovimentacaoItem]
+
+
+# ── Pagamentos (nova tabela unificada) ────────────────────────────────────────
+class PagamentoItem(BaseModel):
+    id: int
+    tipo: str            # "receita" | "despesa"
+    origem: str          # "pedido" | "despesa_manual"
+    descricao: str
+    categoria: str
+    tipo_item: Optional[str] = None
+    detalhe: Optional[str] = None
+    cat_raw: Optional[str] = None   # categoria crua do plano_item
+    valor: float
+    data: str            # YYYY-MM-DD (nunca None)
+    icon_key: str
+    pedido_id: Optional[int] = None
+    plano_item_id: Optional[int] = None
+    despesa_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PagamentosResponse(BaseModel):
+    mes: str
+    total_receitas: float
+    total_despesas: float
+    saldo: float
+    itens: List[PagamentoItem]
+
+
+class PagamentoCreate(BaseModel):
+    """Criar despesa manual. Informe plano_item_id OU (tipo_item + categoria)."""
+    anomes: str
+    plano_item_id: Optional[int] = None
+    tipo_item: Optional[str] = None
+    detalhe: Optional[str] = None
+    categoria: Optional[str] = None   # Custo Fixo | Custo Variável
+    data: Optional[str] = None        # YYYY-MM-DD; default = último dia do mês
+    valor: float
+    descricao: Optional[str] = None
+
+
+class PagamentoUpdate(BaseModel):
+    """Atualizar despesa manual. Receitas não são editáveis aqui."""
+    valor: Optional[float] = None
+    data: Optional[str] = None
+    descricao: Optional[str] = None
+
+
+# ── Despesas ──────────────────────────────────────────────────────────────────
+class DespesaCreate(BaseModel):
+    """Lançar despesa realizada. Informe plano_item_id OU (tipo_item + categoria)."""
+    anomes: str                          # YYYYMM
+    plano_item_id: Optional[int] = None
+    tipo_item: Optional[str] = None     # Colaboradores, Espaço Físico…
+    detalhe: Optional[str] = None
+    categoria: Optional[str] = None     # Custo Fixo | Custo Variável
+    data: Optional[str] = None          # YYYY-MM-DD; default = último dia do mês
+    valor: float
+    descricao: Optional[str] = None
+
+
+class DespesaUpdate(BaseModel):
+    tipo_item: Optional[str] = None
+    detalhe: Optional[str] = None
+    categoria: Optional[str] = None
+    valor: Optional[float] = None
+    data: Optional[str] = None
+    descricao: Optional[str] = None
+
+
+class DespesaOut(BaseModel):
+    id: int
+    anomes: str
+    plano_item_id: Optional[int] = None
+    tipo_item: str
+    detalhe: Optional[str] = None
+    categoria: str
+    data: str
+    valor: float
+    descricao: Optional[str] = None
+
+    class Config:
+        from_attributes = True

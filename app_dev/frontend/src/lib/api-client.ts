@@ -76,6 +76,11 @@ async function apiRequest<T = unknown>(
     throw new Error((err as { detail?: string }).detail || `HTTP ${response.status}`);
   }
 
+  // 204 No Content (ex: DELETE) — sem body
+  if (response.status === 204 || response.headers.get("content-length") === "0") {
+    return undefined as unknown as T;
+  }
+
   return response.json();
 }
 

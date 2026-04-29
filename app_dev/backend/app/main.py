@@ -22,6 +22,8 @@ from .domains.dashboard.router import router as dashboard_router
 from .domains.despesas.router import router as despesas_router
 from .domains.plano.router import router as plano_router
 from .domains.plano.transacoes_router import router as transacoes_router
+from .domains.plano.pagamentos_router import router as pagamentos_router
+from .domains.plano.despesas_router import router as despesas_router
 
 # Importar modelos para criar tabelas
 from .domains.clientes.models import Cliente  # noqa: F401
@@ -31,6 +33,8 @@ from .domains.orcamentos.models import Orcamento  # noqa: F401
 from .domains.despesas.models import DespesaDetalhada  # noqa: F401
 from .domains.plano.models import PlanoItem  # noqa: F401
 from .domains.plano.transacoes_models import DespesaTransacao  # noqa: F401
+from .domains.plano.pagamentos_model import Pagamento  # noqa: F401
+from .domains.plano.despesas_model import Despesa  # noqa: F401
 from .domains.users.models import User  # noqa: F401
 
 app = FastAPI(
@@ -58,6 +62,8 @@ app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(despesas_router, prefix="/api/v1")
 app.include_router(plano_router, prefix="/api/v1")
 app.include_router(transacoes_router, prefix="/api/v1")
+app.include_router(pagamentos_router, prefix="/api/v1")
+app.include_router(despesas_router, prefix="/api/v1")
 
 # Uploads estáticos
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
@@ -138,6 +144,128 @@ def startup():
                 print(f"Seed: plano importado ({nr} receitas, {nd} despesas)")
     finally:
         db.close()
+
+    # ── Migração DDL: adicionar colunas ausentes ───────────────────────────
+    _ddl_migrations = [
+        "ALTER TABLE pagamentos ADD COLUMN despesa_id INTEGER REFERENCES despesas(id)",
+    ]
+    for _ddl in _ddl_migrations:
+        try:
+            with engine.connect() as _conn:
+                _conn.execute(text(_ddl))
+                _conn.commit()
+        except Exception as _e:
+            _err = str(_e).lower()
+            if "duplicate column" in _err or "already exists" in _err:
+                pass
+            else:
+                pass  # coluna já existe ou tabela não existe ainda — ignorar
+
+    # ── Migração: popular tabela pagamentos (idempotente) ──────────────────
+    from app.domains.plano.pagamentos_model import Pagamento
+    from app.domains.plano.transacoes_models import DespesaTransacao as DT
+    from app.domains.pedidos.models import Pedido as PedidoModel
+    from calendar import monthrange
+    from datetime import date as date_type
+
+    db2 = SessionLocal()
+    try:
+        if db2.query(Pagamento).count() == 0:
+            # 1. Despesas: copiar despesas_transacoes → pagamentos
+            for t in db2.query(DT).all():
+                ano, m = int(t.anomes[:4]), int(t.anomes[4:])
+                data_def = date_type(ano, m, monthrange(ano, m)[1])
+                plano = t.plano_item
+                tipo_item = plano.tipo_item if plano else ""
+                detalhe   = plano.detalhe   if plano else ""
+                descricao = f"{detalhe} · {tipo_item}" if detalhe else (tipo_item or "Despesa")
+                db2.add(Pagamento(
+                    anomes        = t.anomes,
+                    tipo          = "despesa",
+                    origem        = "despesa_manual",
+                    plano_item_id = t.plano_item_id,
+                    data          = t.data or data_def,
+                    valor         = float(t.valor or 0),
+                    descricao     = t.descricao or descricao,
+                ))
+
+            # 2. Receitas: pedidos entregues → pagamentos
+            for p in db2.query(PedidoModel).filter(PedidoModel.status == "Entregue").all():
+                data_pag  = p.data_entrega or date_type.today()
+                anomes    = f"{data_pag.year}{data_pag.month:02d}"
+                tipo_nome = p.tipo_pedido.nome if p.tipo_pedido else "Pedido"
+                cliente   = p.cliente.nome if p.cliente else ""
+                descricao = f"{tipo_nome} · {cliente}" if cliente else tipo_nome
+                db2.add(Pagamento(
+                    anomes    = anomes,
+                    tipo      = "receita",
+                    origem    = "pedido",
+                    pedido_id = p.id,
+                    data      = data_pag,
+                    valor     = float(p.valor_pecas or 0),
+                    descricao = descricao,
+                ))
+
+            db2.commit()
+            print("Migration: pagamentos populados")
+    finally:
+        db2.close()
+
+    # ── Migração: popular tabela despesas a partir de pagamentos tipo=despesa sem despesa_id ──
+    from app.domains.plano.despesas_model import Despesa
+    db3 = SessionLocal()
+    try:
+        if db3.query(Despesa).count() == 0:
+            pags_despesa = (
+                db3.query(Pagamento)
+                .filter(Pagamento.tipo == "despesa", Pagamento.despesa_id == None)
+                .all()
+            )
+            for pag in pags_despesa:
+                pi = pag.plano_item
+                tipo_item = pi.tipo_item if pi else "Outros"
+                detalhe   = pi.detalhe   if pi else None
+                categoria = pi.categoria if pi else "Custo Fixo"
+                despesa = Despesa(
+                    anomes        = pag.anomes,
+                    plano_item_id = pag.plano_item_id,
+                    tipo_item     = tipo_item,
+                    detalhe       = detalhe,
+                    categoria     = categoria,
+                    data          = pag.data,
+                    valor         = pag.valor,
+                    descricao     = pag.descricao,
+                )
+                db3.add(despesa)
+                db3.flush()
+                pag.despesa_id = despesa.id
+            db3.commit()
+            if pags_despesa:
+                print(f"Migration: {len(pags_despesa)} despesas criadas a partir de pagamentos")
+    finally:
+        db3.close()
+
+    # ── Migração: zerar valor_realizado legado de plano_itens órfãos ──────────
+    # Plano_itens com valor_planejado=0 e valor_realizado preenchido que NÃO estão
+    # em despesas_transacoes são itens criados por lançamentos via /despesas.
+    # Seu valor_realizado legado deve ser zerado para não contaminar o service.
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("""
+                UPDATE plano_itens SET valor_realizado = NULL
+                WHERE valor_planejado = 0
+                AND tipo = 'despesa'
+                AND valor_realizado IS NOT NULL
+                AND id NOT IN (
+                    SELECT DISTINCT plano_item_id FROM despesas_transacoes
+                    WHERE plano_item_id IS NOT NULL
+                )
+            """))
+            conn.commit()
+            if result.rowcount:
+                print(f"Migration: {result.rowcount} plano_itens órfãos zerados")
+    except Exception:
+        pass
 
 
 @app.get("/")

@@ -126,3 +126,4 @@ class Pedido(Base):
     cliente = relationship("Cliente", backref="pedidos")
     tipo_pedido = relationship("TipoPedido", backref="pedidos")
     forma_peca = relationship("FormaPeca", backref="pedidos")
+    pagamento = relationship("Pagamento", back_populates="pedido", uselist=False, cascade="all, delete-orphan")

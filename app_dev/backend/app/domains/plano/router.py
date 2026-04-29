@@ -16,6 +16,8 @@ from .schemas import (
     PlanoItemCreate,
     DespesaRealizadaItem,
     OpcaoDespesa,
+    MovimentacaoItem,
+    MovimentacoesResponse,
 )
 from .service import get_plano_vs_realizado
 
@@ -431,6 +433,104 @@ def aplicar_aos_futuros(
 
     db.commit()
     return {"aplicados": aplicados, "ate_mes": ate}
+
+
+@router.get("/movimentacoes", response_model=MovimentacoesResponse)
+def get_movimentacoes(
+    mes: str = Query(..., description="YYYYMM"),
+    db: Session = Depends(get_db),
+):
+    """Lista unificada de receitas (pedidos entregues) e despesas (transações) do mês."""
+    if len(mes) != 6 or not mes.isdigit():
+        raise HTTPException(status_code=422, detail="mes deve ser YYYYMM")
+
+    from app.domains.pedidos.models import Pedido
+    from .transacoes_models import DespesaTransacao
+    from calendar import monthrange
+
+    ano  = int(mes[:4])
+    m    = int(mes[4:])
+    ultimo_dia = monthrange(ano, m)[1]
+    data_ini = f"{ano:04d}-{m:02d}-01"
+    data_fim = f"{ano:04d}-{m:02d}-{ultimo_dia:02d}"
+
+    ICON_MAP = {
+        "Colaboradores": "colab",
+        "Espaço Físico": "espaco",
+        "Transporte": "transp",
+        "Contas": "contas",
+        "Maquinário": "maq",
+        "Marketing": "marketing",
+    }
+
+    itens: list[MovimentacaoItem] = []
+
+    # ── Receitas: pedidos entregues no mês ──────────────────
+    pedidos = (
+        db.query(Pedido)
+        .filter(
+            Pedido.data_entrega >= data_ini,
+            Pedido.data_entrega <= data_fim,
+            Pedido.status == "Entregue",
+        )
+        .all()
+    )
+    for p in pedidos:
+        cliente_nome = p.cliente.nome if p.cliente else ""
+        tipo_nome    = p.tipo_pedido.nome if p.tipo_pedido else "Pedido"
+        descricao    = f"{tipo_nome} · {cliente_nome}" if cliente_nome else tipo_nome
+        itens.append(MovimentacaoItem(
+            id=p.id,
+            origem="pedido",
+            tipo="receita",
+            descricao=descricao,
+            categoria="Receita · Pedido entregue",
+            valor=float(p.valor_pecas or 0),
+            data=str(p.data_entrega) if p.data_entrega else None,
+            icon_key="receita",
+        ))
+
+    # ── Despesas: transações do mês ─────────────────────────
+    transacoes = (
+        db.query(DespesaTransacao)
+        .filter(DespesaTransacao.anomes == mes)
+        .all()
+    )
+    for t in transacoes:
+        plano = t.plano_item
+        tipo_item = plano.tipo_item if plano else ""
+        detalhe   = plano.detalhe   if plano else ""
+        descricao = f"{detalhe} · {tipo_item}" if detalhe else (tipo_item or "Despesa")
+        categoria = f"Despesa · {plano.categoria}" if plano and plano.categoria else "Despesa"
+        icon_key  = ICON_MAP.get(tipo_item, "outros")
+        # data: usa a data da transação ou, como default, o último dia do mês
+        data_tx = str(t.data) if t.data else data_fim
+        itens.append(MovimentacaoItem(
+            id=t.id,
+            origem="transacao",
+            tipo="despesa",
+            descricao=descricao,
+            categoria=categoria,
+            valor=float(t.valor or 0),
+            data=data_tx,
+            icon_key=icon_key,
+        ))
+
+    # ── Ordenação: com data DESC, sem data por último ───────
+    com_data  = sorted([i for i in itens if i.data],     key=lambda x: x.data, reverse=True)  # type: ignore[arg-type]
+    sem_data  = sorted([i for i in itens if not i.data], key=lambda x: x.descricao)
+    itens_ord = com_data + sem_data
+
+    total_rec  = sum(i.valor for i in itens if i.tipo == "receita")
+    total_desp = sum(i.valor for i in itens if i.tipo == "despesa")
+
+    return MovimentacoesResponse(
+        mes=mes,
+        total_receitas=total_rec,
+        total_despesas=total_desp,
+        saldo=total_rec - total_desp,
+        itens=itens_ord,
+    )
 
 
 @router.post("", response_model=PlanoItemOut, status_code=201)
