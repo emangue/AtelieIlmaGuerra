@@ -379,7 +379,7 @@ export default function FinanceiroPage() {
     const comData = [...map.entries()]
       .filter(([k]) => k !== null)
       .sort(([a], [b]) => b!.localeCompare(a!));
-    const semData = map.has(null) ? [[null, map.get(null)!] as [null, MovimentacaoItem[]]] : [];
+    const semData = map.has(null) ? [[null, map.get(null)!] as [null, PagamentoItem[]]] : [];
     return [...comData, ...semData].map(([data, its]) => ({
       data,
       label: data ? formatDateLabel(data) : 'Sem data cadastrada',
