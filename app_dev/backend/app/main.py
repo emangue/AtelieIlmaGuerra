@@ -19,11 +19,11 @@ from .domains.pedidos.router import router as pedidos_router
 from .domains.parametros.router import router as parametros_router
 from .domains.orcamentos.router import router as orcamentos_router
 from .domains.dashboard.router import router as dashboard_router
-from .domains.despesas.router import router as despesas_router
+from .domains.despesas.router import router as despesas_legacy_router
 from .domains.plano.router import router as plano_router
 from .domains.plano.transacoes_router import router as transacoes_router
 from .domains.plano.pagamentos_router import router as pagamentos_router
-from .domains.plano.despesas_router import router as despesas_router
+from .domains.plano.despesas_router import router as plano_despesas_router
 
 # Importar modelos para criar tabelas
 from .domains.clientes.models import Cliente  # noqa: F401
@@ -59,11 +59,11 @@ app.include_router(pedidos_router, prefix="/api/v1")
 app.include_router(parametros_router, prefix="/api/v1")
 app.include_router(orcamentos_router, prefix="/api/v1")
 app.include_router(dashboard_router, prefix="/api/v1")
-app.include_router(despesas_router, prefix="/api/v1")
+app.include_router(despesas_legacy_router, prefix="/api/v1")
 app.include_router(plano_router, prefix="/api/v1")
 app.include_router(transacoes_router, prefix="/api/v1")
 app.include_router(pagamentos_router, prefix="/api/v1")
-app.include_router(despesas_router, prefix="/api/v1")
+app.include_router(plano_despesas_router, prefix="/api/v1")
 
 # Uploads estáticos
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"

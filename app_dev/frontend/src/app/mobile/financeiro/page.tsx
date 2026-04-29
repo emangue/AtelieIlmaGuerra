@@ -361,7 +361,7 @@ export default function FinanceiroPage() {
   const selectClass = "flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1";
 
   // ── Helpers para movimentações ────────────────────────────
-  type Grupo = { data: string | null; label: string; itens: MovimentacaoItem[]; saldoDia: number };
+  type Grupo = { data: string | null; label: string; itens: PagamentoItem[]; saldoDia: number };
 
   function formatDateLabel(iso: string): string {
     const d = new Date(iso + 'T00:00:00');
@@ -370,7 +370,7 @@ export default function FinanceiroPage() {
   }
 
   function agruparPorData(itens: PagamentoItem[]): Grupo[] {
-    const map = new Map<string | null, MovimentacaoItem[]>();
+    const map = new Map<string | null, PagamentoItem[]>();
     for (const item of itens) {
       const key = item.data ?? null;
       if (!map.has(key)) map.set(key, []);
