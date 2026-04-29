@@ -82,6 +82,8 @@ interface PagamentoItem {
   valor: number;
   data: string | null;
   icon_key: string;
+  pedido_id: number | null;
+  plano_item_id: number | null;
   despesa_id: number | null;
 }
 
