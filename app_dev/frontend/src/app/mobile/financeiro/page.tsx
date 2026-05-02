@@ -198,6 +198,7 @@ export default function FinanceiroPage() {
   const [formCategoria, setFormCategoria] = useState("Custo Fixo");
   const [formDetalhe, setFormDetalhe] = useState("");
   const [formValor, setFormValor] = useState("");
+  const [formData, setFormData] = useState("");
   const [detalhes, setDetalhes] = useState<string[]>([]);
   const [showCustomDetalhe, setShowCustomDetalhe] = useState(false);
   const [editDetalhes, setEditDetalhes] = useState<string[]>([]);
@@ -277,6 +278,7 @@ export default function FinanceiroPage() {
     setFormCategoria("Custo Fixo");
     setFormDetalhe("");
     setFormValor("");
+    setFormData(new Date().toISOString().split('T')[0]);
     setShowCustomDetalhe(false);
     setShowForm(true);
   };
@@ -286,6 +288,7 @@ export default function FinanceiroPage() {
     setShowCustomDetalhe(false);
     setFormDetalhe("");
     setFormValor("");
+    setFormData("");
   };
 
   const copiarMes = async (mesOrigem: string) => {
@@ -319,16 +322,21 @@ export default function FinanceiroPage() {
     e.preventDefault();
     const v = parseFloat(formValor.replace(",", "."));
     if (isNaN(v) || v < 0) return;
+    // Deriva anomes a partir da data escolhida (ex: "2026-04-15" → "202604")
+    const formAnoMes = formModo === "realizado" && formData
+      ? `${formData.slice(0, 4)}${formData.slice(5, 7)}`
+      : mesParam;
     setSaving(true);
     try {
       if (formModo === "realizado" && formTipo === "despesa") {
         // Despesa realizada → tabela despesas (que cria pagamento automaticamente)
         await api.post('/api/v1/despesas', {
-          anomes: mesParam,
+          anomes: formAnoMes,
           tipo_item: formTipoItem,
           detalhe: formDetalhe.trim() || null,
           categoria: formCategoria,
           valor: v,
+          data: formData,
         });
         // Recarregar movimentações
         const data = await api.get<PagamentosResponse>(`/api/v1/pagamentos?mes=${mesParam}`);
@@ -336,7 +344,7 @@ export default function FinanceiroPage() {
       } else {
         // Plano ou receita → endpoint antigo
         const payload = {
-          anomes: mesParam,
+          anomes: formAnoMes,
           tipo: formTipo,
           tipo_item: formTipoItem,
           categoria: formTipo === "despesa" ? formCategoria : "Receita",
@@ -1361,6 +1369,20 @@ export default function FinanceiroPage() {
                   className="mt-1"
                 />
               </div>
+
+              {/* Data de pagamento (só no modo realizado) */}
+              {formModo === "realizado" && (
+                <div>
+                  <Label>Data de pagamento *</Label>
+                  <Input
+                    type="date"
+                    value={formData}
+                    onChange={(e) => setFormData(e.target.value)}
+                    required
+                    className="mt-1"
+                  />
+                </div>
+              )}
 
               </div>
               {/* Botões — sticky no rodapé do sheet */}
