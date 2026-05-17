@@ -16,14 +16,20 @@ STATUS_EXCLUIDOS_ATIVOS = ("Entregue", "Orçamento")
 
 
 def _sincronizar_pagamento(db: Session, pedido: Pedido) -> None:
-    """Cria, atualiza ou deleta o pagamento de receita de acordo com o status do pedido."""
+    """Cria, atualiza ou deleta o pagamento de receita de acordo com o status do pedido.
+
+    Pagamentos é a fonte única de receitas — todo pedido Entregue precisa ter
+    seu pagamento correspondente. Hoje considera o pedido como pagamento à vista;
+    no futuro, este ponto será expandido para gerar múltiplas parcelas.
+    """
     from datetime import date as date_type
     from app.domains.plano.pagamentos_model import Pagamento
 
     pag_existente = db.query(Pagamento).filter(Pagamento.pedido_id == pedido.id).first()
 
     if pedido.status == "Entregue":
-        data_pag = pedido.data_entrega or date_type.today()
+        # Ordem de preferência: data_entrega > data_pedido > hoje
+        data_pag = pedido.data_entrega or pedido.data_pedido or date_type.today()
         anomes   = f"{data_pag.year}{data_pag.month:02d}"
         tipo_nome  = pedido.tipo_pedido.nome if pedido.tipo_pedido else "Pedido"
         cliente    = pedido.cliente.nome if pedido.cliente else ""
@@ -81,7 +87,12 @@ class PedidoRepository:
         kwargs = {k: v for k, v in d.items() if k in base or (k in extra and v is not None)}
         kwargs.setdefault("descricao_produto", "")
         pedido = Pedido(**kwargs)
+        # Se criado já como Entregue sem data_entrega, define data_entrega = hoje
+        if pedido.status == "Entregue" and pedido.data_entrega is None:
+            pedido.data_entrega = date.today()
         self.db.add(pedido)
+        self.db.flush()  # gera pedido.id antes de sincronizar pagamento
+        _sincronizar_pagamento(self.db, pedido)
         self.db.commit()
         self.db.refresh(pedido)
         return pedido
@@ -176,7 +187,7 @@ class PedidoRepository:
         if "status" in update_data:
             status = update_data["status"]
             if status == "Entregue" and pedido.data_entrega is None:
-                pedido.data_entrega = date.today()
+                pedido.data_entrega = pedido.data_pedido or date.today()
             elif status != "Entregue" and era_entregue:
                 pedido.data_entrega = None
         _sincronizar_pagamento(self.db, pedido)
@@ -195,7 +206,7 @@ class PedidoRepository:
         # ao retirar de Entregue -> limpar data_entrega
         if status == "Entregue":
             if pedido.data_entrega is None:
-                pedido.data_entrega = date.today()
+                pedido.data_entrega = pedido.data_pedido or date.today()
         else:
             if era_entregue:
                 pedido.data_entrega = None

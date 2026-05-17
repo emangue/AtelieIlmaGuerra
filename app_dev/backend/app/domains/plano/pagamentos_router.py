@@ -74,6 +74,68 @@ def _to_item(pag: Pagamento) -> PagamentoItem:
     )
 
 
+@router.post("/resync", status_code=200)
+def resync_pagamentos_pedidos(db: Session = Depends(get_db)):
+    """
+    Garante que todo Pedido `Entregue` tem um Pagamento (receita) correspondente.
+    Idempotente — pode ser executado quantas vezes for necessário.
+
+    - Cria pagamento para pedidos Entregue que não têm.
+    - Atualiza valor/data/anomes para pedidos Entregue cujo pagamento existe mas
+      está desatualizado.
+    - Remove pagamentos órfãos cujo pedido saiu de "Entregue".
+    """
+    from datetime import date as date_type
+    from app.domains.pedidos.models import Pedido
+
+    criados = 0
+    atualizados = 0
+    removidos = 0
+
+    # 1. Pedidos Entregue → cria/atualiza
+    pedidos = db.query(Pedido).filter(Pedido.status == "Entregue").all()
+    for p in pedidos:
+        data_pag = p.data_entrega or p.data_pedido or date_type.today()
+        anomes   = f"{data_pag.year}{data_pag.month:02d}"
+        tipo_nome  = p.tipo_pedido.nome if p.tipo_pedido else "Pedido"
+        cliente    = p.cliente.nome if p.cliente else ""
+        descricao  = f"{tipo_nome} · {cliente}" if cliente else tipo_nome
+        valor      = float(p.valor_pecas or 0)
+
+        pag = db.query(Pagamento).filter(Pagamento.pedido_id == p.id).first()
+        if pag is None:
+            db.add(Pagamento(
+                anomes=anomes, tipo="receita", origem="pedido", pedido_id=p.id,
+                data=data_pag, valor=valor, descricao=descricao,
+            ))
+            criados += 1
+        else:
+            mudou = (
+                pag.anomes != anomes or pag.data != data_pag
+                or float(pag.valor or 0) != valor or pag.descricao != descricao
+            )
+            if mudou:
+                pag.anomes = anomes
+                pag.data = data_pag
+                pag.valor = valor
+                pag.descricao = descricao
+                atualizados += 1
+
+    # 2. Pagamentos órfãos (pedido != Entregue) → remover
+    orfaos = (
+        db.query(Pagamento)
+        .join(Pedido, Pedido.id == Pagamento.pedido_id)
+        .filter(Pagamento.origem == "pedido", Pedido.status != "Entregue")
+        .all()
+    )
+    for o in orfaos:
+        db.delete(o)
+        removidos += 1
+
+    db.commit()
+    return {"criados": criados, "atualizados": atualizados, "removidos": removidos}
+
+
 @router.get("", response_model=PagamentosResponse)
 def list_pagamentos(
     mes: str = Query(..., description="YYYYMM — mês de referência"),

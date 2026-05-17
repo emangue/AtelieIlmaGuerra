@@ -18,8 +18,10 @@ from .schemas import (
     OpcaoDespesa,
     MovimentacaoItem,
     MovimentacoesResponse,
+    DashboardResponse,
+    PagamentosResponse,
 )
-from .service import get_plano_vs_realizado
+from .service import get_plano_vs_realizado, get_evolucao_bulk
 
 router = APIRouter(prefix="/plano", tags=["Plano"])
 
@@ -65,10 +67,10 @@ def resumo_mensal(
     ano: Optional[int] = Query(None, description="Ano (ex: 2026). Default: ano atual"),
     db: Session = Depends(get_db),
 ):
-    """Resumo por mês: planejado e realizado (receita de pedidos, despesas de transações)."""
+    """Resumo por mês: planejado e realizado (tudo via pagamentos)."""
     from datetime import date
     from .transacoes_models import DespesaTransacao
-    from app.domains.pedidos.models import Pedido, TipoPedido
+    from .pagamentos_model import Pagamento
 
     y = ano or date.today().year
     prefix = str(y)
@@ -89,38 +91,30 @@ def resumo_mensal(
     )
     desp_map = {d.anomes: float(d.total) for d in desp}
 
-    # Despesas realizadas: transações por mês (ou fallback valor_realizado legado)
-    trans = (
-        db.query(PlanoItem.anomes, func.coalesce(func.sum(DespesaTransacao.valor), 0).label("total"))
-        .join(DespesaTransacao, DespesaTransacao.plano_item_id == PlanoItem.id)
-        .filter(PlanoItem.anomes.like(f"{prefix}%"))
-        .group_by(PlanoItem.anomes)
+    # Despesas realizadas — primário: pagamentos tipo=despesa
+    pag_desp = (
+        db.query(Pagamento.anomes, func.coalesce(func.sum(Pagamento.valor), 0).label("total"))
+        .filter(Pagamento.anomes.like(f"{prefix}%"), Pagamento.tipo == "despesa")
+        .group_by(Pagamento.anomes)
     )
-    trans_map = {t.anomes: float(t.total) for t in trans}
-    # Fallback: valor_realizado em plano_itens (dados legados)
-    desp_real_legado = (
-        db.query(PlanoItem.anomes, func.coalesce(func.sum(PlanoItem.valor_realizado), 0).label("total"))
-        .filter(PlanoItem.tipo == "despesa", PlanoItem.anomes.like(f"{prefix}%"))
-        .group_by(PlanoItem.anomes)
+    trans_map = {r.anomes: float(r.total) for r in pag_desp}
+    # Fallback legado: transações Excel que ainda não migraram para despesas
+    leg = (
+        db.query(DespesaTransacao.anomes, func.coalesce(func.sum(DespesaTransacao.valor), 0).label("total"))
+        .filter(DespesaTransacao.anomes.like(f"{prefix}%"))
+        .group_by(DespesaTransacao.anomes)
     )
-    for r in desp_real_legado:
+    for r in leg:
         if trans_map.get(r.anomes, 0) == 0 and float(r.total) > 0:
             trans_map[r.anomes] = float(r.total)
 
-    # Receita realizada (pedidos entregues) por mês - simplificado
-    rec_real = {}
-    for m in range(1, 13):
-        anomes = f"{y}{m:02d}"
-        ano_i, mes_i = int(anomes[:4]), int(anomes[4:6])
-        inicio = date(ano_i, mes_i, 1)
-        fim = date(ano_i + 1, 1, 1) if mes_i == 12 else date(ano_i, mes_i + 1, 1)
-        tot = (
-            db.query(func.coalesce(func.sum(Pedido.valor_pecas), 0))
-            .join(TipoPedido)
-            .filter(Pedido.status == "Entregue", Pedido.data_entrega >= inicio, Pedido.data_entrega < fim)
-            .scalar() or 0
-        )
-        rec_real[anomes] = float(tot)
+    # Receita realizada por mês — pagamentos tipo=receita
+    rec_real_q = (
+        db.query(Pagamento.anomes, func.coalesce(func.sum(Pagamento.valor), 0).label("total"))
+        .filter(Pagamento.anomes.like(f"{prefix}%"), Pagamento.tipo == "receita")
+        .group_by(Pagamento.anomes)
+    )
+    rec_real = {r.anomes: float(r.total) for r in rec_real_q}
 
     meses = sorted(set(rec_map.keys()) | set(desp_map.keys()))
     return [
@@ -174,6 +168,52 @@ def list_despesas_realizadas(
                 )
             )
     return result
+
+
+@router.get("/dashboard", response_model=DashboardResponse)
+def get_dashboard(
+    mes: Optional[str] = Query(None, description="YYYYMM (default: mês atual)"),
+    meses: int = Query(7, ge=3, le=12, description="Meses de histórico para o gráfico"),
+    db: Session = Depends(get_db),
+):
+    """
+    Endpoint consolidado da tela Financeiro.
+    Retorna plano-vs-realizado, evolução mensal (bulk) e movimentações do mês
+    em uma única chamada — reduz de 3 requisições / ~33 queries para 1 / ~9 queries.
+    """
+    from datetime import date
+    from .pagamentos_model import Pagamento
+    from .pagamentos_router import _to_item
+
+    if not mes:
+        d = date.today()
+        mes = f"{d.year}{d.month:02d}"
+
+    pvr = get_plano_vs_realizado(db, mes)
+    evolucao = get_evolucao_bulk(db, mes, meses)
+
+    pagamentos = (
+        db.query(Pagamento)
+        .filter(Pagamento.anomes == mes)
+        .order_by(Pagamento.data.desc(), Pagamento.id.desc())
+        .all()
+    )
+    itens_pag = [_to_item(p) for p in pagamentos]
+    total_receitas = sum(i.valor for i in itens_pag if i.tipo == "receita")
+    total_despesas = sum(i.valor for i in itens_pag if i.tipo == "despesa")
+    movimentacoes = PagamentosResponse(
+        mes=mes,
+        total_receitas=total_receitas,
+        total_despesas=total_despesas,
+        saldo=total_receitas - total_despesas,
+        itens=itens_pag,
+    )
+
+    return DashboardResponse(
+        plano_vs_realizado=pvr,
+        evolucao_mensal=evolucao,
+        movimentacoes=movimentacoes,
+    )
 
 
 @router.get("/plano-vs-realizado")

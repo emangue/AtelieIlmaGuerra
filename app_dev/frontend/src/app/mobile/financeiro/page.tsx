@@ -54,22 +54,6 @@ interface EvolucaoMensalItem {
   receita_realizada: number;
 }
 
-interface PedidoEntregueItem {
-  id: number;
-  tipo_pedido_nome: string;
-  valor_pecas: number;
-  data_entrega: string;
-  cliente_nome: string;
-}
-
-interface DespesaRealizadaItem {
-  id: number;
-  tipo_item: string;
-  detalhe: string | null;
-  valor_realizado: number;
-  categoria: string;
-}
-
 interface PagamentoItem {
   id: number;
   origem: 'pedido' | 'despesa_manual';
@@ -93,6 +77,12 @@ interface PagamentosResponse {
   total_despesas: number;
   saldo: number;
   itens: PagamentoItem[];
+}
+
+interface DashboardResponse {
+  plano_vs_realizado: PlanoVsRealizado;
+  evolucao_mensal: EvolucaoMensalItem[];
+  movimentacoes: PagamentosResponse;
 }
 
 interface PedidoSnippet {
@@ -222,27 +212,26 @@ export default function FinanceiroPage() {
     return `${d.getFullYear()}${(d.getMonth() + 1).toString().padStart(2, "0")}`;
   })();
 
-  const fetchPlano = useCallback(() => {
+  const fetchDashboard = useCallback(async () => {
     if (period !== "month") return;
     setLoading(true);
-    Promise.all([
-      fetch(`${API_URL}/api/v1/plano/plano-vs-realizado?mes=${mesParam}`).then((res) => res.json()),
-      fetch(`${API_URL}/api/v1/plano/evolucao-mensal?mes=${mesParam}&meses=7`).then((res) => res.json()),
-    ])
-      .then(([plano, evolucao]: [PlanoVsRealizado, EvolucaoMensalItem[]]) => {
-        setPlanoVsRealizado(plano);
-        setEvolucaoMensal(evolucao || []);
-      })
-      .catch(() => {
-        setPlanoVsRealizado(null);
-        setEvolucaoMensal([]);
-      })
-      .finally(() => setLoading(false));
+    try {
+      const data = await api.get<DashboardResponse>(`/api/v1/plano/dashboard?mes=${mesParam}`);
+      setPlanoVsRealizado(data.plano_vs_realizado);
+      setEvolucaoMensal(data.evolucao_mensal || []);
+      setMovimentacoes(data.movimentacoes.itens);
+    } catch {
+      setPlanoVsRealizado(null);
+      setEvolucaoMensal([]);
+      setMovimentacoes([]);
+    } finally {
+      setLoading(false);
+    }
   }, [period, mesParam]);
 
   useEffect(() => {
-    fetchPlano();
-  }, [fetchPlano]);
+    fetchDashboard();
+  }, [fetchDashboard]);
 
   // Carrega detalhes quando o form abre ou o tipo muda
   useEffect(() => {
@@ -262,14 +251,6 @@ export default function FinanceiroPage() {
       .catch(() => setEditDetalhes([]));
     setEditDetalheCustom(false);
   }, [txSelecionada]);
-
-  // Busca movimentações unificadas do mês
-  useEffect(() => {
-    if (period !== 'month') return;
-    api.get<PagamentosResponse>(`/api/v1/pagamentos?mes=${mesParam}`)
-      .then(data => setMovimentacoes(data.itens))
-      .catch(() => setMovimentacoes([]));
-  }, [mesParam, period]);
 
   const openForm = () => {
     setFormModo("realizado");
@@ -303,7 +284,7 @@ export default function FinanceiroPage() {
         alert((err as { detail?: string }).detail || "Erro ao copiar o mês");
         return;
       }
-      fetchPlano();
+      fetchDashboard();
     } catch {
       alert("Erro ao copiar o mês");
     } finally {
@@ -329,7 +310,6 @@ export default function FinanceiroPage() {
     setSaving(true);
     try {
       if (formModo === "realizado" && formTipo === "despesa") {
-        // Despesa realizada → tabela despesas (que cria pagamento automaticamente)
         await api.post('/api/v1/plano/despesas', {
           anomes: formAnoMes,
           tipo_item: formTipoItem,
@@ -338,9 +318,6 @@ export default function FinanceiroPage() {
           valor: v,
           data: formData,
         });
-        // Recarregar movimentações
-        const data = await api.get<PagamentosResponse>(`/api/v1/pagamentos?mes=${mesParam}`);
-        setMovimentacoes(data.itens);
       } else {
         // Plano ou receita → endpoint antigo
         const payload = {
@@ -360,7 +337,7 @@ export default function FinanceiroPage() {
         if (!res.ok) throw new Error("Erro");
       }
       closeForm();
-      fetchPlano();
+      await fetchDashboard();
     } catch (err) {
       alert('Erro ao salvar: ' + String(err));
     } finally {
@@ -450,6 +427,7 @@ export default function FinanceiroPage() {
           : i
       ));
       setTxSelecionada(null);
+      await fetchDashboard();
     } finally {
       setSalvando(false);
     }
@@ -466,6 +444,7 @@ export default function FinanceiroPage() {
         i => !(i.id === txSelecionada.id && i.origem === 'despesa_manual')
       ));
       setTxSelecionada(null);
+      await fetchDashboard();
     } finally {
       setSalvando(false);
     }

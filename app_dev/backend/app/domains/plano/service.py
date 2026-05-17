@@ -1,6 +1,7 @@
 """
 Service do domínio Plano - plano vs realizado.
 """
+import calendar
 from datetime import date
 from typing import Dict, List
 
@@ -11,7 +12,7 @@ from app.domains.pedidos.models import Pedido, TipoPedido
 from .models import PlanoItem
 from .transacoes_models import DespesaTransacao
 from .pagamentos_model import Pagamento
-from .schemas import PlanoVsRealizado, PlanoVsRealizadoItem, TIPO_PEDIDO_TO_PLANO
+from .schemas import PlanoVsRealizado, PlanoVsRealizadoItem, EvolucaoMensalItem, TIPO_PEDIDO_TO_PLANO
 
 
 def _parse_mes(mes: str) -> tuple:
@@ -39,17 +40,19 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         PlanoItem.tipo, PlanoItem.categoria, PlanoItem.tipo_item
     ).all()
 
-    # Receita realizado: pedidos entregues no mês + receitas manuais (plano_itens tipo=receita valor_realizado)
+    # Receita realizada: pagamentos tipo=receita do mês (fonte única).
+    # Pagamentos são criados/atualizados automaticamente quando o pedido entra/sai
+    # do status "Entregue" (ver pedidos/repository._sincronizar_pagamento).
     receita_por_tipo = (
         db.query(
             TipoPedido.nome,
-            func.coalesce(func.sum(Pedido.valor_pecas), 0).label("valor"),
+            func.coalesce(func.sum(Pagamento.valor), 0).label("valor"),
         )
-        .join(Pedido, Pedido.tipo_pedido_id == TipoPedido.id)
+        .join(Pedido, Pedido.id == Pagamento.pedido_id)
+        .join(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
         .filter(
-            Pedido.status == "Entregue",
-            Pedido.data_entrega >= inicio,
-            Pedido.data_entrega < fim,
+            Pagamento.anomes == mes,
+            Pagamento.tipo == "receita",
         )
         .group_by(TipoPedido.nome)
         .all()
@@ -168,3 +171,55 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         itens_receita=itens_receita,
         itens_despesas=itens_despesas,
     )
+
+
+def get_evolucao_bulk(db: Session, mes: str, meses: int = 7) -> List[EvolucaoMensalItem]:
+    """
+    Evolução mensal com bulk queries: 2 queries totais para N meses,
+    em vez de N×4 queries do loop original.
+    """
+    MESES_ABREV = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
+    ano, num_mes = int(mes[:4]), int(mes[4:6])
+    anomes_list: List[str] = []
+    for _ in range(meses):
+        anomes_list.append(f"{ano}{num_mes:02d}")
+        num_mes -= 1
+        if num_mes < 1:
+            num_mes = 12
+            ano -= 1
+
+    # Query 1: receita planejada por mês (um único SELECT com GROUP BY)
+    rec_plan_rows = (
+        db.query(PlanoItem.anomes, func.coalesce(func.sum(PlanoItem.valor_planejado), 0).label("total"))
+        .filter(PlanoItem.anomes.in_(anomes_list), PlanoItem.tipo == "receita")
+        .group_by(PlanoItem.anomes)
+        .all()
+    )
+    rec_plan_map: Dict[str, float] = {r.anomes: float(r.total) for r in rec_plan_rows}
+
+    # Query 2: receita realizada — pagamentos tipo=receita nos meses pedidos.
+    # Usa Pagamento.anomes (string YYYYMM) — sem strftime, portável a Postgres.
+    pag_rows = (
+        db.query(
+            Pagamento.anomes,
+            func.coalesce(func.sum(Pagamento.valor), 0).label("valor"),
+        )
+        .filter(
+            Pagamento.anomes.in_(anomes_list),
+            Pagamento.tipo == "receita",
+        )
+        .group_by(Pagamento.anomes)
+        .all()
+    )
+    rec_real_map: Dict[str, float] = {r.anomes: float(r.valor) for r in pag_rows}
+
+    return [
+        EvolucaoMensalItem(
+            anomes=anomes,
+            label=MESES_ABREV[int(anomes[4:]) - 1],
+            receita_planejada=rec_plan_map.get(anomes, 0),
+            receita_realizada=rec_real_map.get(anomes, 0),
+        )
+        for anomes in reversed(anomes_list)
+    ]

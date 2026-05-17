@@ -260,3 +260,16 @@ class DespesaOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class EvolucaoMensalItem(BaseModel):
+    anomes: str
+    label: str
+    receita_planejada: float
+    receita_realizada: float
+
+
+class DashboardResponse(BaseModel):
+    plano_vs_realizado: PlanoVsRealizado
+    evolucao_mensal: List[EvolucaoMensalItem]
+    movimentacoes: PagamentosResponse
