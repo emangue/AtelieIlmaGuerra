@@ -330,7 +330,7 @@ export default function FinanceiroPage() {
     try {
       if (formModo === "realizado" && formTipo === "despesa") {
         // Despesa realizada → tabela despesas (que cria pagamento automaticamente)
-        await api.post('/api/v1/despesas', {
+        await api.post('/api/v1/plano/despesas', {
           anomes: formAnoMes,
           tipo_item: formTipoItem,
           detalhe: formDetalhe.trim() || null,
@@ -409,7 +409,7 @@ export default function FinanceiroPage() {
         const p = await api.get<PedidoSnippet>(`/api/v1/pedidos/${item.pedido_id}`);
         setPedidoDetalhe(p);
       } else if (item.origem === 'despesa_manual' && item.despesa_id) {
-        const d = await api.get<DespesaSnippet>(`/api/v1/despesas/${item.despesa_id}`);
+        const d = await api.get<DespesaSnippet>(`/api/v1/plano/despesas/${item.despesa_id}`);
         setDespesaDetalhe(d);
         setEditTipoItem(d.tipo_item ?? '');
         setEditDetalhe(d.detalhe ?? '');
@@ -436,7 +436,7 @@ export default function FinanceiroPage() {
     if (!txSelecionada.despesa_id) return;
     setSalvando(true);
     try {
-      await api.patch(`/api/v1/despesas/${txSelecionada.despesa_id}`, {
+      await api.patch(`/api/v1/plano/despesas/${txSelecionada.despesa_id}`, {
         tipo_item: editTipoItem || null,
         detalhe: editDetalhe.trim() || null,
         categoria: editCategoria,
@@ -461,7 +461,7 @@ export default function FinanceiroPage() {
     if (!confirmDelete) { setConfirmDelete(true); return; }
     setSalvando(true);
     try {
-      await api.delete(`/api/v1/despesas/${txSelecionada.despesa_id}`);
+      await api.delete(`/api/v1/plano/despesas/${txSelecionada.despesa_id}`);
       setMovimentacoes(prev => prev.filter(
         i => !(i.id === txSelecionada.id && i.origem === 'despesa_manual')
       ));

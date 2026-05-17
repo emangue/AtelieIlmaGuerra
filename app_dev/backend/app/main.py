@@ -63,7 +63,7 @@ app.include_router(despesas_legacy_router, prefix="/api/v1")
 app.include_router(plano_router, prefix="/api/v1")
 app.include_router(transacoes_router, prefix="/api/v1")
 app.include_router(pagamentos_router, prefix="/api/v1")
-app.include_router(plano_despesas_router, prefix="/api/v1")
+app.include_router(plano_despesas_router, prefix="/api/v1/plano")
 
 # Uploads estáticos
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
