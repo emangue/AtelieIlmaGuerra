@@ -15,6 +15,9 @@ import {
   ImageIcon,
   FileText,
   CreditCard,
+  X,
+  Plus,
+  Trash2,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -37,6 +40,12 @@ interface PedidoItem {
   parcelas_total: number | null;
 }
 
+interface ParcelaForm {
+  valor: string;
+  data_vencimento: string;
+  data_pagamento: string;
+}
+
 function formatDate(iso: string) {
   try {
     const d = new Date(iso);
@@ -46,6 +55,10 @@ function formatDate(iso: string) {
 
 function formatMoney(v: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v);
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
@@ -62,10 +75,290 @@ const PAG_BADGE: Record<string, { label: string; cls: string }> = {
   em_atraso:  { label: "Em atraso",  cls: "bg-red-50 text-red-700" },
 };
 
+const FORMAS = ["Pix", "À Vista", "Crediário", "Cartão Parcelado"];
+
+// ── Modal de pagamento ao marcar Entregue ──────────────────────────────────
+type ModalStep = "choose" | "parcelar";
+
+interface EntregueModalProps {
+  pedido: PedidoItem;
+  onClose: () => void;
+  onConfirm: (pedido: PedidoItem, config: ParcelasConfigPayload | null) => Promise<void>;
+}
+
+interface ParcelasConfigPayload {
+  forma_pagamento: string | null;
+  entrada: { valor: number; data_vencimento: string; data_pagamento: string | null } | null;
+  parcelas: { valor: number; data_vencimento: string; data_pagamento: string | null }[];
+}
+
+function EntregueModal({ pedido, onClose, onConfirm }: EntregueModalProps) {
+  const [step, setStep] = useState<ModalStep>("choose");
+  const [saving, setSaving] = useState(false);
+
+  // form de parcelamento
+  const [forma, setForma] = useState(pedido.forma_pagamento || "Pix");
+  const [temEntrada, setTemEntrada] = useState(false);
+  const [entrada, setEntrada] = useState<ParcelaForm>({
+    valor: pedido.valor_pecas ? String(pedido.valor_pecas) : "",
+    data_vencimento: todayISO(),
+    data_pagamento: todayISO(),
+  });
+  const [parcelas, setParcelas] = useState<ParcelaForm[]>([
+    { valor: "", data_vencimento: todayISO(), data_pagamento: "" },
+  ]);
+
+  const addParcela = () => setParcelas((p) => [...p, { valor: "", data_vencimento: todayISO(), data_pagamento: "" }]);
+  const removeParcela = (i: number) => setParcelas((p) => p.filter((_, idx) => idx !== i));
+  const updateParcela = (i: number, field: keyof ParcelaForm, val: string) =>
+    setParcelas((p) => p.map((x, idx) => (idx === i ? { ...x, [field]: val } : x)));
+
+  const handleJaRecebi = async () => {
+    setSaving(true);
+    await onConfirm(pedido, {
+      forma_pagamento: pedido.forma_pagamento || "Pix",
+      entrada: null,
+      parcelas: [{
+        valor: pedido.valor_pecas || 0,
+        data_vencimento: todayISO(),
+        data_pagamento: todayISO(),
+      }],
+    });
+    setSaving(false);
+  };
+
+  const handleAindaNao = async () => {
+    setSaving(true);
+    await onConfirm(pedido, null);
+    setSaving(false);
+  };
+
+  const handleSalvarParcelas = async () => {
+    setSaving(true);
+    const payload: ParcelasConfigPayload = {
+      forma_pagamento: forma,
+      entrada: temEntrada ? {
+        valor: parseFloat(entrada.valor) || 0,
+        data_vencimento: entrada.data_vencimento,
+        data_pagamento: entrada.data_pagamento || null,
+      } : null,
+      parcelas: parcelas.map((p) => ({
+        valor: parseFloat(p.valor) || 0,
+        data_vencimento: p.data_vencimento,
+        data_pagamento: p.data_pagamento || null,
+      })),
+    };
+    await onConfirm(pedido, payload);
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="w-full max-w-lg rounded-t-2xl bg-white p-6 pb-safe"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: "90vh", overflowY: "auto" }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Marcar como Entregue</h3>
+            <p className="text-sm text-gray-500">{pedido.cliente_nome}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {step === "choose" && (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-gray-600 mb-2">Como foi o pagamento?</p>
+
+            <button
+              onClick={handleJaRecebi}
+              disabled={saving}
+              className="flex items-center gap-3 p-4 rounded-xl border-2 border-green-200 bg-green-50 text-left hover:bg-green-100 disabled:opacity-50"
+            >
+              <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                <Check className="w-5 h-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-green-800">Já recebi tudo</p>
+                <p className="text-xs text-green-600">Pagamento confirmado hoje</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setStep("parcelar")}
+              disabled={saving}
+              className="flex items-center gap-3 p-4 rounded-xl border-2 border-blue-200 bg-blue-50 text-left hover:bg-blue-100 disabled:opacity-50"
+            >
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                <CreditCard className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-blue-800">Quero parcelar</p>
+                <p className="text-xs text-blue-600">Configurar entrada e parcelas</p>
+              </div>
+            </button>
+
+            <button
+              onClick={handleAindaNao}
+              disabled={saving}
+              className="flex items-center gap-3 p-4 rounded-xl border-2 border-gray-200 bg-gray-50 text-left hover:bg-gray-100 disabled:opacity-50"
+            >
+              <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <Calendar className="w-5 h-5 text-gray-500" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700">Ainda não recebi</p>
+                <p className="text-xs text-gray-500">Marcar como entregue sem registrar pagamento</p>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {step === "parcelar" && (
+          <div className="flex flex-col gap-4">
+            <button onClick={() => setStep("choose")} className="text-sm text-blue-600 text-left">← Voltar</button>
+
+            {/* Forma de pagamento */}
+            <div>
+              <label className="text-xs uppercase tracking-wide text-gray-400 mb-1 block">Forma de pagamento</label>
+              <div className="grid grid-cols-2 gap-2">
+                {FORMAS.map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setForma(f)}
+                    className={`py-2 px-3 rounded-lg border text-sm font-medium ${
+                      forma === f ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 bg-white text-gray-700"
+                    }`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Entrada */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <input
+                  type="checkbox"
+                  id="tem-entrada"
+                  checked={temEntrada}
+                  onChange={(e) => setTemEntrada(e.target.checked)}
+                  className="rounded"
+                />
+                <label htmlFor="tem-entrada" className="text-sm font-medium text-gray-700">Tem entrada?</label>
+              </div>
+              {temEntrada && (
+                <div className="bg-gray-50 rounded-xl p-3 flex flex-col gap-2">
+                  <div>
+                    <label className="text-xs text-gray-400">Valor da entrada</label>
+                    <input
+                      type="number"
+                      value={entrada.valor}
+                      onChange={(e) => setEntrada({ ...entrada, valor: e.target.value })}
+                      placeholder="R$ 0,00"
+                      className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-gray-400">Vencimento</label>
+                      <input
+                        type="date"
+                        value={entrada.data_vencimento}
+                        onChange={(e) => setEntrada({ ...entrada, data_vencimento: e.target.value })}
+                        className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400">Pago em (opcional)</label>
+                      <input
+                        type="date"
+                        value={entrada.data_pagamento}
+                        onChange={(e) => setEntrada({ ...entrada, data_pagamento: e.target.value })}
+                        className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Parcelas */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-gray-700">Parcelas</p>
+                <button onClick={addParcela} className="text-xs text-blue-600 flex items-center gap-1">
+                  <Plus className="w-3 h-3" /> Adicionar
+                </button>
+              </div>
+              <div className="flex flex-col gap-2">
+                {parcelas.map((p, i) => (
+                  <div key={i} className="bg-gray-50 rounded-xl p-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-gray-500">Parcela {i + 1}</span>
+                      {parcelas.length > 1 && (
+                        <button onClick={() => removeParcela(i)} className="text-red-400 hover:text-red-600">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400">Valor</label>
+                      <input
+                        type="number"
+                        value={p.valor}
+                        onChange={(e) => updateParcela(i, "valor", e.target.value)}
+                        placeholder="R$ 0,00"
+                        className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-gray-400">Vencimento</label>
+                        <input
+                          type="date"
+                          value={p.data_vencimento}
+                          onChange={(e) => updateParcela(i, "data_vencimento", e.target.value)}
+                          className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400">Pago em (opcional)</label>
+                        <input
+                          type="date"
+                          value={p.data_pagamento}
+                          onChange={(e) => updateParcela(i, "data_pagamento", e.target.value)}
+                          className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <Button onClick={handleSalvarParcelas} disabled={saving} className="w-full mt-2">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Confirmar entrega e salvar pagamento
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+// ──────────────────────────────────────────────────────────────────────────
+
 export default function PedidosPage() {
   const [pedidos, setPedidos] = useState<PedidoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [entregueModal, setEntregueModal] = useState<PedidoItem | null>(null);
 
   const fetchPedidos = () => {
     setLoading(true);
@@ -78,7 +371,45 @@ export default function PedidosPage() {
 
   useEffect(() => { fetchPedidos(); }, []);
 
+  const handleEntregueClick = (pedido: PedidoItem) => {
+    setEntregueModal(pedido);
+  };
+
+  const handleEntregueConfirm = async (pedido: PedidoItem, config: ParcelasConfigPayload | null) => {
+    setUpdatingId(pedido.id);
+    try {
+      // 1. Marcar status como Entregue
+      const statusRes = await fetch(`${API_URL}/api/v1/pedidos/${pedido.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Entregue" }),
+      });
+      if (!statusRes.ok) throw new Error("Erro ao atualizar status");
+
+      // 2. Se há configuração de pagamento, salvar parcelas
+      if (config && (config.entrada || config.parcelas.length > 0)) {
+        await fetch(`${API_URL}/api/v1/pedidos/${pedido.id}/pagamento`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(config),
+        });
+      }
+
+      // Remove da lista de ativos
+      setPedidos((prev) => prev.filter((p) => p.id !== pedido.id));
+    } catch {
+      /* noop */
+    } finally {
+      setUpdatingId(null);
+      setEntregueModal(null);
+    }
+  };
+
   const handleStatusClick = async (pedido: PedidoItem, newStatus: string) => {
+    if (newStatus === "Entregue") {
+      handleEntregueClick(pedido);
+      return;
+    }
     setUpdatingId(pedido.id);
     try {
       const res = await fetch(`${API_URL}/api/v1/pedidos/${pedido.id}/status`, {
@@ -87,12 +418,8 @@ export default function PedidosPage() {
         body: JSON.stringify({ status: newStatus }),
       });
       if (!res.ok) throw new Error("Erro");
-      if (newStatus === "Entregue") {
-        setPedidos((prev) => prev.filter((p) => p.id !== pedido.id));
-      } else {
-        const updated = await res.json();
-        setPedidos((prev) => prev.map((p) => (p.id === pedido.id ? { ...p, ...updated } : p)));
-      }
+      const updated = await res.json();
+      setPedidos((prev) => prev.map((p) => (p.id === pedido.id ? { ...p, ...updated } : p)));
     } catch {
       /* noop */
     } finally {
@@ -288,6 +615,14 @@ export default function PedidosPage() {
       >
         <Calendar className="h-6 w-6" />
       </Link>
+
+      {entregueModal && (
+        <EntregueModal
+          pedido={entregueModal}
+          onClose={() => setEntregueModal(null)}
+          onConfirm={handleEntregueConfirm}
+        />
+      )}
     </div>
   );
 }

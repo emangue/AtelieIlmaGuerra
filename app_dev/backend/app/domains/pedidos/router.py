@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from app.core.database import get_db
 from sqlalchemy.orm import Session
 
-from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem
+from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem, ParcelaCreate, ParcelasConfig, ParcelaOut
 from .service import PedidoService, _norm_foto_url
 from .models import FormaPeca, FormaPecaMedida
 
@@ -223,3 +223,121 @@ def update_pedido(pedido_id: int, data: PedidoUpdate, db: Session = Depends(get_
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     return service.to_list_item(pedido)
+
+
+@router.get("/{pedido_id}/parcelas", response_model=list[ParcelaOut])
+def get_parcelas(pedido_id: int, db: Session = Depends(get_db)):
+    """Retorna as parcelas do pedido."""
+    from app.domains.plano.pagamentos_model import Pagamento
+    from datetime import date as date_type
+    parcelas = (
+        db.query(Pagamento)
+        .filter(Pagamento.pedido_id == pedido_id, Pagamento.tipo == "receita")
+        .order_by(Pagamento.parcela_numero.asc().nullslast(), Pagamento.data_vencimento.asc())
+        .all()
+    )
+    hoje = date_type.today()
+    result = []
+    for p in parcelas:
+        if p.data_pagamento:
+            status = "confirmado"
+        elif p.data_vencimento and p.data_vencimento < hoje:
+            status = "em_atraso"
+        else:
+            status = "aguardando"
+        result.append(ParcelaOut(
+            id=p.id,
+            parcela_numero=p.parcela_numero,
+            parcela_total=p.parcela_total,
+            valor=p.valor,
+            data_vencimento=p.data_vencimento.isoformat() if p.data_vencimento else None,
+            data_pagamento=p.data_pagamento.isoformat() if p.data_pagamento else None,
+            status=status,
+        ))
+    return result
+
+
+@router.post("/{pedido_id}/pagamento", response_model=list[ParcelaOut], status_code=201)
+def configurar_pagamento(
+    pedido_id: int,
+    data: ParcelasConfig,
+    db: Session = Depends(get_db),
+):
+    """Cria ou recria as parcelas de um pedido. Apaga as anteriores e insere as novas."""
+    from app.domains.plano.pagamentos_model import Pagamento
+    from datetime import datetime as dt, date as date_type
+
+    service = PedidoService(db)
+    pedido = service.get_by_id(pedido_id)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+
+    # Apagar parcelas existentes do pedido
+    db.query(Pagamento).filter(
+        Pagamento.pedido_id == pedido_id,
+        Pagamento.tipo == "receita",
+    ).delete()
+
+    tipo_nome = pedido.tipo_pedido.nome if pedido.tipo_pedido else "Pedido"
+    cliente_nome = pedido.cliente.nome if pedido.cliente else ""
+    descricao_base = f"{tipo_nome} · {cliente_nome}" if cliente_nome else tipo_nome
+
+    novas: list[Pagamento] = []
+    total_parcelas = len(data.parcelas) + (1 if data.entrada else 0)
+
+    def _parse(d: str) -> date_type:
+        return dt.strptime(d, "%Y-%m-%d").date()
+
+    num = 1
+
+    if data.entrada:
+        e = data.entrada
+        data_venc = _parse(e.data_vencimento)
+        data_pag = _parse(e.data_pagamento) if e.data_pagamento else None
+        anomes = f"{data_pag.year}{data_pag.month:02d}" if data_pag else None
+        novas.append(Pagamento(
+            anomes=anomes,
+            tipo="receita",
+            origem="pedido",
+            pedido_id=pedido_id,
+            parcela_numero=num,
+            parcela_total=total_parcelas,
+            data_vencimento=data_venc,
+            data_pagamento=data_pag,
+            valor=e.valor,
+            descricao=f"Entrada · {descricao_base}",
+        ))
+        num += 1
+
+    for parc in data.parcelas:
+        data_venc = _parse(parc.data_vencimento)
+        data_pag = _parse(parc.data_pagamento) if parc.data_pagamento else None
+        anomes = f"{data_pag.year}{data_pag.month:02d}" if data_pag else None
+        novas.append(Pagamento(
+            anomes=anomes,
+            tipo="receita",
+            origem="pedido",
+            pedido_id=pedido_id,
+            parcela_numero=num,
+            parcela_total=total_parcelas,
+            data_vencimento=data_venc,
+            data_pagamento=data_pag,
+            valor=parc.valor,
+            descricao=f"Parcela {num - (1 if data.entrada else 0)} · {descricao_base}",
+        ))
+        num += 1
+
+    # Atualizar forma_pagamento no pedido
+    if data.forma_pagamento:
+        pedido.forma_pagamento = data.forma_pagamento
+
+    # Se todas confirmadas, marcar pagamento_na_entrega como resolvido
+    todas_pagas = all(p.data_pagamento for p in novas)
+    if todas_pagas:
+        pedido.pagamento_na_entrega = False
+
+    for p in novas:
+        db.add(p)
+
+    db.commit()
+    return get_parcelas(pedido_id, db)

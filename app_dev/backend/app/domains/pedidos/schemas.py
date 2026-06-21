@@ -2,7 +2,7 @@
 Schemas do domínio Pedidos.
 """
 from datetime import date, datetime
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import BaseModel, Field
 
@@ -204,3 +204,25 @@ class PedidoDetail(PedidoListItem):
     comentario_foto_3: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+
+class ParcelaCreate(BaseModel):
+    valor: float
+    data_vencimento: str  # YYYY-MM-DD
+    data_pagamento: Optional[str] = None  # YYYY-MM-DD, None = não pago
+
+
+class ParcelasConfig(BaseModel):
+    forma_pagamento: Optional[str] = None
+    entrada: Optional[ParcelaCreate] = None
+    parcelas: List[ParcelaCreate] = []
+
+
+class ParcelaOut(BaseModel):
+    id: int
+    parcela_numero: Optional[int] = None
+    parcela_total: Optional[int] = None
+    valor: float
+    data_vencimento: Optional[str] = None
+    data_pagamento: Optional[str] = None
+    status: str  # confirmado | aguardando | em_atraso
