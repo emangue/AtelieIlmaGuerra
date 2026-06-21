@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -158,7 +158,10 @@ function Field({
 
 export default function PedidoDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const id = Number(params.id);
+  const fromPage = searchParams.get("from");
   const [pedido, setPedido] = useState<PedidoDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -966,11 +969,9 @@ export default function PedidoDetailPage() {
     <div className="flex flex-1 flex-col pb-24">
       <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-3">
         <div className="flex items-center gap-2">
-          <Link href="/mobile/pedidos">
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          </Link>
+          <Button variant="ghost" size="icon" onClick={() => router.push(fromPage === "financeiro" ? "/mobile/financeiro" : "/mobile/pedidos")}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-semibold text-gray-900 truncate">
               {pedido.cliente_nome}

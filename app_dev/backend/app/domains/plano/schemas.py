@@ -150,6 +150,8 @@ class PlanoVsRealizado(BaseModel):
     lucro_planejado: float
     lucro_realizado: float
     percentual_atingimento: float  # lucro_realizado / lucro_planejado * 100 (ou 0 se planejado=0)
+    repasse_costureira: float = 0.0
+    lucro_liquido_dono: float = 0.0
     itens_receita: List[PlanoVsRealizadoItem]
     itens_despesas: List[PlanoVsRealizadoItem]
 

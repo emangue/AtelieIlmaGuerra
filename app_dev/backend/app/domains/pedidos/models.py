@@ -88,6 +88,7 @@ class Pedido(Base):
     valor_entrada = Column(Float, nullable=True)
     valor_restante = Column(Float, nullable=True)
     detalhes_pagamento = Column(Text, nullable=True)
+    percentual_lucro_dono = Column(Float, nullable=True, default=100.0)
 
     medidas_disponiveis = Column(Boolean, default=False)
     medida_ombro = Column(Float, nullable=True)

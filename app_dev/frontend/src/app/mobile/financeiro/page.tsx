@@ -43,6 +43,8 @@ interface PlanoVsRealizado {
   lucro_planejado: number;
   lucro_realizado: number;
   percentual_atingimento: number;
+  repasse_costureira: number;
+  lucro_liquido_dono: number;
   itens_receita: PlanoVsRealizadoItem[];
   itens_despesas: PlanoVsRealizadoItem[];
 }
@@ -573,20 +575,20 @@ export default function FinanceiroPage() {
                     </p>
                   </div>
                   <div className="pl-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-0.5">Lucro</p>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-0.5">Lucro seu</p>
                     <p
                       className={cn(
                         "text-base font-bold",
-                        planoVsRealizado.lucro_realizado >= 0 ? "text-emerald-600" : "text-red-600"
+                        planoVsRealizado.lucro_liquido_dono >= 0 ? "text-emerald-600" : "text-red-600"
                       )}
                     >
-                      {formatMoney(planoVsRealizado.lucro_realizado)}
+                      {formatMoney(planoVsRealizado.lucro_liquido_dono ?? planoVsRealizado.lucro_realizado)}
                     </p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">
-                      {planoVsRealizado.lucro_planejado !== 0
-                        ? `${planoVsRealizado.percentual_atingimento.toFixed(0)}% do plano`
-                        : "—"}
-                    </p>
+                    {(planoVsRealizado.repasse_costureira ?? 0) > 0 && (
+                      <p className="text-[10px] text-orange-500 mt-0.5">
+                        −{formatMoney(planoVsRealizado.repasse_costureira)} Esli
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -615,16 +617,22 @@ export default function FinanceiroPage() {
                             ? `Acima ${formatMoney(planoVsRealizado.lucro_realizado - planoVsRealizado.lucro_planejado)}`
                             : `Abaixo ${formatMoney(planoVsRealizado.lucro_planejado - planoVsRealizado.lucro_realizado)}`
                           : "Sem plano definido"}
+                        {(planoVsRealizado.repasse_costureira ?? 0) > 0 && ` · Repasse Esli ${formatMoney(planoVsRealizado.repasse_costureira)}`}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span
-                        className={`text-sm font-bold ${
-                          planoVsRealizado.lucro_realizado >= 0 ? "text-emerald-600" : "text-red-500"
-                        }`}
-                      >
-                        {formatMoney(planoVsRealizado.lucro_realizado)}
-                      </span>
+                      <div className="text-right">
+                        <span
+                          className={`text-sm font-bold ${
+                            planoVsRealizado.lucro_liquido_dono >= 0 ? "text-emerald-600" : "text-red-500"
+                          }`}
+                        >
+                          {formatMoney(planoVsRealizado.lucro_liquido_dono ?? planoVsRealizado.lucro_realizado)}
+                        </span>
+                        {(planoVsRealizado.repasse_costureira ?? 0) > 0 && (
+                          <p className="text-[10px] text-gray-400">seu líquido</p>
+                        )}
+                      </div>
                       <ChevronDown className="w-5 h-5 text-gray-400 group-data-[state=open]:rotate-180 transition-transform" />
                     </div>
                   </div>
@@ -964,7 +972,7 @@ export default function FinanceiroPage() {
                   </button>
                   {txSelecionada.pedido_id && (
                     <a
-                      href={`/mobile/pedidos/${txSelecionada.pedido_id}`}
+                      href={`/mobile/pedidos/${txSelecionada.pedido_id}?from=financeiro`}
                       style={{
                         flex: 2, padding: '12px 0', borderRadius: 12, fontWeight: 700, fontSize: 14,
                         background: '#1F4D35', color: '#fff', textDecoration: 'none',

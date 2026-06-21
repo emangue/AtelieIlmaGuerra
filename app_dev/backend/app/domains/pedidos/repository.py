@@ -14,6 +14,18 @@ from .schemas import PedidoCreate, PedidoUpdate
 # Status que NÃO aparecem em "pedidos ativos"
 STATUS_EXCLUIDOS_ATIVOS = ("Entregue", "Orçamento")
 
+TIPOS_COM_REPASSE_50 = {"ajustes", "ajuste"}
+
+
+def _percentual_por_tipo(db: Session, tipo_pedido_id) -> float:
+    """Retorna o percentual de lucro do dono: 50% para Ajustes, 100% para o resto."""
+    if not tipo_pedido_id:
+        return 100.0
+    tipo = db.query(TipoPedido).filter(TipoPedido.id == tipo_pedido_id).first()
+    if tipo and tipo.nome.lower() in TIPOS_COM_REPASSE_50:
+        return 50.0
+    return 100.0
+
 
 def _sincronizar_pagamento(db: Session, pedido: Pedido) -> None:
     """Cria, atualiza ou deleta o pagamento de receita de acordo com o status do pedido.
@@ -87,7 +99,7 @@ class PedidoRepository:
         kwargs = {k: v for k, v in d.items() if k in base or (k in extra and v is not None)}
         kwargs.setdefault("descricao_produto", "")
         pedido = Pedido(**kwargs)
-        # Se criado já como Entregue sem data_entrega, define data_entrega = hoje
+        pedido.percentual_lucro_dono = _percentual_por_tipo(self.db, pedido.tipo_pedido_id)
         if pedido.status == "Entregue" and pedido.data_entrega is None:
             pedido.data_entrega = date.today()
         self.db.add(pedido)
@@ -183,7 +195,8 @@ class PedidoRepository:
         era_entregue = pedido.status == "Entregue"
         for key, value in update_data.items():
             setattr(pedido, key, value)
-        # Se status foi alterado, garantir data_entrega consistente (valor realizado)
+        if "tipo_pedido_id" in update_data:
+            pedido.percentual_lucro_dono = _percentual_por_tipo(self.db, update_data["tipo_pedido_id"])
         if "status" in update_data:
             status = update_data["status"]
             if status == "Entregue" and pedido.data_entrega is None:
