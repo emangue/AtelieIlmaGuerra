@@ -61,7 +61,8 @@ function gerarParcelas(
 
 // ─── Componente para criação (novo pedido) ───────────────────────────────────
 export function PagamentoForm({ valorPecas, config, onChange }: Props) {
-  const [nParcelas, setNParcelas] = useState(1);
+  const [nParcelasStr, setNParcelasStr] = useState("1");
+  const nParcelas = Math.max(1, parseInt(nParcelasStr) || 1);
   const [primeiroVenc, setPrimeiroVenc] = useState(todayISO());
   const [temEntrada, setTemEntrada] = useState(false);
 
@@ -113,7 +114,7 @@ export function PagamentoForm({ valorPecas, config, onChange }: Props) {
                   onClick={() => {
                     const nova = config.forma_pagamento === f ? null : f;
                     // Se mudar para Pix, força 1 parcela
-                    if (nova === "Pix") setNParcelas(1);
+                    if (nova === "Pix") setNParcelasStr("1");
                     onChange({ ...config, forma_pagamento: nova });
                   }}
                   className={`py-2 px-2 rounded-lg text-sm font-medium border text-center ${
@@ -172,9 +173,10 @@ export function PagamentoForm({ valorPecas, config, onChange }: Props) {
               <p className="text-xs text-gray-500 mb-1">Nº de parcelas</p>
               <input
                 type="number" min={1} max={24}
-                value={nParcelas}
+                value={nParcelasStr}
                 disabled={!isParcelado}
-                onChange={(e) => setNParcelas(Math.max(1, parseInt(e.target.value) || 1))}
+                onChange={(e) => setNParcelasStr(e.target.value)}
+                onBlur={() => setNParcelasStr(String(nParcelas))}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm disabled:bg-gray-100 disabled:text-gray-400"
               />
             </div>
@@ -256,7 +258,8 @@ export function PagamentoFormEdit({
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [parcelasExist, setParcelasExist] = useState<ParcelaRowState[]>([]);
-  const [nParcelas, setNParcelas] = useState(1);
+  const [nParcelasStr, setNParcelasStr] = useState("1");
+  const nParcelas = Math.max(1, parseInt(nParcelasStr) || 1);
   const [primeiroVenc, setPrimeiroVenc] = useState(todayISO());
   const [pnEntrega, setPnEntrega] = useState(pagamentoNaEntrega ?? false);
   const [temEntrada, setTemEntrada] = useState(false);
@@ -278,7 +281,7 @@ export function PagamentoFormEdit({
           status: p.status,
         }));
         setParcelasExist(rows);
-        if (rows.length > 0) setNParcelas(rows.length);
+        if (rows.length > 0) setNParcelasStr(String(rows.length));
         setLoaded(true);
       })
       .catch(() => { setParcelasExist([]); setLoaded(true); });
@@ -344,7 +347,7 @@ export function PagamentoFormEdit({
                 <button key={f} type="button"
                   onClick={() => {
                     const nova = formaPagamento === f ? null : f;
-                    if (nova === "Pix") setNParcelas(1);
+                    if (nova === "Pix") setNParcelasStr("1");
                     onFormaPagamentoChange(nova);
                   }}
                   className={`py-2 px-2 rounded-lg text-sm font-medium border text-center ${
@@ -400,9 +403,10 @@ export function PagamentoFormEdit({
               <p className="text-xs text-gray-500 mb-1">Nº de parcelas</p>
               <input
                 type="number" min={1} max={24}
-                value={nParcelas}
+                value={nParcelasStr}
                 disabled={!isParcelado}
-                onChange={(e) => setNParcelas(Math.max(1, parseInt(e.target.value) || 1))}
+                onChange={(e) => setNParcelasStr(e.target.value)}
+                onBlur={() => setNParcelasStr(String(nParcelas))}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm disabled:bg-gray-100 disabled:text-gray-400"
               />
             </div>
