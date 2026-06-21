@@ -10,6 +10,31 @@ from sqlalchemy import and_
 from .models import Pedido, TipoPedido
 from .schemas import PedidoCreate, PedidoUpdate
 
+MEDIDAS_CAMPOS = [
+    "medida_ombro", "medida_busto", "medida_cinto", "medida_quadril",
+    "medida_comprimento_corpo", "medida_comprimento_vestido",
+    "medida_distancia_busto", "medida_raio_busto", "medida_altura_busto",
+    "medida_frente", "medida_costado", "medida_comprimento_calca",
+    "medida_comprimento_blusa", "medida_largura_manga", "medida_comprimento_manga",
+    "medida_punho", "medida_comprimento_saia", "medida_comprimento_bermuda",
+]
+
+
+def _sync_medidas_cliente(db: Session, pedido: Pedido) -> None:
+    """Copia as medidas do pedido para o cadastro do cliente (fonte de verdade atual)."""
+    from app.domains.clientes.models import Cliente
+    cliente = db.query(Cliente).filter(Cliente.id == pedido.cliente_id).first()
+    if not cliente:
+        return
+    atualizado = False
+    for campo in MEDIDAS_CAMPOS:
+        valor = getattr(pedido, campo, None)
+        if valor is not None:
+            setattr(cliente, campo, valor)
+            atualizado = True
+    if atualizado:
+        db.flush()
+
 
 # Status que NÃO aparecem em "pedidos ativos"
 STATUS_EXCLUIDOS_ATIVOS = ("Entregue", "Orçamento")
@@ -62,6 +87,8 @@ class PedidoRepository:
         if pedido.status == "Entregue" and pedido.data_entrega is None:
             pedido.data_entrega = date.today()
         self.db.add(pedido)
+        self.db.flush()
+        _sync_medidas_cliente(self.db, pedido)
         self.db.commit()
         self.db.refresh(pedido)
         return pedido
@@ -160,6 +187,7 @@ class PedidoRepository:
                 pedido.data_entrega = pedido.data_pedido or date.today()
             elif status != "Entregue" and era_entregue:
                 pedido.data_entrega = None
+        _sync_medidas_cliente(self.db, pedido)
         self.db.commit()
         self.db.refresh(pedido)
         return pedido

@@ -66,6 +66,22 @@ class PedidoService:
 
     @staticmethod
     def to_list_item(p: Pedido) -> PedidoListItem:
+        parcelas = p.pagamentos or []
+        pagas = [x for x in parcelas if x.data_pagamento is not None]
+        pendentes = [x for x in parcelas if x.data_pagamento is None]
+
+        if not parcelas:
+            status_pag = None
+        elif len(pendentes) == 0:
+            status_pag = "confirmado"
+        elif any(
+            x.data_vencimento and x.data_vencimento < __import__("datetime").date.today()
+            for x in pendentes
+        ):
+            status_pag = "em_atraso"
+        else:
+            status_pag = "aguardando"
+
         return PedidoListItem(
             id=p.id,
             cliente_id=p.cliente_id,
@@ -77,4 +93,10 @@ class PedidoService:
             data_pedido=p.data_pedido,
             data_entrega=p.data_entrega,
             foto_url=_norm_foto_url(p.foto_url),
+            valor_pecas=p.valor_pecas,
+            quantidade_pecas=p.quantidade_pecas,
+            forma_pagamento=p.forma_pagamento,
+            status_pagamento=status_pag,
+            parcelas_pagas=len(pagas) if parcelas else None,
+            parcelas_total=len(parcelas) if parcelas else None,
         )

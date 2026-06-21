@@ -26,6 +26,12 @@ class PedidoListItem(BaseModel):
     data_pedido: date
     data_entrega: Optional[date] = None
     foto_url: Optional[str] = None
+    valor_pecas: Optional[float] = None
+    quantidade_pecas: Optional[int] = None
+    forma_pagamento: Optional[str] = None
+    status_pagamento: Optional[str] = None   # confirmado | aguardando | em_atraso | None
+    parcelas_pagas: Optional[int] = None
+    parcelas_total: Optional[int] = None
 
     class Config:
         from_attributes = True
