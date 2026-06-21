@@ -566,10 +566,15 @@ export default function PedidosPage() {
                         <button className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100" aria-label="Medidas">
                           <Ruler className="h-4 w-4" />
                         </button>
+                        {/* Botões de status — ativo = azul com fundo */}
                         <button
                           onClick={() => handleStatusClick(p, "Cortado")}
                           disabled={updatingId === p.id}
-                          className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+                          className={`p-1.5 rounded-lg border disabled:opacity-40 ${
+                            p.status === "Cortado"
+                              ? "border-blue-300 bg-blue-50 text-blue-600"
+                              : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+                          }`}
                           aria-label="Cortado"
                         >
                           <Scissors className="h-4 w-4" />
@@ -577,7 +582,11 @@ export default function PedidosPage() {
                         <button
                           onClick={() => handleStatusClick(p, "Provado")}
                           disabled={updatingId === p.id}
-                          className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+                          className={`p-1.5 rounded-lg border disabled:opacity-40 ${
+                            p.status === "Provado"
+                              ? "border-amber-300 bg-amber-50 text-amber-600"
+                              : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+                          }`}
                           aria-label="Provado"
                         >
                           <Play className="h-4 w-4" />
@@ -585,7 +594,11 @@ export default function PedidosPage() {
                         <button
                           onClick={() => handleStatusClick(p, "Pronto")}
                           disabled={updatingId === p.id}
-                          className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+                          className={`p-1.5 rounded-lg border disabled:opacity-40 ${
+                            p.status === "Pronto"
+                              ? "border-green-300 bg-green-50 text-green-600"
+                              : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+                          }`}
                           aria-label="Pronto"
                         >
                           <Package className="h-4 w-4" />
