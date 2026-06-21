@@ -8,22 +8,12 @@ import {
   Menu,
   X,
   Users,
-  BarChart2,
+  FileText,
   Settings,
   LogOut,
-  CreditCard,
 } from "lucide-react";
 
 const MENU_ITEMS = [
-  {
-    href: "/mobile/pagamentos",
-    label: "Pagamentos",
-    sub: "Parcelas a receber",
-    Icon: CreditCard,
-    iconBg: "bg-emerald-50",
-    iconColor: "text-[#1F4D35]",
-    isNew: true,
-  },
   {
     href: "/mobile/clientes",
     label: "Clientes",
@@ -33,12 +23,12 @@ const MENU_ITEMS = [
     iconColor: "text-violet-700",
   },
   {
-    href: "/mobile/plano",
-    label: "Plano mensal",
-    sub: "Metas e orçamento",
-    Icon: BarChart2,
-    iconBg: "bg-blue-50",
-    iconColor: "text-blue-700",
+    href: "/mobile/contratos",
+    label: "Contratos",
+    sub: "Modelos e documentos",
+    Icon: FileText,
+    iconBg: "bg-indigo-50",
+    iconColor: "text-indigo-700",
   },
   {
     href: "/mobile/parametros",

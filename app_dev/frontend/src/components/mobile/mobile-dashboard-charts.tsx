@@ -71,55 +71,61 @@ export function MobileDashboardCharts({
   return (
     <>
       {/* Gráfico Mix Status (donut) */}
-      {mixParaPie.length > 0 && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-6">
-          <h3 className="text-sm font-medium text-gray-700 mb-4">
-            {period === "month"
-              ? "Mix de status (pedidos do mês)"
-              : `Mix de status (pedidos do ano)`}
-          </h3>
-          <div className="h-[200px] min-h-[200px] w-full min-w-0">
-            <ResponsiveContainer
-              width="100%"
-              height="100%"
-              minHeight={200}
-              initialDimension={{ width: 300, height: 200 }}
-            >
-              <PieChart>
-                <Pie
-                  data={mixParaPie}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={2}
-                  dataKey="value"
-                  nameKey="name"
-                >
-                  {mixParaPie.map((entry, i) => (
-                    <Cell key={i} fill={entry.fill} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(val: number | undefined) => [val != null ? `${val} pedidos` : "", "Quantidade"]}
-                  contentStyle={{
-                    borderRadius: "8px",
-                    border: "1px solid #e5e7eb",
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+      {mixParaPie.length > 0 && (() => {
+        const total = mixParaPie.reduce((s, i) => s + i.value, 0);
+        const sorted = [...mixParaPie].sort((a, b) => b.value - a.value);
+        return (
+          <div className="rounded-xl border border-gray-200 bg-white p-4 mb-6">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">
+              {period === "month" ? "Mix de status (pedidos do mês)" : "Mix de status (pedidos do ano)"}
+            </h3>
+            <div className="flex items-center gap-4">
+              {/* Donut */}
+              <div className="relative flex-shrink-0 w-[120px] h-[120px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={mixParaPie}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={38}
+                      outerRadius={56}
+                      paddingAngle={2}
+                      dataKey="value"
+                      nameKey="name"
+                      startAngle={90}
+                      endAngle={-270}
+                    >
+                      {mixParaPie.map((entry, i) => (
+                        <Cell key={i} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Centro */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-lg font-bold text-gray-900 leading-none">{total}</span>
+                  <span className="text-[10px] text-gray-500 mt-0.5">peças</span>
+                </div>
+              </div>
+              {/* Lista lateral */}
+              <div className="flex-1 space-y-2">
+                {sorted.map((s) => {
+                  const pct = total > 0 ? Math.round((s.value / total) * 100) : 0;
+                  return (
+                    <div key={s.name} className="flex items-center gap-2">
+                      <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: s.fill }} />
+                      <span className="text-xs text-gray-700 flex-1 truncate">{s.name}</span>
+                      <span className="text-xs font-medium text-gray-900">{s.value} un.</span>
+                      <span className="text-xs text-gray-400 w-8 text-right">{pct}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-3 mt-3 justify-center">
-            {mixParaPie.map((s) => (
-              <span key={s.name} className="inline-flex items-center gap-1.5 text-xs">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.fill }} />
-                {s.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Gráfico Lucro / Faturamento (barras) */}
       {(lucroMensal.length > 0 || chartDataYTD.length > 0 || chartDataYTDClosed.length > 0 || chartDataAno.length > 0) && (

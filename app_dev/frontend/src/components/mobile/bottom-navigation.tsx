@@ -7,7 +7,7 @@
  */
 
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, ClipboardList, Plus, FileText, DollarSign } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, Plus, BarChart2, DollarSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const tabs = [
@@ -15,7 +15,7 @@ const tabs = [
   { id: 'pedidos', label: 'Pedidos', icon: ClipboardList, path: '/mobile/pedidos' },
   { id: 'novo', label: 'Novo', icon: Plus, path: '/mobile/pedidos/novo' },
   { id: 'financeiro', label: 'Financeiro', icon: DollarSign, path: '/mobile/financeiro' },
-  { id: 'contratos', label: 'Contratos', icon: FileText, path: '/mobile/contratos' },
+  { id: 'plano', label: 'Plano', icon: BarChart2, path: '/mobile/plano' },
 ];
 
 export function BottomNavigation() {

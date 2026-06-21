@@ -177,10 +177,22 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     repasse_costureira = round(float(valor_ajustes) * 0.5, 2)
     lucro_liquido_dono = round(lucro_realizado - repasse_costureira, 2)
 
+    # Visão entrega: soma valor_pecas dos pedidos com data_entrega no mês
+    receita_por_entrega = float(
+        db.query(func.coalesce(func.sum(Pedido.valor_pecas), 0))
+        .filter(
+            Pedido.status == "Entregue",
+            Pedido.data_entrega >= inicio,
+            Pedido.data_entrega < fim,
+        )
+        .scalar() or 0
+    )
+
     return PlanoVsRealizado(
         anomes=mes,
         receita_planejada=receita_planejada,
         receita_realizada=receita_total_realizado,
+        receita_por_entrega=round(receita_por_entrega, 2),
         despesas_planejadas=despesas_planejadas,
         despesas_realizadas=despesas_realizadas,
         lucro_planejado=lucro_planejado,

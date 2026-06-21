@@ -35,6 +35,7 @@ interface PlanoVsRealizadoItem {
 }
 
 interface PlanoVsRealizado {
+  receita_por_entrega: number;
   anomes: string;
   receita_planejada: number;
   receita_realizada: number;
@@ -199,6 +200,7 @@ export default function FinanceiroPage() {
 
   // Movimentações
   const [movimentacoes,  setMovimentacoes]  = useState<PagamentoItem[]>([]);
+  const [resumoMov, setResumoMov] = useState<{ receitas: number; despesas: number; saldo: number } | null>(null);
   const [filtroTipo,     setFiltroTipo]     = useState<'todas' | 'receita' | 'despesa'>('todas');
   const [txSelecionada,  setTxSelecionada]  = useState<PagamentoItem | null>(null);
   const [detalheCarregando, setDetalheCarregando] = useState(false);
@@ -258,6 +260,7 @@ export default function FinanceiroPage() {
       setPlanoVsRealizado(data.plano_vs_realizado);
       setEvolucaoMensal(data.evolucao_mensal || []);
       setMovimentacoes(data.movimentacoes.itens);
+      setResumoMov({ receitas: data.movimentacoes.total_receitas, despesas: data.movimentacoes.total_despesas, saldo: data.movimentacoes.saldo });
       setMetaMes(meta);
     } catch {
       setPlanoVsRealizado(null);
@@ -712,64 +715,62 @@ export default function FinanceiroPage() {
                 <CollapsibleTrigger className="w-full p-4 hover:bg-gray-100 transition-colors text-left">
                   <div className="flex items-center justify-between mb-2">
                     <div>
-                      <h3 className="text-sm font-bold text-gray-900">Lucro realizado do plano</h3>
+                      <h3 className="text-sm font-bold text-gray-900">Faturamento do mês</h3>
                       <p className="text-[10px] text-gray-400 mt-0.5">
-                        Orçado: {formatMoney(planoVsRealizado.lucro_planejado)} ·{" "}
-                        {planoVsRealizado.lucro_planejado !== 0
-                          ? planoVsRealizado.lucro_realizado >= planoVsRealizado.lucro_planejado
-                            ? `Acima ${formatMoney(planoVsRealizado.lucro_realizado - planoVsRealizado.lucro_planejado)}`
-                            : `Abaixo ${formatMoney(planoVsRealizado.lucro_planejado - planoVsRealizado.lucro_realizado)}`
-                          : "Sem plano definido"}
-                        {(planoVsRealizado.repasse_costureira ?? 0) > 0 && ` · Repasse Esli ${formatMoney(planoVsRealizado.repasse_costureira)}`}
+                        Meta: {planoVsRealizado.receita_planejada > 0 ? formatMoney(planoVsRealizado.receita_planejada) : "sem plano"} ·{" "}
+                        {(planoVsRealizado.repasse_costureira ?? 0) > 0 ? `Repasse Esli ${formatMoney(planoVsRealizado.repasse_costureira)}` : "Entrega vs caixa"}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <div className="text-right">
-                        <span
-                          className={`text-sm font-bold ${
-                            planoVsRealizado.lucro_liquido_dono >= 0 ? "text-emerald-600" : "text-red-500"
-                          }`}
-                        >
-                          {formatMoney(planoVsRealizado.lucro_liquido_dono ?? planoVsRealizado.lucro_realizado)}
+                        <span className="text-sm font-bold text-emerald-600">
+                          {formatMoney(planoVsRealizado.receita_realizada)}
                         </span>
-                        {(planoVsRealizado.repasse_costureira ?? 0) > 0 && (
-                          <p className="text-[10px] text-gray-400">seu líquido</p>
-                        )}
+                        <p className="text-[10px] text-gray-400">em caixa</p>
                       </div>
                       <ChevronDown className="w-5 h-5 text-gray-400 group-data-[state=open]:rotate-180 transition-transform" />
                     </div>
                   </div>
-                  <div className="mt-2">
-                    <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden relative">
-                      <div
-                        className="h-full rounded-full bg-gray-900 transition-all"
-                        style={{
-                          width: (() => {
-                            const p = planoVsRealizado.lucro_planejado;
-                            const r = planoVsRealizado.lucro_realizado;
-                            if (p > 0) return `${Math.max(0, Math.min(120, (r / p) * 100))}%`;
-                            if (p < 0) {
-                              const range = 0 - p;
-                              const pos = r - p;
-                              return `${Math.max(0, Math.min(120, (pos / range) * 100))}%`;
-                            }
-                            return "0%";
-                          })(),
-                        }}
-                      />
-                    </div>
-                    <div className="flex justify-between mt-1">
-                      <span className="text-[9px] text-gray-400">
-                        {planoVsRealizado.lucro_planejado >= 0 ? "R$ 0" : formatMoney(planoVsRealizado.lucro_planejado)}
-                      </span>
-                      <span className="text-[9px] text-gray-400">
-                        {planoVsRealizado.lucro_planejado >= 0 ? formatMoney(planoVsRealizado.lucro_planejado) : "R$ 0"}
-                      </span>
-                    </div>
+                  {/* Duas barras de faturamento */}
+                  <div className="mt-3 space-y-2.5">
+                    {(() => {
+                      const meta = planoVsRealizado.receita_planejada;
+                      const porEntrega = planoVsRealizado.receita_por_entrega ?? 0;
+                      const porPagamento = planoVsRealizado.receita_realizada;
+                      const base = Math.max(meta, porEntrega, porPagamento, 1);
+                      return (
+                        <>
+                          <div>
+                            <div className="flex justify-between mb-1">
+                              <span className="text-[10px] text-gray-500">Visão entrega</span>
+                              <span className="text-[10px] font-semibold text-gray-700">{formatMoney(porEntrega)}</span>
+                            </div>
+                            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-gray-800 transition-all" style={{ width: `${Math.min(100, (porEntrega / base) * 100)}%` }} />
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex justify-between mb-1">
+                              <span className="text-[10px] text-gray-500">Visão pagamento</span>
+                              <span className="text-[10px] font-semibold text-emerald-600">{formatMoney(porPagamento)}</span>
+                            </div>
+                            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${Math.min(100, (porPagamento / base) * 100)}%` }} />
+                            </div>
+                          </div>
+                          {meta > 0 && (
+                            <div className="flex justify-between pt-0.5">
+                              <span className="text-[9px] text-gray-400">Meta: {formatMoney(meta)}</span>
+                              <span className="text-[9px] text-gray-400">{Math.round((porPagamento / meta) * 100)}% atingido</span>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="px-4 pb-4">
-                  {/* Toggle Receitas | Despesas */}
+                  {/* Toggle Visão Entrega | Visão Pagamento */}
                   <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-4 mt-2">
                     <button
                       onClick={() => setPlanoTabAtiva("receitas")}
@@ -778,7 +779,7 @@ export default function FinanceiroPage() {
                         planoTabAtiva === "receitas" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
                       )}
                     >
-                      Receitas
+                      Entrega
                     </button>
                     <button
                       onClick={() => setPlanoTabAtiva("despesas")}
@@ -787,94 +788,47 @@ export default function FinanceiroPage() {
                         planoTabAtiva === "despesas" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
                       )}
                     >
-                      Despesas
+                      Pagamento
                     </button>
                   </div>
-                  {/* Lista estilo V5 com barras */}
-                  {planoTabAtiva === "receitas" && (
-                    <div className="space-y-3.5">
-                      {planoVsRealizado.itens_receita
-                        .filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0)
-                        .map((i, idx) => {
-                          const diff = i.valor_realizado - i.valor_planejado;
-                          const pct = i.valor_planejado > 0 ? (i.valor_realizado / i.valor_planejado) * 100 : 0;
-                          const color = getGoalColor(i.tipo_item, idx);
-                          return (
-                            <div key={idx}>
-                              <div className="flex items-center justify-between mb-1.5">
-                                <div className="flex items-center gap-2 shrink-0 min-w-0">
-                                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                                  <span className="text-sm text-gray-800 truncate">
-                                    {i.tipo_item}
-                                    {i.detalhe ? ` (${i.detalhe})` : ""}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                                  <span className={cn("text-xs", diff >= 0 ? "text-emerald-600 font-semibold" : "text-red-500 font-semibold")}>
-                                    {diff >= 0 ? `+${formatMoney(diff)}` : `-${formatMoney(-diff)}`}
-                                  </span>
-                                  <span className="text-sm font-semibold text-gray-900">{formatMoney(i.valor_realizado)}</span>
-                                  <span className="text-[9px] text-gray-400">/ {formatMoney(i.valor_planejado)}</span>
-                                </div>
+                  {/* Breakdown por tipo — mesmo dado para ambas as abas por ora */}
+                  <div className="space-y-3.5">
+                    {planoVsRealizado.itens_receita
+                      .filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0)
+                      .map((i, idx) => {
+                        const diff = i.valor_realizado - i.valor_planejado;
+                        const pct = i.valor_planejado > 0 ? (i.valor_realizado / i.valor_planejado) * 100 : 0;
+                        const color = getGoalColor(i.tipo_item, idx);
+                        return (
+                          <div key={idx}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-2 shrink-0 min-w-0">
+                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                                <span className="text-sm text-gray-800 truncate">
+                                  {i.tipo_item}{i.detalhe ? ` (${i.detalhe})` : ""}
+                                </span>
                               </div>
-                              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full transition-all"
-                                  style={{
-                                    width: `${Math.min(pct, 100)}%`,
-                                    backgroundColor: diff >= 0 ? color : "#f87171",
-                                  }}
-                                />
+                              <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                                <span className={cn("text-xs", diff >= 0 ? "text-emerald-600 font-semibold" : "text-red-500 font-semibold")}>
+                                  {diff >= 0 ? `+${formatMoney(diff)}` : `-${formatMoney(-diff)}`}
+                                </span>
+                                <span className="text-sm font-semibold text-gray-900">{formatMoney(i.valor_realizado)}</span>
+                                <span className="text-[9px] text-gray-400">/ {formatMoney(i.valor_planejado)}</span>
                               </div>
                             </div>
-                          );
-                        })}
-                      {planoVsRealizado.itens_receita.filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0).length === 0 && (
-                        <p className="text-xs text-gray-400 py-2">Sem receitas no período</p>
-                      )}
-                    </div>
-                  )}
-                  {planoTabAtiva === "despesas" && (
-                    <div className="space-y-3.5">
-                      {planoVsRealizado.itens_despesas
-                        .filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0)
-                        .map((i, idx) => {
-                          const diff = i.valor_realizado - i.valor_planejado;
-                          const pct = i.valor_planejado > 0 ? (i.valor_realizado / i.valor_planejado) * 100 : 0;
-                          const isOver = i.valor_realizado > i.valor_planejado;
-                          const color = getGoalColor(i.detalhe || i.tipo_item, idx);
-                          return (
-                            <div key={idx}>
-                              <div className="flex items-center justify-between mb-1.5">
-                                <div className="flex items-center gap-2 shrink-0 min-w-0">
-                                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                                  <span className="text-sm text-gray-800 truncate">{i.detalhe || i.tipo_item}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                                  <span className={cn("text-xs", diff > 0 ? "text-red-500 font-semibold" : "text-emerald-600 font-semibold")}>
-                                    {diff >= 0 ? `+${formatMoney(diff)}` : `-${formatMoney(-diff)}`}
-                                  </span>
-                                  <span className="text-sm font-semibold text-gray-900">{formatMoney(i.valor_realizado)}</span>
-                                  <span className="text-[9px] text-gray-400">/ {formatMoney(i.valor_planejado)}</span>
-                                </div>
-                              </div>
-                              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full transition-all"
-                                  style={{
-                                    width: `${Math.min(pct, 100)}%`,
-                                    backgroundColor: isOver ? "#f87171" : color,
-                                  }}
-                                />
-                              </div>
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: diff >= 0 ? color : "#f87171" }}
+                              />
                             </div>
-                          );
-                        })}
-                      {planoVsRealizado.itens_despesas.filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0).length === 0 && (
-                        <p className="text-xs text-gray-400 py-2">Sem despesas no período</p>
-                      )}
-                    </div>
-                  )}
+                          </div>
+                        );
+                      })}
+                    {planoVsRealizado.itens_receita.filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0).length === 0 && (
+                      <p className="text-xs text-gray-400 py-2">Sem faturamento no período</p>
+                    )}
+                  </div>
                 </CollapsibleContent>
               </Collapsible>
             )}
@@ -885,6 +839,24 @@ export default function FinanceiroPage() {
               <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#8A93A5', marginBottom: 12 }}>
                 MOVIMENTAÇÕES · {mesLabel(mesParam).toUpperCase()}
               </p>
+
+              {/* Cards resumo */}
+              {resumoMov && (
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  <div className="rounded-xl border border-gray-200 bg-white p-3 text-center">
+                    <p className="text-[10px] text-gray-500 mb-1">Receitas</p>
+                    <p className="text-sm font-bold text-green-600">{formatMoney(resumoMov.receitas)}</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-white p-3 text-center">
+                    <p className="text-[10px] text-gray-500 mb-1">Despesas</p>
+                    <p className="text-sm font-bold text-red-500">{formatMoney(resumoMov.despesas)}</p>
+                  </div>
+                  <div className={`rounded-xl border p-3 text-center ${resumoMov.saldo >= 0 ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
+                    <p className="text-[10px] text-gray-500 mb-1">Saldo</p>
+                    <p className={`text-sm font-bold ${resumoMov.saldo >= 0 ? "text-green-700" : "text-red-700"}`}>{formatMoney(resumoMov.saldo)}</p>
+                  </div>
+                </div>
+              )}
 
               {/* Chips filtro */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>

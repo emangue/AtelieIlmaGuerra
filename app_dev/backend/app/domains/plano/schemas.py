@@ -144,7 +144,8 @@ class PlanoVsRealizado(BaseModel):
     """Plano vs realizado para o painel (card colapsável)."""
     anomes: str
     receita_planejada: float
-    receita_realizada: float
+    receita_realizada: float        # visão pagamento: soma dos pagamentos com anomes == mes
+    receita_por_entrega: float = 0.0  # visão entrega: soma valor_pecas com data_entrega no mes
     despesas_planejadas: float
     despesas_realizadas: float
     lucro_planejado: float
