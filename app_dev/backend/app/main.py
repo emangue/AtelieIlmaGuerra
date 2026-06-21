@@ -19,22 +19,16 @@ from .domains.pedidos.router import router as pedidos_router
 from .domains.parametros.router import router as parametros_router
 from .domains.orcamentos.router import router as orcamentos_router
 from .domains.dashboard.router import router as dashboard_router
-from .domains.despesas.router import router as despesas_legacy_router
 from .domains.plano.router import router as plano_router
-from .domains.plano.transacoes_router import router as transacoes_router
 from .domains.plano.pagamentos_router import router as pagamentos_router
-from .domains.plano.despesas_router import router as plano_despesas_router
 
 # Importar modelos para criar tabelas
 from .domains.clientes.models import Cliente  # noqa: F401
 from .domains.pedidos.models import Pedido, TipoPedido, FormaPeca, FormaPecaMedida, tipo_pedido_forma_peca  # noqa: F401
 from .domains.parametros.models import ParametrosOrcamento  # noqa: F401
 from .domains.orcamentos.models import Orcamento  # noqa: F401
-from .domains.despesas.models import DespesaDetalhada  # noqa: F401
 from .domains.plano.models import PlanoItem  # noqa: F401
-from .domains.plano.transacoes_models import DespesaTransacao  # noqa: F401
 from .domains.plano.pagamentos_model import Pagamento  # noqa: F401
-from .domains.plano.despesas_model import Despesa  # noqa: F401
 from .domains.users.models import User  # noqa: F401
 
 app = FastAPI(
@@ -59,11 +53,8 @@ app.include_router(pedidos_router, prefix="/api/v1")
 app.include_router(parametros_router, prefix="/api/v1")
 app.include_router(orcamentos_router, prefix="/api/v1")
 app.include_router(dashboard_router, prefix="/api/v1")
-app.include_router(despesas_legacy_router, prefix="/api/v1")
 app.include_router(plano_router, prefix="/api/v1")
-app.include_router(transacoes_router, prefix="/api/v1")
 app.include_router(pagamentos_router, prefix="/api/v1")
-app.include_router(plano_despesas_router, prefix="/api/v1/plano")
 
 # Uploads estáticos
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
@@ -74,9 +65,9 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 @app.on_event("startup")
 def startup():
-    """Cria tabelas e seed de tipo_pedido."""
+    """Cria tabelas e seed inicial."""
     Base.metadata.create_all(bind=engine)
-    # Migrações
+
     def run_migration(sql: str, desc: str):
         try:
             with engine.connect() as conn:
@@ -85,44 +76,53 @@ def startup():
                 print(f"Migration: {desc}")
         except Exception as e:
             err = str(e).lower()
-            if "duplicate column" in err or "already exists" in err or "duplicate column name" in err:
+            if "duplicate column" in err or "already exists" in err or "no such column" in err:
                 pass
-            elif "no such column" in err:
-                pass  # Coluna antiga já renomeada
             else:
                 raise
 
-    run_migration("ALTER TABLE pedidos ADD COLUMN comentario_medidas TEXT", "coluna comentario_medidas")
-    run_migration("ALTER TABLE pedidos ADD COLUMN forma_peca_id INTEGER", "coluna forma_peca_id")
-    # Renomear medida_seio_a_seio -> medida_distancia_busto (pedidos)
+    # Renomear colunas legado
+    for col_old, col_new, tbl in [
+        ("medida_seio_a_seio", "medida_distancia_busto", "pedidos"),
+        ("medida_seio_a_seio", "medida_distancia_busto", "clientes"),
+    ]:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(f"ALTER TABLE {tbl} RENAME COLUMN {col_old} TO {col_new}"))
+                conn.commit()
+        except Exception:
+            pass
+
+    # Colunas novas
+    run_migration("ALTER TABLE pedidos ADD COLUMN comentario_medidas TEXT", "pedidos.comentario_medidas")
+    run_migration("ALTER TABLE pedidos ADD COLUMN forma_peca_id INTEGER", "pedidos.forma_peca_id")
+    run_migration("ALTER TABLE pedidos ADD COLUMN pagamento_na_entrega BOOLEAN", "pedidos.pagamento_na_entrega")
+    run_migration("ALTER TABLE pagamentos ADD COLUMN parcela_numero INTEGER", "pagamentos.parcela_numero")
+    run_migration("ALTER TABLE pagamentos ADD COLUMN parcela_total INTEGER", "pagamentos.parcela_total")
+    run_migration("ALTER TABLE pagamentos ADD COLUMN data_vencimento DATE", "pagamentos.data_vencimento")
+    run_migration("ALTER TABLE pagamentos ADD COLUMN data_pagamento DATE", "pagamentos.data_pagamento")
+    run_migration("ALTER TABLE pagamentos ADD COLUMN taxa_cartao REAL", "pagamentos.taxa_cartao")
+    run_migration("ALTER TABLE pagamentos ADD COLUMN categoria VARCHAR(100)", "pagamentos.categoria")
+    run_migration("ALTER TABLE pagamentos ADD COLUMN tipo_item VARCHAR(100)", "pagamentos.tipo_item")
+
+    # Migrar campo data -> data_pagamento (legado)
     try:
         with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE pedidos RENAME COLUMN medida_seio_a_seio TO medida_distancia_busto"))
+            conn.execute(text("""
+                UPDATE pagamentos
+                SET data_pagamento = data, data_vencimento = data
+                WHERE data_pagamento IS NULL AND data IS NOT NULL
+            """))
             conn.commit()
-            print("Migration: pedidos.medida_seio_a_seio -> medida_distancia_busto")
-    except Exception as e:
-        err = str(e).lower()
-        if "no such column" in err or "duplicate column" in err or "does not exist" in err or "undefined" in err:
-            pass
-        else:
-            raise
-    # Renomear medida_seio_a_seio -> medida_distancia_busto (clientes)
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE clientes RENAME COLUMN medida_seio_a_seio TO medida_distancia_busto"))
-            conn.commit()
-            print("Migration: clientes.medida_seio_a_seio -> medida_distancia_busto")
-    except Exception as e:
-        err = str(e).lower()
-        if "no such column" in err or "duplicate column" in err or "does not exist" in err or "undefined" in err:
-            pass
-        else:
-            raise
+    except Exception:
+        pass
+
     from sqlalchemy.orm import Session
     from app.core.database import SessionLocal
     from app.domains.pedidos.seed import seed_tipo_pedido
     from app.domains.pedidos.seed_forma_peca import seed_forma_peca
     from app.domains.users.seed import seed_admin_user
+
     db = SessionLocal()
     try:
         n = seed_tipo_pedido(db)
@@ -133,155 +133,15 @@ def startup():
             print(f"Seed: {nf} formas de peça inseridas")
         if seed_admin_user(db):
             print("Seed: usuário admin criado (ilma@atelieilmaguerra.com)")
-        # Seed plano (receita + despesas) se tabela vazia
-        from app.domains.plano.models import PlanoItem
+
         from app.domains.plano.seed_plano import seed_plano
         if db.query(PlanoItem).count() == 0:
-            # app_dev/backend/app/main.py -> projeto/PLANO 2026...
             excel_path = Path(__file__).resolve().parents[3] / "PLANO 2026 ATELIE ILMA GUERRA.xlsx"
             if excel_path.exists():
                 nr, nd = seed_plano(db, excel_path)
                 print(f"Seed: plano importado ({nr} receitas, {nd} despesas)")
     finally:
         db.close()
-
-    # ── Migração DDL: adicionar colunas ausentes ───────────────────────────
-    _ddl_migrations = [
-        "ALTER TABLE pagamentos ADD COLUMN despesa_id INTEGER REFERENCES despesas(id)",
-    ]
-    for _ddl in _ddl_migrations:
-        try:
-            with engine.connect() as _conn:
-                _conn.execute(text(_ddl))
-                _conn.commit()
-        except Exception as _e:
-            _err = str(_e).lower()
-            if "duplicate column" in _err or "already exists" in _err:
-                pass
-            else:
-                pass  # coluna já existe ou tabela não existe ainda — ignorar
-
-    # ── Migração: popular tabela pagamentos (idempotente) ──────────────────
-    from app.domains.plano.pagamentos_model import Pagamento
-    from app.domains.plano.transacoes_models import DespesaTransacao as DT
-    from app.domains.pedidos.models import Pedido as PedidoModel
-    from calendar import monthrange
-    from datetime import date as date_type
-
-    db2 = SessionLocal()
-    try:
-        if db2.query(Pagamento).count() == 0:
-            # 1. Despesas: copiar despesas_transacoes → pagamentos
-            for t in db2.query(DT).all():
-                ano, m = int(t.anomes[:4]), int(t.anomes[4:])
-                data_def = date_type(ano, m, monthrange(ano, m)[1])
-                plano = t.plano_item
-                tipo_item = plano.tipo_item if plano else ""
-                detalhe   = plano.detalhe   if plano else ""
-                descricao = f"{detalhe} · {tipo_item}" if detalhe else (tipo_item or "Despesa")
-                db2.add(Pagamento(
-                    anomes        = t.anomes,
-                    tipo          = "despesa",
-                    origem        = "despesa_manual",
-                    plano_item_id = t.plano_item_id,
-                    data          = t.data or data_def,
-                    valor         = float(t.valor or 0),
-                    descricao     = t.descricao or descricao,
-                ))
-
-            # 2. Receitas: pedidos entregues → pagamentos
-            for p in db2.query(PedidoModel).filter(PedidoModel.status == "Entregue").all():
-                data_pag  = p.data_entrega or date_type.today()
-                anomes    = f"{data_pag.year}{data_pag.month:02d}"
-                tipo_nome = p.tipo_pedido.nome if p.tipo_pedido else "Pedido"
-                cliente   = p.cliente.nome if p.cliente else ""
-                descricao = f"{tipo_nome} · {cliente}" if cliente else tipo_nome
-                db2.add(Pagamento(
-                    anomes    = anomes,
-                    tipo      = "receita",
-                    origem    = "pedido",
-                    pedido_id = p.id,
-                    data      = data_pag,
-                    valor     = float(p.valor_pecas or 0),
-                    descricao = descricao,
-                ))
-
-            try:
-                db2.commit()
-                print("Migration: pagamentos populados")
-            except Exception as _mig_err:
-                db2.rollback()
-                _err_str = str(_mig_err).lower()
-                if "unique" in _err_str or "duplicate" in _err_str:
-                    print("Migration: pagamentos já populados por outro worker (ignorando)")
-                else:
-                    raise
-    finally:
-        db2.close()
-
-    # ── Migração: popular tabela despesas a partir de pagamentos tipo=despesa sem despesa_id ──
-    from app.domains.plano.despesas_model import Despesa
-    db3 = SessionLocal()
-    try:
-        if db3.query(Despesa).count() == 0:
-            pags_despesa = (
-                db3.query(Pagamento)
-                .filter(Pagamento.tipo == "despesa", Pagamento.despesa_id == None)
-                .all()
-            )
-            for pag in pags_despesa:
-                pi = pag.plano_item
-                tipo_item = pi.tipo_item if pi else "Outros"
-                detalhe   = pi.detalhe   if pi else None
-                categoria = pi.categoria if pi else "Custo Fixo"
-                despesa = Despesa(
-                    anomes        = pag.anomes,
-                    plano_item_id = pag.plano_item_id,
-                    tipo_item     = tipo_item,
-                    detalhe       = detalhe,
-                    categoria     = categoria,
-                    data          = pag.data,
-                    valor         = pag.valor,
-                    descricao     = pag.descricao,
-                )
-                db3.add(despesa)
-                db3.flush()
-                pag.despesa_id = despesa.id
-            try:
-                db3.commit()
-                if pags_despesa:
-                    print(f"Migration: {len(pags_despesa)} despesas criadas a partir de pagamentos")
-            except Exception as _mig_err2:
-                db3.rollback()
-                _err_str2 = str(_mig_err2).lower()
-                if "unique" in _err_str2 or "duplicate" in _err_str2:
-                    print("Migration: despesas já populadas por outro worker (ignorando)")
-                else:
-                    raise
-    finally:
-        db3.close()
-
-    # ── Migração: zerar valor_realizado legado de plano_itens órfãos ──────────
-    # Plano_itens com valor_planejado=0 e valor_realizado preenchido que NÃO estão
-    # em despesas_transacoes são itens criados por lançamentos via /despesas.
-    # Seu valor_realizado legado deve ser zerado para não contaminar o service.
-    try:
-        with engine.connect() as conn:
-            result = conn.execute(text("""
-                UPDATE plano_itens SET valor_realizado = NULL
-                WHERE valor_planejado = 0
-                AND tipo = 'despesa'
-                AND valor_realizado IS NOT NULL
-                AND id NOT IN (
-                    SELECT DISTINCT plano_item_id FROM despesas_transacoes
-                    WHERE plano_item_id IS NOT NULL
-                )
-            """))
-            conn.commit()
-            if result.rowcount:
-                print(f"Migration: {result.rowcount} plano_itens órfãos zerados")
-    except Exception:
-        pass
 
 
 @app.get("/")

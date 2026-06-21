@@ -10,7 +10,6 @@ from sqlalchemy import func
 
 from app.domains.pedidos.models import Pedido, TipoPedido
 from .models import PlanoItem
-from .transacoes_models import DespesaTransacao
 from .pagamentos_model import Pagamento
 from .schemas import (
     PlanoVsRealizado, PlanoVsRealizadoItem, EvolucaoMensalItem, TIPO_PEDIDO_TO_PLANO,
@@ -43,9 +42,7 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         PlanoItem.tipo, PlanoItem.categoria, PlanoItem.tipo_item
     ).all()
 
-    # Receita realizada: pagamentos tipo=receita do mês (fonte única).
-    # Pagamentos são criados/atualizados automaticamente quando o pedido entra/sai
-    # do status "Entregue" (ver pedidos/repository._sincronizar_pagamento).
+    # Receita realizada: pagamentos tipo=receita do mês com data_pagamento confirmada.
     receita_por_tipo = (
         db.query(
             TipoPedido.nome,
@@ -77,21 +74,8 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     )
     pag_map = {r.plano_item_id: float(r.total) for r in pag_soma}
 
-    # Fallback legado: DespesaTransacao (dados importados do Excel que ainda não migraram)
-    trans_soma = (
-        db.query(DespesaTransacao.plano_item_id, func.coalesce(func.sum(DespesaTransacao.valor), 0).label("total"))
-        .filter(DespesaTransacao.anomes == mes)
-        .group_by(DespesaTransacao.plano_item_id)
-    )
-    trans_map = {r.plano_item_id: float(r.total) for r in trans_soma}
-
-    # Para cada plano_item, usa pagamentos se existir, senão transacoes legado, senão valor_realizado
     def _realizado_desp(item: PlanoItem) -> float:
-        if item.id in pag_map:
-            return pag_map[item.id]
-        if item.id in trans_map:
-            return trans_map[item.id]
-        return float(item.valor_realizado or 0)
+        return pag_map.get(item.id, float(item.valor_realizado or 0))
 
     despesas_realizadas = sum(_realizado_desp(i) for i in itens_desp)
 

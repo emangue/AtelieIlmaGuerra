@@ -120,6 +120,8 @@ class Pedido(Base):
     comentario_foto_2 = Column(Text, nullable=True)
     comentario_foto_3 = Column(Text, nullable=True)
 
+    pagamento_na_entrega = Column(Boolean, nullable=True)  # True = combinou pagar na hora da entrega
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -127,4 +129,4 @@ class Pedido(Base):
     cliente = relationship("Cliente", backref="pedidos")
     tipo_pedido = relationship("TipoPedido", backref="pedidos")
     forma_peca = relationship("FormaPeca", backref="pedidos")
-    pagamento = relationship("Pagamento", back_populates="pedido", uselist=False, cascade="all, delete-orphan")
+    pagamentos = relationship("Pagamento", back_populates="pedido", cascade="all, delete-orphan")

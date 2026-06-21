@@ -27,47 +27,6 @@ def _percentual_por_tipo(db: Session, tipo_pedido_id) -> float:
     return 100.0
 
 
-def _sincronizar_pagamento(db: Session, pedido: Pedido) -> None:
-    """Cria, atualiza ou deleta o pagamento de receita de acordo com o status do pedido.
-
-    Pagamentos é a fonte única de receitas — todo pedido Entregue precisa ter
-    seu pagamento correspondente. Hoje considera o pedido como pagamento à vista;
-    no futuro, este ponto será expandido para gerar múltiplas parcelas.
-    """
-    from datetime import date as date_type
-    from app.domains.plano.pagamentos_model import Pagamento
-
-    pag_existente = db.query(Pagamento).filter(Pagamento.pedido_id == pedido.id).first()
-
-    if pedido.status == "Entregue":
-        # Ordem de preferência: data_entrega > data_pedido > hoje
-        data_pag = pedido.data_entrega or pedido.data_pedido or date_type.today()
-        anomes   = f"{data_pag.year}{data_pag.month:02d}"
-        tipo_nome  = pedido.tipo_pedido.nome if pedido.tipo_pedido else "Pedido"
-        cliente    = pedido.cliente.nome if pedido.cliente else ""
-        descricao  = f"{tipo_nome} · {cliente}" if cliente else tipo_nome
-
-        if pag_existente:
-            pag_existente.data      = data_pag
-            pag_existente.anomes    = anomes
-            pag_existente.valor     = float(pedido.valor_pecas or 0)
-            pag_existente.descricao = descricao
-        else:
-            db.add(Pagamento(
-                anomes    = anomes,
-                tipo      = "receita",
-                origem    = "pedido",
-                pedido_id = pedido.id,
-                data      = data_pag,
-                valor     = float(pedido.valor_pecas or 0),
-                descricao = descricao,
-            ))
-    else:
-        # Status saiu de "Entregue" → remover pagamento
-        if pag_existente:
-            db.delete(pag_existente)
-
-
 class PedidoRepository:
     def __init__(self, db: Session):
         self.db = db
@@ -83,7 +42,7 @@ class PedidoRepository:
             "margem_real",
             "param_preco_hora", "param_impostos", "param_cartao_credito",
             "param_total_horas_mes", "param_margem_target",
-            "forma_pagamento", "valor_entrada", "valor_restante",
+            "forma_pagamento", "valor_entrada", "valor_restante", "pagamento_na_entrega",
             "detalhes_pagamento", "medidas_disponiveis", "observacao_pedido",
             "fotos_disponiveis", "foto_url", "foto_url_2", "foto_url_3",
             "comentario_foto_1", "comentario_foto_2", "comentario_foto_3",
@@ -103,8 +62,6 @@ class PedidoRepository:
         if pedido.status == "Entregue" and pedido.data_entrega is None:
             pedido.data_entrega = date.today()
         self.db.add(pedido)
-        self.db.flush()  # gera pedido.id antes de sincronizar pagamento
-        _sincronizar_pagamento(self.db, pedido)
         self.db.commit()
         self.db.refresh(pedido)
         return pedido
@@ -203,7 +160,6 @@ class PedidoRepository:
                 pedido.data_entrega = pedido.data_pedido or date.today()
             elif status != "Entregue" and era_entregue:
                 pedido.data_entrega = None
-        _sincronizar_pagamento(self.db, pedido)
         self.db.commit()
         self.db.refresh(pedido)
         return pedido
@@ -214,16 +170,12 @@ class PedidoRepository:
             return None
         era_entregue = pedido.status == "Entregue"
         pedido.status = status
-        # Garantir que valor realizado (plano vs pedidos) seja sempre atualizado:
-        # ao marcar como Entregue -> data_entrega = hoje (para contar no mês)
-        # ao retirar de Entregue -> limpar data_entrega
         if status == "Entregue":
             if pedido.data_entrega is None:
                 pedido.data_entrega = pedido.data_pedido or date.today()
         else:
             if era_entregue:
                 pedido.data_entrega = None
-        _sincronizar_pagamento(self.db, pedido)
         self.db.commit()
         self.db.refresh(pedido)
         return pedido

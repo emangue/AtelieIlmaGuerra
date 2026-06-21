@@ -25,4 +25,3 @@ class PlanoItem(Base):
     valor_realizado = Column(Float, nullable=True)  # Para despesas (receita vem dos pedidos)
 
     pagamentos = relationship("Pagamento", back_populates="plano_item")
-    despesas   = relationship("Despesa",   back_populates="plano_item")

@@ -2,10 +2,11 @@
 Router de Pagamentos — tabela unificada de receitas e despesas realizadas.
 
 Endpoints:
-  GET    /pagamentos?mes=YYYYMM  → PagamentosResponse
-  POST   /pagamentos             → PagamentoItem  (despesas manuais)
-  PATCH  /pagamentos/{id}        → PagamentoItem  (só despesas)
-  DELETE /pagamentos/{id}        → 204            (só despesas)
+  GET    /pagamentos?mes=YYYYMM       → PagamentosResponse
+  POST   /pagamentos/despesa          → PagamentoItem  (despesas manuais)
+  PATCH  /pagamentos/{id}/confirmar   → PagamentoItem  (confirma recebimento de parcela)
+  PATCH  /pagamentos/{id}             → PagamentoItem  (edita despesa manual)
+  DELETE /pagamentos/{id}             → 204            (só despesas)
 """
 from calendar import monthrange
 from datetime import date as date_type, datetime
@@ -21,7 +22,6 @@ from .schemas import PagamentoCreate, PagamentoItem, PagamentosResponse, Pagamen
 
 router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"])
 
-# Mapeamento tipo_item → icon_key (para despesas)
 _ICON_KEY_MAP = {
     "Colaboradores": "colab",
     "Espaço Físico": "espaco",
@@ -45,17 +45,18 @@ def _to_item(pag: Pagamento) -> PagamentoItem:
     if pag.tipo == "receita":
         categoria = "Receita · Pedido"
         icon_key = "receita"
-        tipo_item_val = None
+        tipo_item_val = pag.tipo_item
         detalhe_val = None
         cat_raw_val = None
     else:
         pi = pag.plano_item
-        tipo_item_val = pi.tipo_item if pi else ""
-        detalhe_val   = pi.detalhe   if pi else None
-        cat_raw_val   = pi.categoria if pi else "Despesa"
+        tipo_item_val = pag.tipo_item or (pi.tipo_item if pi else "")
+        detalhe_val = pi.detalhe if pi else None
+        cat_raw_val = pag.categoria or (pi.categoria if pi else "Despesa")
         categoria = f"{tipo_item_val} · {cat_raw_val}" if tipo_item_val else cat_raw_val
         icon_key = _icon_key_despesa(tipo_item_val)
 
+    data_str = (pag.data_pagamento or pag.data_vencimento)
     return PagamentoItem(
         id=pag.id,
         tipo=pag.tipo,
@@ -66,74 +67,12 @@ def _to_item(pag: Pagamento) -> PagamentoItem:
         detalhe=detalhe_val,
         cat_raw=cat_raw_val,
         valor=pag.valor,
-        data=pag.data.isoformat(),
+        data=data_str.isoformat() if data_str else "",
         icon_key=icon_key,
         pedido_id=pag.pedido_id,
         plano_item_id=pag.plano_item_id,
-        despesa_id=pag.despesa_id,
+        despesa_id=None,
     )
-
-
-@router.post("/resync", status_code=200)
-def resync_pagamentos_pedidos(db: Session = Depends(get_db)):
-    """
-    Garante que todo Pedido `Entregue` tem um Pagamento (receita) correspondente.
-    Idempotente — pode ser executado quantas vezes for necessário.
-
-    - Cria pagamento para pedidos Entregue que não têm.
-    - Atualiza valor/data/anomes para pedidos Entregue cujo pagamento existe mas
-      está desatualizado.
-    - Remove pagamentos órfãos cujo pedido saiu de "Entregue".
-    """
-    from datetime import date as date_type
-    from app.domains.pedidos.models import Pedido
-
-    criados = 0
-    atualizados = 0
-    removidos = 0
-
-    # 1. Pedidos Entregue → cria/atualiza
-    pedidos = db.query(Pedido).filter(Pedido.status == "Entregue").all()
-    for p in pedidos:
-        data_pag = p.data_entrega or p.data_pedido or date_type.today()
-        anomes   = f"{data_pag.year}{data_pag.month:02d}"
-        tipo_nome  = p.tipo_pedido.nome if p.tipo_pedido else "Pedido"
-        cliente    = p.cliente.nome if p.cliente else ""
-        descricao  = f"{tipo_nome} · {cliente}" if cliente else tipo_nome
-        valor      = float(p.valor_pecas or 0)
-
-        pag = db.query(Pagamento).filter(Pagamento.pedido_id == p.id).first()
-        if pag is None:
-            db.add(Pagamento(
-                anomes=anomes, tipo="receita", origem="pedido", pedido_id=p.id,
-                data=data_pag, valor=valor, descricao=descricao,
-            ))
-            criados += 1
-        else:
-            mudou = (
-                pag.anomes != anomes or pag.data != data_pag
-                or float(pag.valor or 0) != valor or pag.descricao != descricao
-            )
-            if mudou:
-                pag.anomes = anomes
-                pag.data = data_pag
-                pag.valor = valor
-                pag.descricao = descricao
-                atualizados += 1
-
-    # 2. Pagamentos órfãos (pedido != Entregue) → remover
-    orfaos = (
-        db.query(Pagamento)
-        .join(Pedido, Pedido.id == Pagamento.pedido_id)
-        .filter(Pagamento.origem == "pedido", Pedido.status != "Entregue")
-        .all()
-    )
-    for o in orfaos:
-        db.delete(o)
-        removidos += 1
-
-    db.commit()
-    return {"criados": criados, "atualizados": atualizados, "removidos": removidos}
 
 
 @router.get("", response_model=PagamentosResponse)
@@ -141,14 +80,14 @@ def list_pagamentos(
     mes: str = Query(..., description="YYYYMM — mês de referência"),
     db: Session = Depends(get_db),
 ):
-    """Lista todas as movimentações realizadas do mês (receitas + despesas)."""
+    """Lista movimentações confirmadas do mês (data_pagamento no mês)."""
     if len(mes) != 6 or not mes.isdigit():
         raise HTTPException(status_code=400, detail="mes deve ser YYYYMM")
 
     pagamentos = (
         db.query(Pagamento)
         .filter(Pagamento.anomes == mes)
-        .order_by(Pagamento.data.desc(), Pagamento.id.desc())
+        .order_by(Pagamento.data_pagamento.desc(), Pagamento.id.desc())
         .all()
     )
 
@@ -165,49 +104,19 @@ def list_pagamentos(
     )
 
 
-@router.post("", response_model=PagamentoItem, status_code=201)
-def create_pagamento(data: PagamentoCreate, db: Session = Depends(get_db)):
-    """Cria despesa manual na tabela pagamentos."""
+@router.post("/despesa", response_model=PagamentoItem, status_code=201)
+def create_despesa(data: PagamentoCreate, db: Session = Depends(get_db)):
+    """Lança despesa manual diretamente em pagamentos."""
     if len(data.anomes) != 6 or not data.anomes.isdigit():
         raise HTTPException(status_code=400, detail="anomes deve ser YYYYMM")
     if data.valor <= 0:
         raise HTTPException(status_code=400, detail="Valor deve ser maior que zero")
 
-    # Resolver plano_item
+    plano_item = None
     if data.plano_item_id:
         plano_item = db.query(PlanoItem).filter(PlanoItem.id == data.plano_item_id).first()
         if not plano_item:
             raise HTTPException(status_code=404, detail="Item do plano não encontrado")
-        if plano_item.tipo != "despesa":
-            raise HTTPException(status_code=400, detail="plano_item_id deve ser do tipo despesa")
-    elif data.tipo_item:
-        # get or create pelo tipo_item/detalhe/categoria (igual transacoes_router)
-        tipo_item = data.tipo_item
-        detalhe   = data.detalhe or None
-        categoria = data.categoria or "Custo Fixo"
-        plano_item = (
-            db.query(PlanoItem)
-            .filter(
-                PlanoItem.anomes == data.anomes,
-                PlanoItem.tipo == "despesa",
-                PlanoItem.tipo_item == tipo_item,
-                PlanoItem.detalhe == detalhe,
-            )
-            .first()
-        )
-        if not plano_item:
-            plano_item = PlanoItem(
-                anomes=data.anomes,
-                tipo="despesa",
-                categoria=categoria,
-                tipo_item=tipo_item,
-                detalhe=detalhe,
-                valor_planejado=0,
-            )
-            db.add(plano_item)
-            db.flush()
-    else:
-        raise HTTPException(status_code=400, detail="Informe plano_item_id ou tipo_item")
 
     if data.data:
         try:
@@ -218,16 +127,46 @@ def create_pagamento(data: PagamentoCreate, db: Session = Depends(get_db)):
         ano, m = int(data.anomes[:4]), int(data.anomes[4:])
         data_pag = date_type(ano, m, monthrange(ano, m)[1])
 
+    anomes = f"{data_pag.year}{data_pag.month:02d}"
     pag = Pagamento(
-        anomes=data.anomes,
+        anomes=anomes,
         tipo="despesa",
         origem="despesa_manual",
-        plano_item_id=plano_item.id,
-        data=data_pag,
+        plano_item_id=plano_item.id if plano_item else None,
+        data_vencimento=data_pag,
+        data_pagamento=data_pag,
+        categoria=data.categoria,
+        tipo_item=data.tipo_item,
         valor=data.valor,
         descricao=data.descricao,
     )
     db.add(pag)
+    db.commit()
+    db.refresh(pag)
+    return _to_item(pag)
+
+
+@router.patch("/{pagamento_id}/confirmar", response_model=PagamentoItem)
+def confirmar_pagamento(
+    pagamento_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+):
+    """Confirma recebimento de uma parcela. Preenche data_pagamento e atualiza anomes."""
+    pag = db.query(Pagamento).filter(Pagamento.id == pagamento_id).first()
+    if not pag:
+        raise HTTPException(status_code=404, detail="Pagamento não encontrado")
+
+    data_str = data.get("data_pagamento")
+    if not data_str:
+        raise HTTPException(status_code=400, detail="data_pagamento é obrigatório")
+    try:
+        data_pag = datetime.strptime(data_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="data_pagamento deve ser YYYY-MM-DD")
+
+    pag.data_pagamento = data_pag
+    pag.anomes = f"{data_pag.year}{data_pag.month:02d}"
     db.commit()
     db.refresh(pag)
     return _to_item(pag)
@@ -239,7 +178,7 @@ def update_pagamento(
     data: PagamentoUpdate,
     db: Session = Depends(get_db),
 ):
-    """Atualiza despesa manual. Receitas (origem=pedido) não são editáveis aqui."""
+    """Atualiza despesa manual."""
     pag = db.query(Pagamento).filter(Pagamento.id == pagamento_id).first()
     if not pag:
         raise HTTPException(status_code=404, detail="Pagamento não encontrado")
@@ -252,8 +191,9 @@ def update_pagamento(
         pag.valor = data.valor
     if data.data is not None:
         try:
-            pag.data = datetime.strptime(data.data, "%Y-%m-%d").date()
-            pag.anomes = f"{pag.data.year}{pag.data.month:02d}"
+            nova_data = datetime.strptime(data.data, "%Y-%m-%d").date()
+            pag.data_pagamento = nova_data
+            pag.anomes = f"{nova_data.year}{nova_data.month:02d}"
         except ValueError:
             raise HTTPException(status_code=400, detail="data deve ser YYYY-MM-DD")
     if data.descricao is not None:
@@ -269,7 +209,7 @@ def delete_pagamento(
     pagamento_id: int,
     db: Session = Depends(get_db),
 ):
-    """Remove despesa manual. Receitas (origem=pedido) não podem ser removidas aqui."""
+    """Remove despesa manual."""
     pag = db.query(Pagamento).filter(Pagamento.id == pagamento_id).first()
     if not pag:
         raise HTTPException(status_code=404, detail="Pagamento não encontrado")
