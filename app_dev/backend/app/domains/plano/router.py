@@ -196,7 +196,7 @@ def get_dashboard(
     pagamentos = (
         db.query(Pagamento)
         .filter(Pagamento.anomes == mes)
-        .order_by(Pagamento.data.desc(), Pagamento.id.desc())
+        .order_by(Pagamento.data_pagamento.desc(), Pagamento.id.desc())
         .all()
     )
     itens_pag = [_to_item(p) for p in pagamentos]
