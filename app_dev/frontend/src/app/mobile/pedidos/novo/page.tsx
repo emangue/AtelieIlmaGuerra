@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Loader2, Plus, Ruler, Search } from "lucide-react";
+import { PagamentoForm, PagamentoConfig } from "@/components/mobile/pagamento-form";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -33,7 +34,6 @@ const STATUS_OPCOES = [
   "Entregue",
 ];
 
-const FORMAS_PAGAMENTO = ["Pix", "Parcelado", "Cartão de Crédito"];
 
 const MEDIDAS_CAMPOS: { key: string; label: string }[] = [
   { key: "medida_ombro", label: "Ombro" },
@@ -90,6 +90,11 @@ function NovoPedidoContent() {
   const [formaPagamento, setFormaPagamento] = useState<string | null>(null);
   const [valorEntrada, setValorEntrada] = useState(0);
   const [detalhesPagamento, setDetalhesPagamento] = useState("");
+  const [pagamentoConfig, setPagamentoConfig] = useState<PagamentoConfig>({
+    pagamento_na_entrega: false,
+    forma_pagamento: null,
+    parcelas: [],
+  });
 
   const [observacao, setObservacao] = useState("");
   const [medidasDisponiveis, setMedidasDisponiveis] = useState<boolean | null>(
@@ -323,7 +328,8 @@ function NovoPedidoContent() {
         param_cartao_credito: parametros?.cartao_credito ?? null,
         param_total_horas_mes: parametros?.total_horas_mes ?? null,
         param_margem_target: parametros?.margem_target ?? null,
-        forma_pagamento: formaPagamento,
+        forma_pagamento: pagamentoConfig.forma_pagamento,
+        pagamento_na_entrega: pagamentoConfig.pagamento_na_entrega || null,
         valor_entrada: valorEntrada || null,
         valor_restante: Math.max(0, (valorPecas || 0) - (valorEntrada || 0)) || null,
         detalhes_pagamento: detalhesPagamento || null,
@@ -348,6 +354,24 @@ function NovoPedidoContent() {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Erro ao salvar");
+      const novoPedido = await res.json();
+
+      // Salvar parcelas se configuradas
+      if (!pagamentoConfig.pagamento_na_entrega && pagamentoConfig.parcelas.length > 0) {
+        await fetch(`${API_URL}/api/v1/pedidos/${novoPedido.id}/pagamento`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            forma_pagamento: pagamentoConfig.forma_pagamento,
+            entrada: null,
+            parcelas: pagamentoConfig.parcelas.map((p) => ({
+              valor: p.valor,
+              data_vencimento: p.data_vencimento,
+              data_pagamento: p.data_pagamento,
+            })),
+          }),
+        });
+      }
 
       if (medidasDisponiveis && Object.keys(medidas).some((k) => medidas[k] > 0)) {
         const clienteMedidas: Record<string, number> = {};
@@ -767,59 +791,17 @@ function NovoPedidoContent() {
           />
         </div>
 
-        {/* Forma de Pagamento */}
-        <div>
-          <Label>Forma de Pagamento</Label>
-          <div className="flex flex-col gap-2 mt-2">
-            {FORMAS_PAGAMENTO.map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFormaPagamento(formaPagamento === f ? null : f)}
-                className={`py-2 px-4 rounded-lg text-sm font-medium text-left ${
-                  formaPagamento === f
-                    ? "bg-red-500 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Valor Entrada, Restante, Detalhes */}
-        <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-4">
-          <h3 className="text-sm font-medium text-gray-500">Pagamento</h3>
-          <div>
-            <Label>Valor Entrada</Label>
-            <Input
-              type="number"
-              min={0}
-              step={0.01}
-              value={valorEntrada || ""}
-              onChange={(e) => setValorEntrada(parseFloat(e.target.value) || 0)}
-              className="mt-1"
-            />
-          </div>
-          <div>
-            <Label>Valor Restante</Label>
-            <div className="flex justify-between items-center py-2 px-3 rounded-lg bg-gray-50 mt-1">
-              <span className="text-sm text-gray-500">Calculado automaticamente</span>
-              <span className="font-semibold text-gray-900">
-                R$ {Math.max(0, (valorPecas || 0) - (valorEntrada || 0)).toFixed(2).replace(".", ",")}
-              </span>
-            </div>
-          </div>
-          <div>
-            <Label>Detalhes do Pagamento</Label>
-            <Input
-              value={detalhesPagamento}
-              onChange={(e) => setDetalhesPagamento(e.target.value)}
-              placeholder="Detalhes..."
-              className="mt-1 min-h-[60px]"
-            />
-          </div>
+        {/* Pagamento */}
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <h3 className="text-sm font-medium text-gray-500 mb-3">Pagamento</h3>
+          <PagamentoForm
+            valorPecas={valorPecas || 0}
+            config={pagamentoConfig}
+            onChange={(c) => {
+              setPagamentoConfig(c);
+              setFormaPagamento(c.forma_pagamento);
+            }}
+          />
         </div>
 
         {/* Fotos disponíveis */}

@@ -18,10 +18,8 @@ import {
   Ruler,
   FileText,
   ImageIcon,
-  Plus,
-  Trash2,
-  Check,
 } from "lucide-react";
+import { PagamentoFormEdit } from "@/components/mobile/pagamento-form";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -109,6 +107,7 @@ interface PedidoDetail {
   param_cartao_credito?: number | null;
   param_total_horas_mes?: number | null;
   param_margem_target?: number | null;
+  pagamento_na_entrega?: boolean | null;
 }
 
 const MEDIDAS_CAMPOS: { key: keyof PedidoDetail; label: string }[] = [
@@ -651,142 +650,14 @@ export default function PedidoDetailPage() {
               <CreditCard className="w-4 h-4" />
               Pagamento
             </h3>
-            <div className="space-y-4">
-              {/* Forma de pagamento */}
-              <div>
-                <Label>Forma de pagamento</Label>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {FORMAS_PAGAMENTO.map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => setFormaPagamento(formaPagamento === f ? null : f)}
-                      className={`py-2 px-3 rounded-lg text-sm font-medium text-left border ${
-                        formaPagamento === f
-                          ? "border-blue-500 bg-blue-50 text-blue-700"
-                          : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
-                      }`}
-                    >
-                      {f}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Lista de parcelas */}
-              <div>
-                {!parcelasLoaded ? (
-                  <div className="flex justify-center py-6">
-                    <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between mb-2">
-                      <Label>Parcelas / Pagamentos</Label>
-                      <button
-                        type="button"
-                        onClick={() => setParcelas((prev) => [...prev, { valor: String(Number(valorPecas) || ""), data_vencimento: todayISO(), data_pagamento: "" }])}
-                        className="text-xs text-blue-600 flex items-center gap-1"
-                      >
-                        <Plus className="w-3 h-3" /> Adicionar
-                      </button>
-                    </div>
-
-                    {parcelas.length === 0 ? (
-                      <p className="text-xs text-gray-400 py-2">Nenhuma parcela cadastrada. Clique em &quot;Adicionar&quot; para incluir.</p>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        {parcelas.map((p, i) => (
-                          <div key={i} className="bg-gray-50 rounded-xl p-3 border border-gray-200">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-medium text-gray-500">
-                                  {parcelas.length === 1 ? "Pagamento" : i === 0 ? "Entrada" : `Parcela ${i}`}
-                                </span>
-                                {p.status && PAG_STATUS_LABEL[p.status] && (
-                                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${PAG_STATUS_LABEL[p.status].cls}`}>
-                                    {PAG_STATUS_LABEL[p.status].label}
-                                  </span>
-                                )}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setParcelas((prev) => prev.filter((_, idx) => idx !== i))}
-                                className="text-red-400 hover:text-red-600"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2">
-                              <div>
-                                <p className="text-[10px] text-gray-400 mb-1">Valor (R$)</p>
-                                <input
-                                  type="number"
-                                  value={p.valor}
-                                  onChange={(e) => setParcelas((prev) => prev.map((x, idx) => idx === i ? { ...x, valor: e.target.value } : x))}
-                                  placeholder="0,00"
-                                  className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs"
-                                />
-                              </div>
-                              <div>
-                                <p className="text-[10px] text-gray-400 mb-1">Vencimento</p>
-                                <input
-                                  type="date"
-                                  value={p.data_vencimento}
-                                  onChange={(e) => setParcelas((prev) => prev.map((x, idx) => idx === i ? { ...x, data_vencimento: e.target.value } : x))}
-                                  className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs"
-                                />
-                              </div>
-                              <div>
-                                <p className="text-[10px] text-gray-400 mb-1">Pago em</p>
-                                <input
-                                  type="date"
-                                  value={p.data_pagamento}
-                                  onChange={(e) => setParcelas((prev) => prev.map((x, idx) => idx === i ? { ...x, data_pagamento: e.target.value } : x))}
-                                  className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {parcelas.length > 0 && (
-                      <button
-                        type="button"
-                        disabled={savingParcelas}
-                        onClick={async () => {
-                          setSavingParcelas(true);
-                          try {
-                            const res = await fetch(`${API_URL}/api/v1/pedidos/${id}/pagamento`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                forma_pagamento: formaPagamento,
-                                entrada: null,
-                                parcelas: parcelas.map((p) => ({
-                                  valor: parseFloat(p.valor) || 0,
-                                  data_vencimento: p.data_vencimento,
-                                  data_pagamento: p.data_pagamento || null,
-                                })),
-                              }),
-                            });
-                            if (res.ok) loadParcelas();
-                          } finally {
-                            setSavingParcelas(false);
-                          }
-                        }}
-                        className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 disabled:opacity-50"
-                      >
-                        {savingParcelas ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                        Salvar pagamento
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
+            <PagamentoFormEdit
+              pedidoId={id}
+              valorPecas={Number(valorPecas) || 0}
+              apiUrl={API_URL}
+              formaPagamento={formaPagamento}
+              pagamentoNaEntrega={pedido?.pagamento_na_entrega ?? null}
+              onFormaPagamentoChange={setFormaPagamento}
+            />
           </section>
 
           {/* Medidas disponíveis */}
