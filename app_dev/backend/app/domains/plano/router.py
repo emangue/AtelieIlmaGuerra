@@ -21,7 +21,8 @@ from .schemas import (
     DashboardResponse,
     PagamentosResponse,
 )
-from .service import get_plano_vs_realizado, get_evolucao_bulk
+from .service import get_plano_vs_realizado, get_evolucao_bulk, get_meta_mes
+from .schemas import MetaMes
 
 router = APIRouter(prefix="/plano", tags=["Plano"])
 
@@ -214,6 +215,19 @@ def get_dashboard(
         evolucao_mensal=evolucao,
         movimentacoes=movimentacoes,
     )
+
+
+@router.get("/meta-mes", response_model=MetaMes)
+def get_meta_mes_route(
+    mes: Optional[str] = Query(None, description="YYYYMM (default: mês atual)"),
+    db: Session = Depends(get_db),
+):
+    """Meta do mês: progresso, peças necessárias e despesas não lançadas."""
+    from datetime import date
+    if not mes:
+        d = date.today()
+        mes = f"{d.year}{d.month:02d}"
+    return get_meta_mes(db, mes)
 
 
 @router.get("/plano-vs-realizado")

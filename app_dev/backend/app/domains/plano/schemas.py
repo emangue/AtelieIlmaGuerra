@@ -275,3 +275,35 @@ class DashboardResponse(BaseModel):
     plano_vs_realizado: PlanoVsRealizado
     evolucao_mensal: List[EvolucaoMensalItem]
     movimentacoes: PagamentosResponse
+
+
+class PecaNecessaria(BaseModel):
+    tipo_item: str
+    ticket_medio: float
+    faltam_valor: float
+    pecas_necessarias: int
+
+
+class DespesaNaoLancada(BaseModel):
+    tipo_item: str
+    detalhe: Optional[str]
+    valor_planejado: float
+
+
+class PecaEntregue(BaseModel):
+    tipo: str
+    quantidade: int
+    valor: float
+    ticket_medio: float
+
+
+class MetaMes(BaseModel):
+    anomes: str
+    meta_receita: float
+    realizado: float
+    faltam: float
+    percentual: float
+    dias_uteis_restantes: int
+    pecas_necessarias: List[PecaNecessaria]
+    despesas_nao_lancadas: List[DespesaNaoLancada]
+    pecas_entregues: List[PecaEntregue]

@@ -87,6 +87,38 @@ interface DashboardResponse {
   movimentacoes: PagamentosResponse;
 }
 
+interface PecaNecessaria {
+  tipo_item: string;
+  ticket_medio: number;
+  faltam_valor: number;
+  pecas_necessarias: number;
+}
+
+interface DespesaNaoLancada {
+  tipo_item: string;
+  detalhe: string | null;
+  valor_planejado: number;
+}
+
+interface PecaEntregue {
+  tipo: string;
+  quantidade: number;
+  valor: number;
+  ticket_medio: number;
+}
+
+interface MetaMes {
+  anomes: string;
+  meta_receita: number;
+  realizado: number;
+  faltam: number;
+  percentual: number;
+  dias_uteis_restantes: number;
+  pecas_necessarias: PecaNecessaria[];
+  despesas_nao_lancadas: DespesaNaoLancada[];
+  pecas_entregues: PecaEntregue[];
+}
+
 interface PedidoSnippet {
   id: number;
   cliente_nome: string;
@@ -162,6 +194,7 @@ export default function FinanceiroPage() {
   const [loading, setLoading] = useState(true);
   const [planoVsRealizado, setPlanoVsRealizado] = useState<PlanoVsRealizado | null>(null);
   const [evolucaoMensal, setEvolucaoMensal] = useState<EvolucaoMensalItem[]>([]);
+  const [metaMes, setMetaMes] = useState<MetaMes | null>(null);
   const [planoTabAtiva, setPlanoTabAtiva] = useState<"receitas" | "despesas">("receitas");
 
   // Movimentações
@@ -218,14 +251,19 @@ export default function FinanceiroPage() {
     if (period !== "month") return;
     setLoading(true);
     try {
-      const data = await api.get<DashboardResponse>(`/api/v1/plano/dashboard?mes=${mesParam}`);
+      const [data, meta] = await Promise.all([
+        api.get<DashboardResponse>(`/api/v1/plano/dashboard?mes=${mesParam}`),
+        api.get<MetaMes>(`/api/v1/plano/meta-mes?mes=${mesParam}`).catch(() => null),
+      ]);
       setPlanoVsRealizado(data.plano_vs_realizado);
       setEvolucaoMensal(data.evolucao_mensal || []);
       setMovimentacoes(data.movimentacoes.itens);
+      setMetaMes(meta);
     } catch {
       setPlanoVsRealizado(null);
       setEvolucaoMensal([]);
       setMovimentacoes([]);
+      setMetaMes(null);
     } finally {
       setLoading(false);
     }
@@ -519,6 +557,71 @@ export default function FinanceiroPage() {
                     {mesLabel(mesProximoParam)} →
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Meta do Mês */}
+            {metaMes && metaMes.meta_receita > 0 && (
+              <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-gray-900">Meta do mês</h3>
+                  <span className="text-xs text-gray-400">{metaMes.dias_uteis_restantes} dias úteis restantes</span>
+                </div>
+                {/* Barra de progresso */}
+                <div className="mb-1 flex justify-between items-baseline">
+                  <span className="text-lg font-bold text-gray-900">{formatMoney(metaMes.realizado)}</span>
+                  <span className="text-xs text-gray-400">de {formatMoney(metaMes.meta_receita)}</span>
+                </div>
+                <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden mb-3">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(100, metaMes.percentual)}%`,
+                      background: metaMes.percentual >= 90 ? '#1F4D35' : metaMes.percentual >= 60 ? '#D97706' : '#DC2626',
+                    }}
+                  />
+                </div>
+                <p className="text-xs font-medium" style={{ color: metaMes.percentual >= 90 ? '#1F4D35' : '#D97706' }}>
+                  {metaMes.percentual.toFixed(0)}% concluído
+                </p>
+                {/* Falta */}
+                {metaMes.faltam > 0 && (
+                  <div className="mt-3 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                    <p className="text-xs font-medium text-amber-800 mb-1.5">
+                      Para bater a meta, faltam {formatMoney(metaMes.faltam)}
+                    </p>
+                    {metaMes.pecas_necessarias.slice(0, 2).map((p) => (
+                      <p key={p.tipo_item} className="text-xs text-amber-700">
+                        ~{p.pecas_necessarias} {p.tipo_item.toLowerCase()} (ticket médio {formatMoney(p.ticket_medio)})
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {/* Peças entregues */}
+                {metaMes.pecas_entregues.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-2">Peças entregues</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {metaMes.pecas_entregues.map((p) => (
+                        <span key={p.tipo} className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
+                          {p.quantidade}× {p.tipo}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Despesas não lançadas */}
+                {metaMes.despesas_nao_lancadas.length > 0 && (
+                  <div className="mt-3 border-t border-gray-100 pt-3">
+                    <p className="text-[10px] uppercase tracking-wide text-red-400 mb-2">Despesas não lançadas</p>
+                    {metaMes.despesas_nao_lancadas.map((d, i) => (
+                      <div key={i} className="flex justify-between items-center text-xs py-0.5">
+                        <span className="text-gray-600">{d.detalhe || d.tipo_item}</span>
+                        <span className="text-red-500 font-medium">{formatMoney(d.valor_planejado)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

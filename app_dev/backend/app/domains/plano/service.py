@@ -12,7 +12,10 @@ from app.domains.pedidos.models import Pedido, TipoPedido
 from .models import PlanoItem
 from .transacoes_models import DespesaTransacao
 from .pagamentos_model import Pagamento
-from .schemas import PlanoVsRealizado, PlanoVsRealizadoItem, EvolucaoMensalItem, TIPO_PEDIDO_TO_PLANO
+from .schemas import (
+    PlanoVsRealizado, PlanoVsRealizadoItem, EvolucaoMensalItem, TIPO_PEDIDO_TO_PLANO,
+    MetaMes, PecaNecessaria, DespesaNaoLancada, PecaEntregue,
+)
 
 
 def _parse_mes(mes: str) -> tuple:
@@ -240,3 +243,129 @@ def get_evolucao_bulk(db: Session, mes: str, meses: int = 7) -> List[EvolucaoMen
         )
         for anomes in reversed(anomes_list)
     ]
+
+
+def get_meta_mes(db: Session, mes: str) -> MetaMes:
+    """Retorna a meta do mês com progresso, peças necessárias e despesas não lançadas."""
+    import math
+    ano, num_mes = _parse_mes(mes)
+    inicio = date(ano, num_mes, 1)
+    fim = date(ano + 1, 1, 1) if num_mes == 12 else date(ano, num_mes + 1, 1)
+    hoje = date.today()
+
+    # Plano de receita do mês
+    itens_rec = db.query(PlanoItem).filter(
+        PlanoItem.anomes == mes, PlanoItem.tipo == "receita"
+    ).all()
+    meta_receita = sum(float(i.valor_planejado) for i in itens_rec)
+
+    # Realizado: soma dos pagamentos tipo=receita no mês
+    realizado = float(
+        db.query(func.coalesce(func.sum(Pagamento.valor), 0))
+        .filter(Pagamento.anomes == mes, Pagamento.tipo == "receita")
+        .scalar() or 0
+    )
+
+    faltam = max(0.0, meta_receita - realizado)
+    percentual = round((realizado / meta_receita * 100) if meta_receita > 0 else 0, 1)
+
+    # Dias úteis restantes (seg-sáb, excluindo dom), a partir de amanhã até fim do mês
+    dias_uteis = 0
+    if hoje < fim:
+        check = max(hoje, inicio)
+        cur = check
+        while cur < fim:
+            if cur.weekday() != 6:  # 6 = domingo
+                dias_uteis += 1
+            from datetime import timedelta
+            cur += timedelta(days=1)
+        # Se hoje já passou, não contar hoje
+        if hoje >= inicio and hoje.weekday() != 6:
+            dias_uteis = max(0, dias_uteis - 1)
+
+    # Peças necessárias por tipo para bater a meta
+    # Receita realizada por tipo de plano
+    rec_por_tipo_realizado: Dict[str, float] = {}
+    rows_pag = (
+        db.query(TipoPedido.nome, func.coalesce(func.sum(Pagamento.valor), 0).label("v"))
+        .join(Pedido, Pedido.id == Pagamento.pedido_id)
+        .join(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
+        .filter(Pagamento.anomes == mes, Pagamento.tipo == "receita")
+        .group_by(TipoPedido.nome)
+        .all()
+    )
+    for r in rows_pag:
+        plano_tipo = TIPO_PEDIDO_TO_PLANO.get(r.nome.upper(), "Outros")
+        rec_por_tipo_realizado[plano_tipo] = rec_por_tipo_realizado.get(plano_tipo, 0) + float(r.v)
+
+    pecas_necessarias: List[PecaNecessaria] = []
+    for item in itens_rec:
+        ticket = float(item.ticket_medio) if item.ticket_medio and item.ticket_medio > 0 else 0
+        if ticket <= 0:
+            continue
+        real = rec_por_tipo_realizado.get(item.tipo_item, 0)
+        falta_tipo = max(0.0, float(item.valor_planejado) - real)
+        if falta_tipo > 0:
+            pecas_necessarias.append(PecaNecessaria(
+                tipo_item=item.tipo_item,
+                ticket_medio=round(ticket, 2),
+                faltam_valor=round(falta_tipo, 2),
+                pecas_necessarias=math.ceil(falta_tipo / ticket),
+            ))
+
+    # Despesas não lançadas: itens do plano tipo=despesa sem pagamento no mês
+    itens_desp = db.query(PlanoItem).filter(
+        PlanoItem.anomes == mes, PlanoItem.tipo == "despesa"
+    ).all()
+    pag_desp_ids = {
+        r[0] for r in db.query(Pagamento.plano_item_id)
+        .filter(Pagamento.anomes == mes, Pagamento.tipo == "despesa", Pagamento.plano_item_id.isnot(None))
+        .all()
+    }
+    despesas_nao_lancadas = [
+        DespesaNaoLancada(
+            tipo_item=i.tipo_item,
+            detalhe=i.detalhe,
+            valor_planejado=float(i.valor_planejado),
+        )
+        for i in itens_desp
+        if i.id not in pag_desp_ids and float(i.valor_planejado) > 0
+    ]
+
+    # Peças entregues por tipo no mês
+    rows_pe = (
+        db.query(
+            TipoPedido.nome,
+            func.coalesce(func.sum(func.coalesce(Pedido.quantidade_pecas, 1)), 0).label("qtd"),
+            func.coalesce(func.sum(Pedido.valor_pecas), 0).label("valor"),
+        )
+        .join(Pedido, Pedido.tipo_pedido_id == TipoPedido.id)
+        .filter(
+            Pedido.status == "Entregue",
+            Pedido.data_entrega >= inicio,
+            Pedido.data_entrega < fim,
+        )
+        .group_by(TipoPedido.nome)
+        .all()
+    )
+    pecas_entregues = [
+        PecaEntregue(
+            tipo=r.nome,
+            quantidade=int(r.qtd),
+            valor=round(float(r.valor), 2),
+            ticket_medio=round(float(r.valor) / int(r.qtd), 2) if int(r.qtd) > 0 else 0,
+        )
+        for r in rows_pe
+    ]
+
+    return MetaMes(
+        anomes=mes,
+        meta_receita=round(meta_receita, 2),
+        realizado=round(realizado, 2),
+        faltam=round(faltam, 2),
+        percentual=percentual,
+        dias_uteis_restantes=dias_uteis,
+        pecas_necessarias=pecas_necessarias,
+        despesas_nao_lancadas=despesas_nao_lancadas,
+        pecas_entregues=pecas_entregues,
+    )
