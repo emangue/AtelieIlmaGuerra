@@ -93,6 +93,7 @@ function NovoPedidoContent() {
   const [pagamentoConfig, setPagamentoConfig] = useState<PagamentoConfig>({
     pagamento_na_entrega: false,
     forma_pagamento: null,
+    entrada: null,
     parcelas: [],
   });
 
@@ -358,12 +359,17 @@ function NovoPedidoContent() {
 
       // Salvar parcelas se configuradas
       if (!pagamentoConfig.pagamento_na_entrega && pagamentoConfig.parcelas.length > 0) {
+        const entradaPayload = pagamentoConfig.entrada ? {
+          valor: pagamentoConfig.entrada.valor,
+          data_vencimento: pagamentoConfig.parcelas[0]?.data_vencimento ?? new Date().toISOString().slice(0, 10),
+          data_pagamento: pagamentoConfig.entrada.data_pagamento,
+        } : null;
         await fetch(`${API_URL}/api/v1/pedidos/${novoPedido.id}/pagamento`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             forma_pagamento: pagamentoConfig.forma_pagamento,
-            entrada: null,
+            entrada: entradaPayload,
             parcelas: pagamentoConfig.parcelas.map((p) => ({
               valor: p.valor,
               data_vencimento: p.data_vencimento,

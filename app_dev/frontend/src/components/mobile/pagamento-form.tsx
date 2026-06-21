@@ -1,17 +1,7 @@
 "use client";
 
-/**
- * Componente de configuração de pagamento de pedido.
- * Usado na criação e edição de pedidos.
- *
- * Lógica:
- * - "Pagar na entrega" → nenhuma parcela criada agora, modal abre ao marcar Entregue
- * - "Configurar agora" → forma + valor + nº parcelas + 1º vencimento → gera as outras
- * - Cada parcela exibe campo "Pago em" (pode ficar vazio = não pago)
- */
-
 import React, { useEffect, useState } from "react";
-import { Loader2, Check, Plus, Trash2 } from "lucide-react";
+import { Loader2, Check } from "lucide-react";
 
 export interface ParcelaConfig {
   valor: number;
@@ -19,9 +9,15 @@ export interface ParcelaConfig {
   data_pagamento: string | null;
 }
 
+export interface EntradaConfig {
+  valor: number;
+  data_pagamento: string | null;   // data em que a entrada foi paga (ou null = ainda não)
+}
+
 export interface PagamentoConfig {
   pagamento_na_entrega: boolean;
   forma_pagamento: string | null;
+  entrada: EntradaConfig | null;   // null = sem entrada
   parcelas: ParcelaConfig[];
 }
 
@@ -31,7 +27,9 @@ interface Props {
   onChange: (c: PagamentoConfig) => void;
 }
 
-const FORMAS = ["Pix", "À Vista", "Crediário", "Cartão Parcelado"];
+// Pix = sempre 1 parcela; Crediário e Cartão de Crédito = N parcelas
+const FORMAS = ["Pix", "Crediário", "Cartão de Crédito"] as const;
+const FORMAS_PARCELADAS = ["Crediário", "Cartão de Crédito"];
 
 function addMonths(iso: string, n: number): string {
   const d = new Date(iso + "T12:00:00");
@@ -43,33 +41,47 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function gerarParcelas(valor: number, n: number, primeiroVencimento: string): ParcelaConfig[] {
+function gerarParcelas(
+  valorTotal: number,
+  valorEntrada: number,
+  n: number,
+  primeiroVencimento: string,
+  pagamentosExistentes: (string | null)[]
+): ParcelaConfig[] {
   if (n <= 0 || !primeiroVencimento) return [];
-  const valorParcela = Math.round((valor / n) * 100) / 100;
-  const resto = Math.round((valor - valorParcela * n) * 100) / 100;
+  const base = Math.max(0, valorTotal - valorEntrada);
+  const valorParcela = Math.round((base / n) * 100) / 100;
+  const resto = Math.round((base - valorParcela * n) * 100) / 100;
   return Array.from({ length: n }, (_, i) => ({
     valor: i === n - 1 ? Math.round((valorParcela + resto) * 100) / 100 : valorParcela,
     data_vencimento: addMonths(primeiroVencimento, i),
-    data_pagamento: null,
+    data_pagamento: pagamentosExistentes[i] ?? null,
   }));
 }
 
+// ─── Componente para criação (novo pedido) ───────────────────────────────────
 export function PagamentoForm({ valorPecas, config, onChange }: Props) {
   const [nParcelas, setNParcelas] = useState(1);
   const [primeiroVenc, setPrimeiroVenc] = useState(todayISO());
+  const [temEntrada, setTemEntrada] = useState(false);
 
-  // Gera parcelas automaticamente ao mudar nº ou data
+  const isParcelado = FORMAS_PARCELADAS.includes(config.forma_pagamento ?? "");
+
+  // Regenera parcelas quando muda nº, data ou entrada
   useEffect(() => {
     if (config.pagamento_na_entrega) return;
-    const novas = gerarParcelas(valorPecas, nParcelas, primeiroVenc);
-    // preserva data_pagamento já preenchida se a parcela existir
-    const merged = novas.map((p, i) => ({
-      ...p,
-      data_pagamento: config.parcelas[i]?.data_pagamento ?? null,
-    }));
-    onChange({ ...config, parcelas: merged });
+    const n = isParcelado ? nParcelas : 1;
+    const valorEntrada = temEntrada ? (config.entrada?.valor ?? 0) : 0;
+    const existentes = config.parcelas.map((p) => p.data_pagamento);
+    const novas = gerarParcelas(valorPecas, valorEntrada, n, primeiroVenc, existentes);
+    onChange({ ...config, parcelas: novas });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nParcelas, primeiroVenc, valorPecas, config.pagamento_na_entrega]);
+  }, [nParcelas, primeiroVenc, valorPecas, config.pagamento_na_entrega, isParcelado, temEntrada]);
+
+  const setEntradaField = (field: keyof EntradaConfig, val: string | number | null) => {
+    const e: EntradaConfig = { valor: config.entrada?.valor ?? 0, data_pagamento: config.entrada?.data_pagamento ?? null };
+    onChange({ ...config, entrada: { ...e, [field]: val } });
+  };
 
   const setPago = (i: number, val: string) => {
     const novas = config.parcelas.map((p, idx) =>
@@ -81,38 +93,30 @@ export function PagamentoForm({ valorPecas, config, onChange }: Props) {
   return (
     <div className="space-y-4">
       {/* Toggle pagar na entrega */}
-      <div className="flex items-center justify-between p-3 rounded-xl border border-gray-200 bg-gray-50">
-        <div>
-          <p className="text-sm font-medium text-gray-700">Pagar na entrega</p>
-          <p className="text-xs text-gray-400">Combinou pagar quando buscar a peça</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => onChange({ ...config, pagamento_na_entrega: !config.pagamento_na_entrega, parcelas: [] })}
-          className={`w-12 h-6 rounded-full transition-colors relative ${
-            config.pagamento_na_entrega ? "bg-blue-500" : "bg-gray-300"
-          }`}
-        >
-          <span
-            className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-              config.pagamento_na_entrega ? "translate-x-7" : "translate-x-1"
-            }`}
-          />
-        </button>
-      </div>
+      <Toggle
+        label="Pagar na entrega"
+        sub="Combinou pagar quando buscar a peça"
+        value={config.pagamento_na_entrega}
+        onChange={(v) => onChange({ ...config, pagamento_na_entrega: v, parcelas: [], entrada: null })}
+      />
 
       {!config.pagamento_na_entrega && (
         <>
           {/* Forma de pagamento */}
           <div>
             <p className="text-sm font-medium text-gray-700 mb-2">Forma de pagamento</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {FORMAS.map((f) => (
                 <button
                   key={f}
                   type="button"
-                  onClick={() => onChange({ ...config, forma_pagamento: config.forma_pagamento === f ? null : f })}
-                  className={`py-2 px-3 rounded-lg text-sm font-medium border text-left ${
+                  onClick={() => {
+                    const nova = config.forma_pagamento === f ? null : f;
+                    // Se mudar para Pix, força 1 parcela
+                    if (nova === "Pix") setNParcelas(1);
+                    onChange({ ...config, forma_pagamento: nova });
+                  }}
+                  className={`py-2 px-2 rounded-lg text-sm font-medium border text-center ${
                     config.forma_pagamento === f
                       ? "border-blue-500 bg-blue-50 text-blue-700"
                       : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
@@ -124,70 +128,80 @@ export function PagamentoForm({ valorPecas, config, onChange }: Props) {
             </div>
           </div>
 
-          {/* Configuração das parcelas */}
+          {/* Toggle entrada */}
+          <Toggle
+            label="Tem entrada?"
+            sub="Parte do valor pago antes da entrega"
+            value={temEntrada}
+            onChange={(v) => {
+              setTemEntrada(v);
+              onChange({ ...config, entrada: v ? { valor: 0, data_pagamento: null } : null });
+            }}
+          />
+
+          {temEntrada && (
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col gap-3">
+              <p className="text-xs font-medium text-gray-500">Entrada</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[10px] text-gray-400 mb-1">Valor (R$)</p>
+                  <input
+                    type="number" min={0} step={0.01}
+                    value={config.entrada?.valor || ""}
+                    onChange={(e) => setEntradaField("valor", parseFloat(e.target.value) || 0)}
+                    placeholder="0,00"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 mb-1">Pago em (opcional)</p>
+                  <input
+                    type="date"
+                    value={config.entrada?.data_pagamento || ""}
+                    onChange={(e) => setEntradaField("data_pagamento", e.target.value || null)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Config parcelas */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs text-gray-500 mb-1">Nº de parcelas</p>
               <input
-                type="number"
-                min={1}
-                max={24}
+                type="number" min={1} max={24}
                 value={nParcelas}
+                disabled={!isParcelado}
                 onChange={(e) => setNParcelas(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm disabled:bg-gray-100 disabled:text-gray-400"
               />
             </div>
             <div>
               <p className="text-xs text-gray-500 mb-1">
-                {nParcelas === 1 ? "Data de vencimento" : "1º vencimento"}
+                {nParcelas === 1 ? "Data de vencimento" : "Data do 1º vencimento"}
               </p>
               <input
-                type="date"
-                value={primeiroVenc}
+                type="date" value={primeiroVenc}
                 onChange={(e) => setPrimeiroVenc(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
               />
             </div>
           </div>
 
-          {/* Lista gerada de parcelas */}
+          {/* Preview das parcelas geradas */}
           {config.parcelas.length > 0 && (
             <div className="flex flex-col gap-2">
               {config.parcelas.map((p, i) => (
-                <div key={i} className="bg-gray-50 rounded-xl p-3 border border-gray-200">
-                  <p className="text-xs font-medium text-gray-500 mb-2">
-                    {config.parcelas.length === 1
-                      ? "Pagamento"
-                      : i === 0
-                      ? "Entrada / 1ª parcela"
-                      : `${i + 1}ª parcela`}
-                  </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <p className="text-[10px] text-gray-400 mb-1">Valor</p>
-                      <p className="text-xs font-semibold text-gray-800">
-                        R$ {p.valor.toFixed(2).replace(".", ",")}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-gray-400 mb-1">Vencimento</p>
-                      <p className="text-xs text-gray-700">
-                        {p.data_vencimento
-                          ? new Date(p.data_vencimento + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
-                          : "—"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-gray-400 mb-1">Pago em</p>
-                      <input
-                        type="date"
-                        value={p.data_pagamento || ""}
-                        onChange={(e) => setPago(i, e.target.value)}
-                        className="w-full px-1.5 py-1 border border-gray-200 rounded-lg text-[10px]"
-                      />
-                    </div>
-                  </div>
-                </div>
+                <ParcelaRow
+                  key={i}
+                  label={config.parcelas.length === 1 ? "Pagamento" : `${i + 1}ª parcela`}
+                  valor={p.valor}
+                  vencimento={p.data_vencimento}
+                  pago={p.data_pagamento}
+                  onPago={(v) => setPago(i, v)}
+                />
               ))}
             </div>
           )}
@@ -197,10 +211,7 @@ export function PagamentoForm({ valorPecas, config, onChange }: Props) {
   );
 }
 
-/**
- * Versão do componente que carrega/salva parcelas existentes via API.
- * Usada na edição do pedido (não no novo).
- */
+// ─── Componente para edição (pedido existente) ───────────────────────────────
 interface PagamentoFormEditProps {
   pedidoId: number;
   valorPecas: number;
@@ -208,6 +219,24 @@ interface PagamentoFormEditProps {
   formaPagamento: string | null;
   pagamentoNaEntrega: boolean | null;
   onFormaPagamentoChange: (f: string | null) => void;
+}
+
+interface ParcelaOut {
+  id: number;
+  parcela_numero: number | null;
+  parcela_total: number | null;
+  valor: number;
+  data_vencimento: string | null;
+  data_pagamento: string | null;
+  status: string;
+}
+
+interface ParcelaRowState {
+  id?: number;
+  valor: number;
+  data_vencimento: string;
+  data_pagamento: string | null;
+  status?: string;
 }
 
 const PAG_STATUS_CLS: Record<string, string> = {
@@ -221,38 +250,19 @@ const PAG_STATUS_LABEL: Record<string, string> = {
   em_atraso: "Em atraso",
 };
 
-interface ParcelaOut {
-  id: number;
-  parcela_numero: number | null;
-  parcela_total: number | null;
-  valor: number;
-  data_vencimento: string | null;
-  data_pagamento: string | null;
-  status: string;
-}
-
-interface ParcelaRow {
-  id?: number;
-  valor: string;
-  data_vencimento: string;
-  data_pagamento: string;
-  status?: string;
-}
-
 export function PagamentoFormEdit({
-  pedidoId,
-  valorPecas,
-  apiUrl,
-  formaPagamento,
-  pagamentoNaEntrega,
-  onFormaPagamentoChange,
+  pedidoId, valorPecas, apiUrl, formaPagamento, pagamentoNaEntrega, onFormaPagamentoChange,
 }: PagamentoFormEditProps) {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [parcelas, setParcelas] = useState<ParcelaRow[]>([]);
+  const [parcelasExist, setParcelasExist] = useState<ParcelaRowState[]>([]);
   const [nParcelas, setNParcelas] = useState(1);
   const [primeiroVenc, setPrimeiroVenc] = useState(todayISO());
   const [pnEntrega, setPnEntrega] = useState(pagamentoNaEntrega ?? false);
+  const [temEntrada, setTemEntrada] = useState(false);
+  const [entrada, setEntrada] = useState<EntradaConfig>({ valor: 0, data_pagamento: null });
+
+  const isParcelado = FORMAS_PARCELADAS.includes(formaPagamento ?? "");
 
   const loadParcelas = () => {
     if (!pedidoId || isNaN(pedidoId)) { setLoaded(true); return; }
@@ -262,93 +272,82 @@ export function PagamentoFormEdit({
       .then((data: ParcelaOut[]) => {
         const rows = data.map((p) => ({
           id: p.id,
-          valor: String(p.valor),
+          valor: p.valor,
           data_vencimento: p.data_vencimento || todayISO(),
-          data_pagamento: p.data_pagamento || "",
+          data_pagamento: p.data_pagamento,
           status: p.status,
         }));
-        setParcelas(rows);
+        setParcelasExist(rows);
         if (rows.length > 0) setNParcelas(rows.length);
         setLoaded(true);
       })
-      .catch(() => { setParcelas([]); setLoaded(true); });
+      .catch(() => { setParcelasExist([]); setLoaded(true); });
   };
 
   useEffect(() => { loadParcelas(); }, [pedidoId]);
 
-  // Regenera preview quando nParcelas ou primeiroVenc mudam
-  const geradas = gerarParcelas(valorPecas, nParcelas, primeiroVenc);
-
-  // Merge status das parcelas existentes no preview
-  const preview: ParcelaRow[] = geradas.map((g, i) => ({
-    id: parcelas[i]?.id,
-    valor: String(g.valor),
-    data_vencimento: g.data_vencimento,
-    data_pagamento: parcelas[i]?.data_pagamento ?? "",
-    status: parcelas[i]?.status,
-  }));
+  // Regenera preview
+  const valorEntrada = temEntrada ? entrada.valor : 0;
+  const preview: ParcelaRowState[] = gerarParcelas(
+    valorPecas,
+    valorEntrada,
+    isParcelado ? nParcelas : 1,
+    primeiroVenc,
+    parcelasExist.map((p) => p.data_pagamento)
+  ).map((g, i) => ({ ...g, id: parcelasExist[i]?.id, status: parcelasExist[i]?.status }));
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Atualiza forma_pagamento no pedido
-      if (formaPagamento !== undefined) {
-        await fetch(`${apiUrl}/api/v1/pedidos/${pedidoId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ forma_pagamento: formaPagamento, pagamento_na_entrega: pnEntrega }),
-        });
-      }
+      await fetch(`${apiUrl}/api/v1/pedidos/${pedidoId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ forma_pagamento: formaPagamento, pagamento_na_entrega: pnEntrega }),
+      });
       if (!pnEntrega) {
         await fetch(`${apiUrl}/api/v1/pedidos/${pedidoId}/pagamento`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             forma_pagamento: formaPagamento,
-            entrada: null,
+            entrada: temEntrada ? { valor: entrada.valor, data_vencimento: primeiroVenc, data_pagamento: entrada.data_pagamento } : null,
             parcelas: preview.map((p) => ({
-              valor: parseFloat(p.valor) || 0,
+              valor: p.valor,
               data_vencimento: p.data_vencimento,
-              data_pagamento: p.data_pagamento || null,
+              data_pagamento: p.data_pagamento,
             })),
           }),
         });
       }
       loadParcelas();
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   if (!loaded) return <div className="flex justify-center py-6"><Loader2 className="w-4 h-4 animate-spin text-gray-400" /></div>;
 
   return (
     <div className="space-y-4">
-      {/* Toggle pagar na entrega */}
-      <div className="flex items-center justify-between p-3 rounded-xl border border-gray-200 bg-gray-50">
-        <div>
-          <p className="text-sm font-medium text-gray-700">Pagar na entrega</p>
-          <p className="text-xs text-gray-400">Combinou pagar quando buscar a peça</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setPnEntrega(!pnEntrega)}
-          className={`w-12 h-6 rounded-full transition-colors relative ${pnEntrega ? "bg-blue-500" : "bg-gray-300"}`}
-        >
-          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${pnEntrega ? "translate-x-7" : "translate-x-1"}`} />
-        </button>
-      </div>
+      <Toggle
+        label="Pagar na entrega"
+        sub="Combinou pagar quando buscar a peça"
+        value={pnEntrega}
+        onChange={setPnEntrega}
+      />
 
       {!pnEntrega && (
         <>
-          {/* Forma de pagamento */}
+          {/* Forma */}
           <div>
             <p className="text-sm font-medium text-gray-700 mb-2">Forma de pagamento</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {FORMAS.map((f) => (
                 <button key={f} type="button"
-                  onClick={() => onFormaPagamentoChange(formaPagamento === f ? null : f)}
-                  className={`py-2 px-3 rounded-lg text-sm font-medium border text-left ${
+                  onClick={() => {
+                    const nova = formaPagamento === f ? null : f;
+                    if (nova === "Pix") setNParcelas(1);
+                    onFormaPagamentoChange(nova);
+                  }}
+                  className={`py-2 px-2 rounded-lg text-sm font-medium border text-center ${
                     formaPagamento === f
                       ? "border-blue-500 bg-blue-50 text-blue-700"
                       : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
@@ -360,18 +359,57 @@ export function PagamentoFormEdit({
             </div>
           </div>
 
+          {/* Toggle entrada */}
+          <Toggle
+            label="Tem entrada?"
+            sub="Parte do valor pago antes da entrega"
+            value={temEntrada}
+            onChange={setTemEntrada}
+          />
+
+          {temEntrada && (
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col gap-3">
+              <p className="text-xs font-medium text-gray-500">Entrada</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[10px] text-gray-400 mb-1">Valor (R$)</p>
+                  <input
+                    type="number" min={0} step={0.01}
+                    value={entrada.valor || ""}
+                    onChange={(e) => setEntrada((x) => ({ ...x, valor: parseFloat(e.target.value) || 0 }))}
+                    placeholder="0,00"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 mb-1">Pago em (opcional)</p>
+                  <input
+                    type="date"
+                    value={entrada.data_pagamento || ""}
+                    onChange={(e) => setEntrada((x) => ({ ...x, data_pagamento: e.target.value || null }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Config parcelas */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs text-gray-500 mb-1">Nº de parcelas</p>
               <input
-                type="number" min={1} max={24} value={nParcelas}
+                type="number" min={1} max={24}
+                value={nParcelas}
+                disabled={!isParcelado}
                 onChange={(e) => setNParcelas(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm disabled:bg-gray-100 disabled:text-gray-400"
               />
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1">{nParcelas === 1 ? "Data de vencimento" : "1º vencimento"}</p>
+              <p className="text-xs text-gray-500 mb-1">
+                {(isParcelado ? nParcelas : 1) === 1 ? "Data de vencimento" : "Data do 1º vencimento"}
+              </p>
               <input
                 type="date" value={primeiroVenc}
                 onChange={(e) => setPrimeiroVenc(e.target.value)}
@@ -380,61 +418,29 @@ export function PagamentoFormEdit({
             </div>
           </div>
 
-          {/* Preview de parcelas geradas */}
+          {/* Preview parcelas */}
           {preview.length > 0 && (
             <div className="flex flex-col gap-2">
               {preview.map((p, i) => (
-                <div key={i} className="bg-gray-50 rounded-xl p-3 border border-gray-200">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs font-medium text-gray-500">
-                      {preview.length === 1 ? "Pagamento" : i === 0 ? "Entrada / 1ª parcela" : `${i + 1}ª parcela`}
-                    </span>
-                    {p.status && PAG_STATUS_LABEL[p.status] && (
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${PAG_STATUS_CLS[p.status]}`}>
-                        {PAG_STATUS_LABEL[p.status]}
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <p className="text-[10px] text-gray-400 mb-1">Valor</p>
-                      <p className="text-xs font-semibold text-gray-800">
-                        R$ {parseFloat(p.valor).toFixed(2).replace(".", ",")}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-gray-400 mb-1">Vencimento</p>
-                      <p className="text-xs text-gray-700">
-                        {new Date(p.data_vencimento + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-gray-400 mb-1">Pago em</p>
-                      <input
-                        type="date"
-                        value={p.data_pagamento}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setParcelas((prev) => {
-                            const clone = [...prev];
-                            if (clone[i]) clone[i] = { ...clone[i], data_pagamento: val };
-                            else clone[i] = { valor: p.valor, data_vencimento: p.data_vencimento, data_pagamento: val };
-                            return clone;
-                          });
-                        }}
-                        className="w-full px-1.5 py-1 border border-gray-200 rounded-lg text-[10px]"
-                      />
-                    </div>
-                  </div>
-                </div>
+                <ParcelaRow
+                  key={i}
+                  label={preview.length === 1 ? "Pagamento" : `${i + 1}ª parcela`}
+                  valor={p.valor}
+                  vencimento={p.data_vencimento}
+                  pago={p.data_pagamento}
+                  status={p.status}
+                  onPago={(v) => setParcelasExist((prev) => {
+                    const clone = [...prev];
+                    if (clone[i]) clone[i] = { ...clone[i], data_pagamento: v || null };
+                    return clone;
+                  })}
+                />
               ))}
             </div>
           )}
 
           <button
-            type="button"
-            disabled={saving}
-            onClick={handleSave}
+            type="button" disabled={saving} onClick={handleSave}
             className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 disabled:opacity-50"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
@@ -445,8 +451,7 @@ export function PagamentoFormEdit({
 
       {pnEntrega && (
         <button
-          type="button"
-          disabled={saving}
+          type="button" disabled={saving}
           onClick={async () => {
             setSaving(true);
             try {
@@ -463,6 +468,71 @@ export function PagamentoFormEdit({
           Salvar configuração
         </button>
       )}
+    </div>
+  );
+}
+
+// ─── Sub-componentes ─────────────────────────────────────────────────────────
+
+function Toggle({ label, sub, value, onChange }: { label: string; sub: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between p-3 rounded-xl border border-gray-200 bg-gray-50">
+      <div>
+        <p className="text-sm font-medium text-gray-700">{label}</p>
+        <p className="text-xs text-gray-400">{sub}</p>
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange(!value)}
+        className={`w-12 h-6 rounded-full transition-colors relative flex-shrink-0 ${value ? "bg-blue-500" : "bg-gray-300"}`}
+      >
+        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${value ? "translate-x-7" : "translate-x-1"}`} />
+      </button>
+    </div>
+  );
+}
+
+function ParcelaRow({ label, valor, vencimento, pago, status, onPago }: {
+  label: string;
+  valor: number;
+  vencimento: string;
+  pago: string | null;
+  status?: string;
+  onPago: (v: string) => void;
+}) {
+  return (
+    <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs font-medium text-gray-500">{label}</span>
+        {status && PAG_STATUS_LABEL[status] && (
+          <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${PAG_STATUS_CLS[status]}`}>
+            {PAG_STATUS_LABEL[status]}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <p className="text-[10px] text-gray-400 mb-1">Valor</p>
+          <p className="text-xs font-semibold text-gray-800">
+            R$ {valor.toFixed(2).replace(".", ",")}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 mb-1">Vencimento</p>
+          <p className="text-xs text-gray-700">
+            {new Date(vencimento + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 mb-1">Pago em</p>
+          <input
+            type="date"
+            value={pago || ""}
+            onChange={(e) => onPago(e.target.value)}
+            className="w-full px-1.5 py-1 border border-gray-200 rounded-lg text-[10px]"
+          />
+        </div>
+      </div>
     </div>
   );
 }
