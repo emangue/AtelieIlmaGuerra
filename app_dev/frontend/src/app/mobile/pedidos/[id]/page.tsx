@@ -18,6 +18,9 @@ import {
   Ruler,
   FileText,
   ImageIcon,
+  Plus,
+  Trash2,
+  Check,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -31,7 +34,25 @@ const STATUS_OPCOES = [
   "Entregue",
 ];
 
-const FORMAS_PAGAMENTO = ["Pix", "Parcelado", "Cartão de Crédito"];
+const FORMAS_PAGAMENTO = ["Pix", "À Vista", "Crediário", "Cartão Parcelado"];
+
+interface ParcelaForm {
+  id?: number;        // existe se já salva no banco
+  valor: string;
+  data_vencimento: string;
+  data_pagamento: string;  // "" = não pago
+  status?: string;   // calculado do servidor
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const PAG_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
+  confirmado: { label: "Pago", cls: "text-green-600 bg-green-50 border-green-200" },
+  aguardando: { label: "Aguardando", cls: "text-amber-600 bg-amber-50 border-amber-200" },
+  em_atraso:  { label: "Em atraso",  cls: "text-red-600 bg-red-50 border-red-200" },
+};
 
 interface PedidoDetail {
   id: number;
@@ -188,6 +209,10 @@ export default function PedidoDetailPage() {
   const [formaPagamento, setFormaPagamento] = useState<string | null>(null);
   const [valorEntrada, setValorEntrada] = useState<number | "">("");
   const [detalhesPagamento, setDetalhesPagamento] = useState("");
+  // Parcelas (novo fluxo)
+  const [parcelas, setParcelas] = useState<ParcelaForm[]>([]);
+  const [parcelasLoaded, setParcelasLoaded] = useState(false);
+  const [savingParcelas, setSavingParcelas] = useState(false);
   const [medidasDisponiveis, setMedidasDisponiveis] = useState<boolean | null>(null);
   const [fotosDisponiveis, setFotosDisponiveis] = useState<boolean | null>(null);
   const [observacao, setObservacao] = useState("");
@@ -243,8 +268,26 @@ export default function PedidoDetailPage() {
       .finally(() => setLoading(false));
   };
 
+  const loadParcelas = () => {
+    if (!id) return;
+    fetch(`${API_URL}/api/v1/pedidos/${id}/parcelas`)
+      .then((res) => res.json())
+      .then((data: { id: number; valor: number; data_vencimento: string | null; data_pagamento: string | null; status: string }[]) => {
+        setParcelas(data.map((p) => ({
+          id: p.id,
+          valor: String(p.valor),
+          data_vencimento: p.data_vencimento || todayISO(),
+          data_pagamento: p.data_pagamento || "",
+          status: p.status,
+        })));
+        setParcelasLoaded(true);
+      })
+      .catch(() => { setParcelas([]); setParcelasLoaded(true); });
+  };
+
   useEffect(() => {
     loadPedido();
+    loadParcelas();
   }, [id]);
 
   useEffect(() => {
@@ -608,20 +651,19 @@ export default function PedidoDetailPage() {
               Pagamento
             </h3>
             <div className="space-y-4">
+              {/* Forma de pagamento */}
               <div>
                 <Label>Forma de pagamento</Label>
-                <div className="flex flex-col gap-2 mt-2">
+                <div className="grid grid-cols-2 gap-2 mt-2">
                   {FORMAS_PAGAMENTO.map((f) => (
                     <button
                       key={f}
                       type="button"
-                      onClick={() =>
-                        setFormaPagamento(formaPagamento === f ? null : f)
-                      }
-                      className={`py-2 px-4 rounded-lg text-sm font-medium text-left ${
+                      onClick={() => setFormaPagamento(formaPagamento === f ? null : f)}
+                      className={`py-2 px-3 rounded-lg text-sm font-medium text-left border ${
                         formaPagamento === f
-                          ? "bg-red-500 text-white"
-                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          ? "border-blue-500 bg-blue-50 text-blue-700"
+                          : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
                       }`}
                     >
                       {f}
@@ -629,38 +671,118 @@ export default function PedidoDetailPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Lista de parcelas */}
               <div>
-                <Label>Valor entrada</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={valorEntrada}
-                  onChange={(e) =>
-                    setValorEntrada(
-                      e.target.value === "" ? "" : parseFloat(e.target.value) || 0
-                    )
-                  }
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <Label>Valor restante</Label>
-                <div className="flex justify-between items-center py-2 px-3 rounded-lg bg-gray-50 mt-1">
-                  <span className="text-sm text-gray-500">Calculado automaticamente</span>
-                  <span className="font-semibold text-gray-900">
-                    R$ {Math.max(0, (Number(valorPecas) || 0) - (Number(valorEntrada) || 0)).toFixed(2).replace(".", ",")}
-                  </span>
+                <div className="flex items-center justify-between mb-2">
+                  <Label>Parcelas / Pagamentos</Label>
+                  <button
+                    type="button"
+                    onClick={() => setParcelas((prev) => [...prev, { valor: "", data_vencimento: todayISO(), data_pagamento: "" }])}
+                    className="text-xs text-blue-600 flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" /> Adicionar
+                  </button>
                 </div>
-              </div>
-              <div>
-                <Label>Detalhes do pagamento</Label>
-                <Input
-                  value={detalhesPagamento}
-                  onChange={(e) => setDetalhesPagamento(e.target.value)}
-                  placeholder="Detalhes..."
-                  className="mt-1 min-h-[60px]"
-                />
+
+                {!parcelasLoaded ? (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                  </div>
+                ) : parcelas.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-2">Nenhuma parcela cadastrada. Clique em &quot;Adicionar&quot; para incluir.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {parcelas.map((p, i) => (
+                      <div key={i} className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-gray-500">
+                              {parcelas.length === 1 ? "Pagamento" : i === 0 && parcelas.length > 1 ? "Entrada" : `Parcela ${i}`}
+                            </span>
+                            {p.status && PAG_STATUS_LABEL[p.status] && (
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${PAG_STATUS_LABEL[p.status].cls}`}>
+                                {PAG_STATUS_LABEL[p.status].label}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setParcelas((prev) => prev.filter((_, idx) => idx !== i))}
+                            className="text-red-400 hover:text-red-600"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <p className="text-[10px] text-gray-400 mb-1">Valor (R$)</p>
+                            <input
+                              type="number"
+                              value={p.valor}
+                              onChange={(e) => setParcelas((prev) => prev.map((x, idx) => idx === i ? { ...x, valor: e.target.value } : x))}
+                              placeholder="0,00"
+                              className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs"
+                            />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-400 mb-1">Vencimento</p>
+                            <input
+                              type="date"
+                              value={p.data_vencimento}
+                              onChange={(e) => setParcelas((prev) => prev.map((x, idx) => idx === i ? { ...x, data_vencimento: e.target.value } : x))}
+                              className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs"
+                            />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-400 mb-1">Pago em</p>
+                            <input
+                              type="date"
+                              value={p.data_pagamento}
+                              onChange={(e) => setParcelas((prev) => prev.map((x, idx) => idx === i ? { ...x, data_pagamento: e.target.value } : x))}
+                              className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Botão salvar parcelas (independente do salvar geral) */}
+                {parcelas.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={savingParcelas}
+                    onClick={async () => {
+                      setSavingParcelas(true);
+                      try {
+                        const res = await fetch(`${API_URL}/api/v1/pedidos/${id}/pagamento`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            forma_pagamento: formaPagamento,
+                            entrada: null,
+                            parcelas: parcelas.map((p) => ({
+                              valor: parseFloat(p.valor) || 0,
+                              data_vencimento: p.data_vencimento,
+                              data_pagamento: p.data_pagamento || null,
+                            })),
+                          }),
+                        });
+                        if (res.ok) {
+                          loadParcelas();
+                        }
+                      } finally {
+                        setSavingParcelas(false);
+                      }
+                    }}
+                    className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    {savingParcelas ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    Salvar pagamento
+                  </button>
+                )}
               </div>
             </div>
           </section>
