@@ -20,7 +20,7 @@ import {
   FileText,
 } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+const API_URL = "";
 
 interface PedidoItem {
   id: number;
@@ -285,7 +285,7 @@ function PedidosTodosContent() {
                   >
                     <div className="flex gap-2">
                       <Link
-                        href={`/mobile/pedidos/${p.id}`}
+                        href={`/mobile/pedidos/${p.id}?from=historico${mesFilter ? `&mes=${mesFilter}` : ""}`}
                         className="flex flex-1 min-w-0 gap-2"
                       >
                         <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center">
@@ -322,7 +322,7 @@ function PedidosTodosContent() {
                         >
                           <FileText className="h-4 w-4" />
                         </Link>
-                        <Link href={`/mobile/pedidos/${p.id}`}>
+                        <Link href={`/mobile/pedidos/${p.id}?from=historico${mesFilter ? `&mes=${mesFilter}` : ""}`}>
                           <button
                             className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
                             aria-label="Ver detalhe"

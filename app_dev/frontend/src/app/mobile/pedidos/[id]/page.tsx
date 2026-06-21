@@ -162,6 +162,14 @@ export default function PedidoDetailPage() {
   const router = useRouter();
   const id = Number(params.id);
   const fromPage = searchParams.get("from");
+  const fromMes = searchParams.get("mes");
+  const backUrl = fromPage === "financeiro"
+    ? "/mobile/financeiro"
+    : fromPage === "historico"
+    ? `/mobile/pedidos/todos${fromMes ? `?mes=${fromMes}` : ""}`
+    : fromPage === "pagamentos"
+    ? "/mobile/pagamentos"
+    : "/mobile/pedidos";
   const [pedido, setPedido] = useState<PedidoDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -382,11 +390,9 @@ export default function PedidoDetailPage() {
     return (
       <div className="p-4">
         <p className="text-gray-500">Pedido não encontrado.</p>
-        <Link href="/mobile/pedidos">
-          <Button variant="link" className="mt-2">
-            Voltar
-          </Button>
-        </Link>
+        <Button variant="link" className="mt-2" onClick={() => router.push(backUrl)}>
+          Voltar
+        </Button>
       </div>
     );
   }
@@ -409,11 +415,9 @@ export default function PedidoDetailPage() {
       <div className="flex flex-1 flex-col pb-32">
         <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-3">
           <div className="flex items-center gap-2">
-            <Link href="/mobile/pedidos">
-              <Button variant="ghost" size="icon">
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-            </Link>
+            <Button variant="ghost" size="icon" onClick={() => router.push(backUrl)}>
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
             <div className="flex-1 min-w-0">
               <h1 className="text-lg font-semibold text-gray-900 truncate">
                 Editar pedido
@@ -969,7 +973,7 @@ export default function PedidoDetailPage() {
     <div className="flex flex-1 flex-col pb-24">
       <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-3">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => router.push(fromPage === "financeiro" ? "/mobile/financeiro" : "/mobile/pedidos")}>
+          <Button variant="ghost" size="icon" onClick={() => router.push(backUrl)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1 min-w-0">

@@ -20,6 +20,11 @@ const MobileDashboardCharts = dynamic(
   { ssr: false }
 );
 
+const ChartComparacaoMensal = dynamic(
+  () => import("@/components/mobile/chart-comparacao-mensal").then((m) => m.ChartComparacaoMensal),
+  { ssr: false }
+);
+
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
 function formatMoney(val: number) {
@@ -116,6 +121,7 @@ export default function PainelPage() {
   const [lucroPorAnoTotal, setLucroPorAnoTotal] = useState<{ ano: number; valor: number }[]>([]);
   const [pecasPorTipo, setPecasPorTipo] = useState<PecasPorTipo[]>([]);
   const [planoVsRealizado, setPlanoVsRealizado] = useState<PlanoVsRealizado | null>(null);
+  const [evolucaoMensal, setEvolucaoMensal] = useState<{ anomes: string; label: string; receita_planejada: number; receita_realizada: number }[]>([]);
   const [planoTabAtiva, setPlanoTabAtiva] = useState<"receitas" | "despesas">("receitas");
 
   const handleError = () => {
@@ -126,6 +132,7 @@ export default function PainelPage() {
     setLucroPorAnoTotal([]);
     setPecasPorTipo([]);
     setPlanoVsRealizado(null);
+    setEvolucaoMensal([]);
     setError("Não foi possível carregar. Verifique se o backend está rodando (porta 8000).");
   };
 
@@ -166,14 +173,16 @@ export default function PainelPage() {
     if (isMonth) {
       const lucroUrl = `${API_URL}/api/v1/dashboard/lucro-mensal?meses=12`;
       const planoUrl = `${API_URL}/api/v1/plano/plano-vs-realizado?mes=${mesParam}`;
+      const dashboardUrl = `${API_URL}/api/v1/plano/dashboard?mes=${mesParam}`;
       Promise.all([
         fetchWithTimeout(kpisUrl),
         fetchWithTimeout(mixUrl),
         fetchWithTimeout(lucroUrl),
         fetchWithTimeout(pecasUrl),
         fetchWithTimeout(planoUrl).catch(() => null),
+        fetchWithTimeout(dashboardUrl).catch(() => null),
       ])
-        .then(([k, m, l, p, plano]) => {
+        .then(([k, m, l, p, plano, dashboard]) => {
           setKpis(k);
           setMixStatus(m);
           setLucroMensal(l);
@@ -181,6 +190,7 @@ export default function PainelPage() {
           setLucroPorAno([]);
           setLucroPorAnoTotal([]);
           setPlanoVsRealizado(plano);
+          setEvolucaoMensal(dashboard?.evolucao_mensal || []);
         })
         .catch(handleError)
         .finally(() => setLoading(false));
@@ -580,15 +590,35 @@ export default function PainelPage() {
             </Collapsible>
           )}
 
-          <MobileDashboardCharts
-            period={period}
-            lucroMensal={lucroMensal}
-            chartDataYTD={chartDataYTD}
-            chartDataYTDClosed={chartDataYTDClosed}
-            chartDataAno={chartDataAno}
-            lucroPorAnoOrdenado={lucroPorAnoOrdenado}
-            mixParaPie={mixParaPie}
-          />
+          {period === "month" ? (
+            <>
+              <MobileDashboardCharts
+                period={period}
+                lucroMensal={[]}
+                chartDataYTD={[]}
+                chartDataYTDClosed={[]}
+                chartDataAno={[]}
+                lucroPorAnoOrdenado={[]}
+                mixParaPie={mixParaPie}
+              />
+              {evolucaoMensal.length > 0 && (
+                <div className="rounded-xl border border-gray-200 bg-white p-4 mb-6 overflow-hidden">
+                  <h3 className="text-sm font-medium text-gray-700 mb-4">Comparação Mensal</h3>
+                  <ChartComparacaoMensal data={evolucaoMensal} />
+                </div>
+              )}
+            </>
+          ) : (
+            <MobileDashboardCharts
+              period={period}
+              lucroMensal={lucroMensal}
+              chartDataYTD={chartDataYTD}
+              chartDataYTDClosed={chartDataYTDClosed}
+              chartDataAno={chartDataAno}
+              lucroPorAnoOrdenado={lucroPorAnoOrdenado}
+              mixParaPie={mixParaPie}
+            />
+          )}
 
           {/* Peças por tipo */}
           {pecasPorTipo.length > 0 && (
