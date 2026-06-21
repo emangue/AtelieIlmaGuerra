@@ -34,9 +34,7 @@ def list_plano(
     ano: Optional[int] = Query(None, description="Ano (ex: 2026) - todos os meses do ano"),
     db: Session = Depends(get_db),
 ):
-    """Lista itens do plano. valor_realizado de despesas = soma das transações."""
-    from .transacoes_models import DespesaTransacao
-
+    """Lista itens do plano. valor_realizado de despesas = soma dos pagamentos vinculados."""
     q = db.query(PlanoItem)
     if anomes:
         q = q.filter(PlanoItem.anomes == anomes)
@@ -47,20 +45,33 @@ def list_plano(
     q = q.order_by(PlanoItem.anomes, PlanoItem.tipo, PlanoItem.categoria, PlanoItem.tipo_item)
     itens = q.all()
 
-    # valor_realizado de despesas = soma das transações
+    # valor_realizado de despesas = soma dos pagamentos tipo=despesa vinculados ao plano_item
     if itens:
+        from .pagamentos_model import Pagamento
         meses = list({i.anomes for i in itens})
-        trans = (
-            db.query(DespesaTransacao.plano_item_id, func.coalesce(func.sum(DespesaTransacao.valor), 0).label("total"))
-            .filter(DespesaTransacao.anomes.in_(meses))
-            .group_by(DespesaTransacao.plano_item_id)
+        pag_q = (
+            db.query(
+                Pagamento.plano_item_id,
+                func.coalesce(func.sum(Pagamento.valor), 0).label("total"),
+                func.count(Pagamento.id).label("count"),
+            )
+            .filter(Pagamento.anomes.in_(meses), Pagamento.tipo == "despesa", Pagamento.plano_item_id.isnot(None))
+            .group_by(Pagamento.plano_item_id)
         )
-        trans_map = {r.plano_item_id: float(r.total) for r in trans}
+        pag_map = {r.plano_item_id: (float(r.total), int(r.count)) for r in pag_q}
         for i in itens:
             if i.tipo == "despesa":
-                i.valor_realizado = trans_map.get(i.id) if i.id in trans_map else (i.valor_realizado or 0)
+                total, count = pag_map.get(i.id, (0, 0))
+                i.valor_realizado = total
+                i._transacoes_count = count
 
-    return itens
+    result = []
+    for i in itens:
+        d = PlanoItemOut.model_validate(i)
+        if i.tipo == "despesa":
+            d.transacoes_count = getattr(i, "_transacoes_count", 0)
+        result.append(d)
+    return result
 
 
 @router.get("/resumo-mensal", response_model=List[PlanoResumoMes])
@@ -70,7 +81,6 @@ def resumo_mensal(
 ):
     """Resumo por mês: planejado e realizado (tudo via pagamentos)."""
     from datetime import date
-    from .transacoes_models import DespesaTransacao
     from .pagamentos_model import Pagamento
 
     y = ano or date.today().year
@@ -92,22 +102,13 @@ def resumo_mensal(
     )
     desp_map = {d.anomes: float(d.total) for d in desp}
 
-    # Despesas realizadas — primário: pagamentos tipo=despesa
+    # Despesas realizadas — pagamentos tipo=despesa
     pag_desp = (
         db.query(Pagamento.anomes, func.coalesce(func.sum(Pagamento.valor), 0).label("total"))
         .filter(Pagamento.anomes.like(f"{prefix}%"), Pagamento.tipo == "despesa")
         .group_by(Pagamento.anomes)
     )
     trans_map = {r.anomes: float(r.total) for r in pag_desp}
-    # Fallback legado: transações Excel que ainda não migraram para despesas
-    leg = (
-        db.query(DespesaTransacao.anomes, func.coalesce(func.sum(DespesaTransacao.valor), 0).label("total"))
-        .filter(DespesaTransacao.anomes.like(f"{prefix}%"))
-        .group_by(DespesaTransacao.anomes)
-    )
-    for r in leg:
-        if trans_map.get(r.anomes, 0) == 0 and float(r.total) > 0:
-            trans_map[r.anomes] = float(r.total)
 
     # Receita realizada por mês — pagamentos tipo=receita
     rec_real_q = (
@@ -117,7 +118,7 @@ def resumo_mensal(
     )
     rec_real = {r.anomes: float(r.total) for r in rec_real_q}
 
-    meses = sorted(set(rec_map.keys()) | set(desp_map.keys()))
+    meses = sorted(set(rec_map.keys()) | set(desp_map.keys()) | set(rec_real.keys()) | set(trans_map.keys()))
     return [
         PlanoResumoMes(
             anomes=m,
@@ -137,17 +138,18 @@ def list_despesas_realizadas(
     mes: str = Query(..., description="YYYYMM - mês de referência"),
     db: Session = Depends(get_db),
 ):
-    """Lista despesas realizadas do plano no mês (soma das transações ou valor_realizado legado)."""
-    from .transacoes_models import DespesaTransacao
+    """Lista despesas realizadas do plano no mês (via pagamentos tipo=despesa)."""
+    from .pagamentos_model import Pagamento
 
     if len(mes) != 6 or not mes.isdigit():
         return []
-    trans_soma = (
-        db.query(DespesaTransacao.plano_item_id, func.coalesce(func.sum(DespesaTransacao.valor), 0).label("total"))
-        .filter(DespesaTransacao.anomes == mes)
-        .group_by(DespesaTransacao.plano_item_id)
+
+    pag_soma = (
+        db.query(Pagamento.plano_item_id, func.coalesce(func.sum(Pagamento.valor), 0).label("total"))
+        .filter(Pagamento.anomes == mes, Pagamento.tipo == "despesa", Pagamento.plano_item_id.isnot(None))
+        .group_by(Pagamento.plano_item_id)
     )
-    trans_map = {r.plano_item_id: float(r.total) for r in trans_soma}
+    pag_map = {r.plano_item_id: float(r.total) for r in pag_soma}
 
     itens = (
         db.query(PlanoItem)
@@ -157,7 +159,7 @@ def list_despesas_realizadas(
     )
     result = []
     for i in itens:
-        real = trans_map.get(i.id, float(i.valor_realizado or 0))
+        real = pag_map.get(i.id, 0)
         if real > 0:
             result.append(
                 DespesaRealizadaItem(
@@ -499,7 +501,7 @@ def get_movimentacoes(
         raise HTTPException(status_code=422, detail="mes deve ser YYYYMM")
 
     from app.domains.pedidos.models import Pedido
-    from .transacoes_models import DespesaTransacao
+    from .pagamentos_model import Pagamento as PagamentoModel
     from calendar import monthrange
 
     ano  = int(mes[:4])
@@ -544,24 +546,23 @@ def get_movimentacoes(
             icon_key="receita",
         ))
 
-    # ── Despesas: transações do mês ─────────────────────────
-    transacoes = (
-        db.query(DespesaTransacao)
-        .filter(DespesaTransacao.anomes == mes)
+    # ── Despesas: pagamentos tipo=despesa do mês ────────────
+    despesas_pag = (
+        db.query(PagamentoModel)
+        .filter(PagamentoModel.anomes == mes, PagamentoModel.tipo == "despesa")
         .all()
     )
-    for t in transacoes:
+    for t in despesas_pag:
         plano = t.plano_item
-        tipo_item = plano.tipo_item if plano else ""
-        detalhe   = plano.detalhe   if plano else ""
-        descricao = f"{detalhe} · {tipo_item}" if detalhe else (tipo_item or "Despesa")
-        categoria = f"Despesa · {plano.categoria}" if plano and plano.categoria else "Despesa"
+        tipo_item = t.tipo_item or (plano.tipo_item if plano else "")
+        detalhe   = plano.detalhe if plano else ""
+        descricao = t.descricao or (f"{detalhe} · {tipo_item}" if detalhe else (tipo_item or "Despesa"))
+        categoria = f"Despesa · {t.categoria or (plano.categoria if plano else '')}"
         icon_key  = ICON_MAP.get(tipo_item, "outros")
-        # data: usa a data da transação ou, como default, o último dia do mês
-        data_tx = str(t.data) if t.data else data_fim
+        data_tx = str(t.data_pagamento or t.data_vencimento) if (t.data_pagamento or t.data_vencimento) else data_fim
         itens.append(MovimentacaoItem(
             id=t.id,
-            origem="transacao",
+            origem="despesa_manual",
             tipo="despesa",
             descricao=descricao,
             categoria=categoria,
@@ -585,6 +586,26 @@ def get_movimentacoes(
         saldo=total_rec - total_desp,
         itens=itens_ord,
     )
+
+
+@router.get("/catalogo")
+def get_catalogo(db: Session = Depends(get_db)):
+    """Retorna gabarito de itens: combinações distintas de tipo/categoria/tipo_item/detalhe."""
+    rows = (
+        db.query(
+            PlanoItem.tipo,
+            PlanoItem.categoria,
+            PlanoItem.tipo_item,
+            PlanoItem.detalhe,
+        )
+        .distinct()
+        .order_by(PlanoItem.tipo, PlanoItem.categoria, PlanoItem.tipo_item, PlanoItem.detalhe)
+        .all()
+    )
+    return [
+        {"tipo": r.tipo, "categoria": r.categoria, "tipo_item": r.tipo_item, "detalhe": r.detalhe}
+        for r in rows
+    ]
 
 
 @router.post("", response_model=PlanoItemOut, status_code=201)

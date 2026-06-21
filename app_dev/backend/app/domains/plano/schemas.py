@@ -16,6 +16,7 @@ class PlanoItemOut(BaseModel):
     ticket_medio: Optional[float] = None
     valor_planejado: float
     valor_realizado: Optional[float] = None
+    transacoes_count: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -265,6 +266,40 @@ class DespesaOut(BaseModel):
         from_attributes = True
 
 
+class CobrancaItem(BaseModel):
+    id: int
+    pedido_id: int
+    cliente_nome: str
+    tipo_pedido: str
+    forma_pagamento: Optional[str] = None
+    parcela_numero: Optional[int] = None
+    parcela_total: Optional[int] = None
+    valor: float
+    data_vencimento: Optional[str] = None
+    data_pagamento: Optional[str] = None
+    status: str  # em_atraso | vence_hoje | a_vencer | pago
+    dias_atraso: int = 0
+
+
+class CobrancasResumo(BaseModel):
+    total_em_atraso: float
+    count_em_atraso: int
+    total_vence_7dias: float
+    count_vence_7dias: int
+    total_a_vencer: float
+    count_a_vencer: int
+    total_pago: float
+    count_pago: int
+
+
+class CobrancasResponse(BaseModel):
+    em_atraso: List[CobrancaItem]
+    vence_hoje: List[CobrancaItem]
+    a_vencer: List[CobrancaItem]
+    pagas: List[CobrancaItem]
+    resumo: CobrancasResumo
+
+
 class EvolucaoMensalItem(BaseModel):
     anomes: str
     label: str
@@ -283,6 +318,9 @@ class PecaNecessaria(BaseModel):
     ticket_medio: float
     faltam_valor: float
     pecas_necessarias: int
+    realizado: float = 0
+    realizado_quantidade: int = 0
+    realizado_ticket_medio: float = 0
 
 
 class DespesaNaoLancada(BaseModel):

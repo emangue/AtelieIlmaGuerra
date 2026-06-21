@@ -281,9 +281,15 @@ def get_meta_mes(db: Session, mes: str) -> MetaMes:
 
     # Peças necessárias por tipo para bater a meta
     # Receita realizada por tipo de plano
+    # Realizado por tipo: valor total, contagem de pedidos distintos
     rec_por_tipo_realizado: Dict[str, float] = {}
+    rec_por_tipo_qtd: Dict[str, int] = {}
     rows_pag = (
-        db.query(TipoPedido.nome, func.coalesce(func.sum(Pagamento.valor), 0).label("v"))
+        db.query(
+            TipoPedido.nome,
+            func.coalesce(func.sum(Pagamento.valor), 0).label("v"),
+            func.coalesce(func.sum(Pedido.quantidade_pecas), 0).label("qtd"),
+        )
         .join(Pedido, Pedido.id == Pagamento.pedido_id)
         .join(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
         .filter(Pagamento.anomes == mes, Pagamento.tipo == "receita")
@@ -293,6 +299,7 @@ def get_meta_mes(db: Session, mes: str) -> MetaMes:
     for r in rows_pag:
         plano_tipo = TIPO_PEDIDO_TO_PLANO.get(r.nome.upper(), "Outros")
         rec_por_tipo_realizado[plano_tipo] = rec_por_tipo_realizado.get(plano_tipo, 0) + float(r.v)
+        rec_por_tipo_qtd[plano_tipo] = rec_por_tipo_qtd.get(plano_tipo, 0) + int(r.qtd)
 
     pecas_necessarias: List[PecaNecessaria] = []
     for item in itens_rec:
@@ -300,14 +307,18 @@ def get_meta_mes(db: Session, mes: str) -> MetaMes:
         if ticket <= 0:
             continue
         real = rec_por_tipo_realizado.get(item.tipo_item, 0)
+        real_qtd = rec_por_tipo_qtd.get(item.tipo_item, 0)
+        real_ticket = round(real / real_qtd, 2) if real_qtd > 0 else 0
         falta_tipo = max(0.0, float(item.valor_planejado) - real)
-        if falta_tipo > 0:
-            pecas_necessarias.append(PecaNecessaria(
-                tipo_item=item.tipo_item,
-                ticket_medio=round(ticket, 2),
-                faltam_valor=round(falta_tipo, 2),
-                pecas_necessarias=math.ceil(falta_tipo / ticket),
-            ))
+        pecas_necessarias.append(PecaNecessaria(
+            tipo_item=item.tipo_item,
+            ticket_medio=round(ticket, 2),
+            faltam_valor=round(falta_tipo, 2),
+            pecas_necessarias=math.ceil(falta_tipo / ticket) if falta_tipo > 0 else 0,
+            realizado=round(real, 2),
+            realizado_quantidade=real_qtd,
+            realizado_ticket_medio=real_ticket,
+        ))
 
     # Despesas não lançadas: itens do plano tipo=despesa sem pagamento no mês
     itens_desp = db.query(PlanoItem).filter(

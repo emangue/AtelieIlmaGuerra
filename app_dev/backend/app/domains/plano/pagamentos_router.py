@@ -18,7 +18,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from .pagamentos_model import Pagamento
 from .models import PlanoItem
-from .schemas import PagamentoCreate, PagamentoItem, PagamentosResponse, PagamentoUpdate
+from .schemas import (
+    PagamentoCreate, PagamentoItem, PagamentosResponse, PagamentoUpdate,
+    CobrancaItem, CobrancasResumo, CobrancasResponse,
+)
 
 router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"])
 
@@ -72,6 +75,93 @@ def _to_item(pag: Pagamento) -> PagamentoItem:
         pedido_id=pag.pedido_id,
         plano_item_id=pag.plano_item_id,
         despesa_id=None,
+    )
+
+
+@router.get("/cobrancas", response_model=CobrancasResponse)
+def get_cobrancas(
+    mes: str = Query(..., description="YYYYMM — mês para exibir parcelas pagas"),
+    db: Session = Depends(get_db),
+):
+    """Retorna parcelas de pedidos agrupadas por status de cobrança."""
+    from datetime import timedelta
+    from app.domains.pedidos.models import Pedido, TipoPedido
+    from app.domains.clientes.models import Cliente
+    from sqlalchemy import func as sqlfunc
+
+    hoje = date_type.today()
+
+    rows = (
+        db.query(
+            Pagamento.id,
+            Pagamento.pedido_id,
+            Pagamento.parcela_numero,
+            Pagamento.parcela_total,
+            Pagamento.valor,
+            Pagamento.data_vencimento,
+            Pagamento.data_pagamento,
+            Pagamento.anomes,
+            Cliente.nome.label("cliente_nome"),
+            TipoPedido.nome.label("tipo_pedido"),
+            Pedido.forma_pagamento,
+        )
+        .join(Pedido, Pedido.id == Pagamento.pedido_id)
+        .outerjoin(Cliente, Cliente.id == Pedido.cliente_id)
+        .outerjoin(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
+        .filter(Pagamento.tipo == "receita", Pagamento.pedido_id.isnot(None))
+        .order_by(Pagamento.data_vencimento.asc().nullslast())
+        .all()
+    )
+
+    em_atraso, vence_hoje, a_vencer, pagas = [], [], [], []
+
+    for r in rows:
+        venc = r.data_vencimento
+        pago = r.data_pagamento
+
+        item = CobrancaItem(
+            id=r.id,
+            pedido_id=r.pedido_id,
+            cliente_nome=r.cliente_nome or "—",
+            tipo_pedido=r.tipo_pedido or "Pedido",
+            forma_pagamento=r.forma_pagamento,
+            parcela_numero=r.parcela_numero,
+            parcela_total=r.parcela_total,
+            valor=r.valor,
+            data_vencimento=venc.isoformat() if venc else None,
+            data_pagamento=pago.isoformat() if pago else None,
+            status="pago" if pago else ("em_atraso" if venc and venc < hoje else ("vence_hoje" if venc == hoje else "a_vencer")),
+            dias_atraso=(hoje - venc).days if (not pago and venc and venc < hoje) else 0,
+        )
+
+        if pago:
+            if r.anomes == mes:
+                pagas.append(item)
+        elif venc and venc < hoje:
+            em_atraso.append(item)
+        elif venc == hoje:
+            vence_hoje.append(item)
+        else:
+            a_vencer.append(item)
+
+    sete_dias = hoje + timedelta(days=7)
+    resumo = CobrancasResumo(
+        total_em_atraso=round(sum(i.valor for i in em_atraso), 2),
+        count_em_atraso=len(em_atraso),
+        total_vence_7dias=round(sum(i.valor for i in vence_hoje + [x for x in a_vencer if x.data_vencimento and x.data_vencimento <= sete_dias.isoformat()]), 2),
+        count_vence_7dias=len(vence_hoje) + len([x for x in a_vencer if x.data_vencimento and x.data_vencimento <= sete_dias.isoformat()]),
+        total_a_vencer=round(sum(i.valor for i in a_vencer), 2),
+        count_a_vencer=len(a_vencer),
+        total_pago=round(sum(i.valor for i in pagas), 2),
+        count_pago=len(pagas),
+    )
+
+    return CobrancasResponse(
+        em_atraso=em_atraso,
+        vence_hoje=vence_hoje,
+        a_vencer=a_vencer,
+        pagas=pagas,
+        resumo=resumo,
     )
 
 

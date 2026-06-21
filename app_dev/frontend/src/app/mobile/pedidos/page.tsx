@@ -35,6 +35,7 @@ interface PedidoItem {
   valor_pecas: number | null;
   quantidade_pecas: number | null;
   forma_pagamento: string | null;
+  pagamento_na_entrega: boolean | null;
   status_pagamento: string | null;
   parcelas_pagas: number | null;
   parcelas_total: number | null;
@@ -528,13 +529,17 @@ export default function PedidosPage() {
                         <div className="flex items-end justify-between">
                           <div>
                             <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Pagamento</p>
-                            <p className="text-xs text-gray-800">
-                              {p.forma_pagamento
-                                ? p.parcelas_total && p.parcelas_total > 1
+                            {p.forma_pagamento ? (
+                              <p className="text-xs text-gray-800">
+                                {p.parcelas_total && p.parcelas_total > 1
                                   ? `${p.forma_pagamento} · ${p.parcelas_pagas}/${p.parcelas_total}`
-                                  : p.forma_pagamento
-                                : "—"}
-                            </p>
+                                  : p.forma_pagamento}
+                              </p>
+                            ) : p.pagamento_na_entrega ? (
+                              <p className="text-xs text-amber-600 font-medium">Na entrega</p>
+                            ) : (
+                              <p className="text-xs text-gray-400 italic">Legado</p>
+                            )}
                           </div>
                           <Link
                             href={`/mobile/pedidos/${p.id}?aba=pagamento`}

@@ -1,182 +1,10 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import dynamic from "next/dynamic";
-import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight, Loader2, Check, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { MonthScrollPicker } from "@/components/mobile/month-scroll-picker";
-import { YearScrollPicker } from "@/components/mobile/year-scroll-picker";
-import { YTDToggle, PeriodView } from "@/components/mobile/ytd-toggle";
-import { Plus, Loader2, ChevronDown, X, Copy } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { api } from "@/lib/api-client";
-
-function mesLabel(anomes: string): string {
-  const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-  const m = parseInt(anomes.slice(4), 10);
-  return MESES[m - 1] ?? anomes;
-}
-
-const ChartComparacaoMensal = dynamic(
-  () => import("@/components/mobile/chart-comparacao-mensal").then((m) => m.ChartComparacaoMensal),
-  { ssr: false }
-);
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
-
-interface PlanoVsRealizadoItem {
-  tipo_item: string;
-  detalhe: string | null;
-  valor_planejado: number;
-  valor_realizado: number;
-  status: string;
-}
-
-interface PlanoVsRealizado {
-  receita_por_entrega: number;
-  anomes: string;
-  receita_planejada: number;
-  receita_realizada: number;
-  despesas_planejadas: number;
-  despesas_realizadas: number;
-  lucro_planejado: number;
-  lucro_realizado: number;
-  percentual_atingimento: number;
-  repasse_costureira: number;
-  lucro_liquido_dono: number;
-  itens_receita: PlanoVsRealizadoItem[];
-  itens_despesas: PlanoVsRealizadoItem[];
-}
-
-interface EvolucaoMensalItem {
-  anomes: string;
-  label: string;
-  receita_planejada: number;
-  receita_realizada: number;
-}
-
-interface PagamentoItem {
-  id: number;
-  origem: 'pedido' | 'despesa_manual';
-  tipo: 'receita' | 'despesa';
-  descricao: string;
-  categoria: string;
-  tipo_item: string | null;
-  detalhe: string | null;
-  cat_raw: string | null;
-  valor: number;
-  data: string | null;
-  icon_key: string;
-  pedido_id: number | null;
-  plano_item_id: number | null;
-  despesa_id: number | null;
-}
-
-interface PagamentosResponse {
-  mes: string;
-  total_receitas: number;
-  total_despesas: number;
-  saldo: number;
-  itens: PagamentoItem[];
-}
-
-interface DashboardResponse {
-  plano_vs_realizado: PlanoVsRealizado;
-  evolucao_mensal: EvolucaoMensalItem[];
-  movimentacoes: PagamentosResponse;
-}
-
-interface PecaNecessaria {
-  tipo_item: string;
-  ticket_medio: number;
-  faltam_valor: number;
-  pecas_necessarias: number;
-}
-
-interface DespesaNaoLancada {
-  tipo_item: string;
-  detalhe: string | null;
-  valor_planejado: number;
-}
-
-interface PecaEntregue {
-  tipo: string;
-  quantidade: number;
-  valor: number;
-  ticket_medio: number;
-}
-
-interface MetaMes {
-  anomes: string;
-  meta_receita: number;
-  realizado: number;
-  faltam: number;
-  percentual: number;
-  dias_uteis_restantes: number;
-  pecas_necessarias: PecaNecessaria[];
-  despesas_nao_lancadas: DespesaNaoLancada[];
-  pecas_entregues: PecaEntregue[];
-}
-
-interface PedidoSnippet {
-  id: number;
-  cliente_nome: string;
-  tipo_pedido_nome: string | null;
-  descricao_produto: string;
-  data_pedido: string;
-  data_entrega: string | null;
-  valor_pecas: number | null;
-  status: string;
-}
-
-interface DespesaSnippet {
-  id: number;
-  anomes: string;
-  tipo_item: string;
-  detalhe: string | null;
-  categoria: string;
-  data: string;
-  valor: number;
-  descricao: string | null;
-}
-
-const CATEGORIAS = ["Custo Variável", "Custo Fixo"];
-const TIPOS_DESPESA = ["Colaboradores", "Espaço Físico", "Marketing", "Transporte", "Maquinário", "Outros"];
-const TIPOS_RECEITA = ["Vestido Noiva", "Vestido Festa", "Ajustes", "Peça Casual", "Outros"];
-
-const GOAL_COLORS = [
-  "#001D39", "#0A4174", "#2D5A7B", "#49769F", "#4E8EA2",
-  "#5E9AB0", "#6EA2B3", "#7BBDE8", "#9AC9E8", "#BDD8E9", "#D4E8F0",
-];
-function getGoalColor(nome: string, index: number): string {
-  const hash = nome.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  const idx = (hash + index) % GOAL_COLORS.length;
-  return GOAL_COLORS[Math.abs(idx)];
-}
-
-const ICON_MAP: Record<string, React.ReactNode> = {
-  receita:   <span>↑</span>,
-  colab:     <span>👥</span>,
-  espaco:    <span>🏠</span>,
-  transp:    <span>🚗</span>,
-  contas:    <span>💳</span>,
-  maq:       <span>🖥</span>,
-  marketing: <span>📊</span>,
-  outros:    <span>🏷</span>,
-};
-
-const COLOR_MAP: Record<string, { bg: string; color: string }> = {
-  receita:   { bg: 'rgba(99,122,85,.12)',  color: '#1F4D35' },
-  colab:     { bg: 'rgba(99,122,85,.12)',  color: '#637A55' },
-  espaco:    { bg: 'rgba(99,122,85,.12)',  color: '#637A55' },
-  transp:    { bg: 'rgba(110,74,42,.11)',  color: '#6E4A2A' },
-  contas:    { bg: 'rgba(166,138,91,.13)', color: '#A68A5B' },
-  maq:       { bg: 'rgba(166,138,91,.13)', color: '#A68A5B' },
-  marketing: { bg: 'rgba(51,78,104,.11)',  color: '#334E68' },
-  outros:    { bg: 'rgba(122,49,57,.10)',  color: '#7A3139' },
-};
 
 function formatMoney(val: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -187,1280 +15,453 @@ function formatMoney(val: number) {
   }).format(val);
 }
 
-export default function FinanceiroPage() {
-  const hoje = new Date();
-  const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
-  const [selectedYear, setSelectedYear] = useState<number>(hoje.getFullYear());
-  const [period, setPeriod] = useState<PeriodView>("month");
-  const [loading, setLoading] = useState(true);
-  const [planoVsRealizado, setPlanoVsRealizado] = useState<PlanoVsRealizado | null>(null);
-  const [evolucaoMensal, setEvolucaoMensal] = useState<EvolucaoMensalItem[]>([]);
-  const [metaMes, setMetaMes] = useState<MetaMes | null>(null);
-  const [planoTabAtiva, setPlanoTabAtiva] = useState<"receitas" | "despesas">("receitas");
+function hojeStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 
-  // Movimentações
-  const [movimentacoes,  setMovimentacoes]  = useState<PagamentoItem[]>([]);
-  const [resumoMov, setResumoMov] = useState<{ receitas: number; despesas: number; saldo: number } | null>(null);
-  const [filtroTipo,     setFiltroTipo]     = useState<'todas' | 'receita' | 'despesa'>('todas');
-  const [txSelecionada,  setTxSelecionada]  = useState<PagamentoItem | null>(null);
-  const [detalheCarregando, setDetalheCarregando] = useState(false);
-  const [pedidoDetalhe,  setPedidoDetalhe]  = useState<PedidoSnippet | null>(null);
-  const [despesaDetalhe, setDespesaDetalhe] = useState<DespesaSnippet | null>(null);
-  const [editValor,      setEditValor]      = useState('');
-  const [editData,       setEditData]       = useState('');
-  const [editDescricao,  setEditDescricao]  = useState('');
-  const [editTipoItem,   setEditTipoItem]   = useState('');
-  const [editDetalhe,    setEditDetalhe]    = useState('');
-  const [editCategoria,  setEditCategoria]  = useState('Custo Fixo');
-  const [salvando,       setSalvando]       = useState(false);
-  const [confirmDelete,  setConfirmDelete]  = useState(false);
+function hojeIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
-  const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [copying, setCopying] = useState(false);
+function addMes(anomes: string, n: number): string {
+  const y = parseInt(anomes.slice(0, 4));
+  const m = parseInt(anomes.slice(4, 6));
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 
-  const [formModo, setFormModo] = useState<"plano" | "realizado">("realizado");
-  const [formTipo, setFormTipo] = useState<"receita" | "despesa">("despesa");
-  const [formTipoItem, setFormTipoItem] = useState("Outros");
-  const [formCategoria, setFormCategoria] = useState("Custo Fixo");
-  const [formDetalhe, setFormDetalhe] = useState("");
-  const [formValor, setFormValor] = useState("");
-  const [formData, setFormData] = useState("");
-  const [detalhes, setDetalhes] = useState<string[]>([]);
-  const [showCustomDetalhe, setShowCustomDetalhe] = useState(false);
-  const [editDetalhes, setEditDetalhes] = useState<string[]>([]);
-  const [editDetalheCustom, setEditDetalheCustom] = useState(false);
+function labelMes(anomes: string): string {
+  const MESES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  return `${MESES[parseInt(anomes.slice(4)) - 1]}/${anomes.slice(0, 4)}`;
+}
 
-  const ano = selectedMonth.getFullYear();
-  const mes = selectedMonth.getMonth() + 1;
-  const mesParam = `${ano}${mes.toString().padStart(2, "0")}`;
+function formatDataBR(iso: string | null): string {
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y.slice(2)}`;
+}
 
-  const mesAnteriorParam = (() => {
-    const d = new Date(selectedMonth);
-    d.setDate(1);
-    d.setMonth(d.getMonth() - 1);
-    return `${d.getFullYear()}${(d.getMonth() + 1).toString().padStart(2, "0")}`;
-  })();
+interface CobrancaItem {
+  id: number;
+  pedido_id: number;
+  cliente_nome: string;
+  tipo_pedido: string;
+  forma_pagamento: string | null;
+  parcela_numero: number | null;
+  parcela_total: number | null;
+  valor: number;
+  data_vencimento: string | null;
+  data_pagamento: string | null;
+  status: string;
+  dias_atraso: number;
+}
 
-  const mesProximoParam = (() => {
-    const d = new Date(selectedMonth);
-    d.setDate(1);
-    d.setMonth(d.getMonth() + 1);
-    return `${d.getFullYear()}${(d.getMonth() + 1).toString().padStart(2, "0")}`;
-  })();
+interface CobrancasResumo {
+  total_em_atraso: number;
+  count_em_atraso: number;
+  total_vence_7dias: number;
+  count_vence_7dias: number;
+  total_a_vencer: number;
+  count_a_vencer: number;
+  total_pago: number;
+  count_pago: number;
+}
 
-  const fetchDashboard = useCallback(async () => {
-    if (period !== "month") return;
-    setLoading(true);
-    try {
-      const [data, meta] = await Promise.all([
-        api.get<DashboardResponse>(`/api/v1/plano/dashboard?mes=${mesParam}`),
-        api.get<MetaMes>(`/api/v1/plano/meta-mes?mes=${mesParam}`).catch(() => null),
-      ]);
-      setPlanoVsRealizado(data.plano_vs_realizado);
-      setEvolucaoMensal(data.evolucao_mensal || []);
-      setMovimentacoes(data.movimentacoes.itens);
-      setResumoMov({ receitas: data.movimentacoes.total_receitas, despesas: data.movimentacoes.total_despesas, saldo: data.movimentacoes.saldo });
-      setMetaMes(meta);
-    } catch {
-      setPlanoVsRealizado(null);
-      setEvolucaoMensal([]);
-      setMovimentacoes([]);
-      setMetaMes(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [period, mesParam]);
+interface CobrancasResponse {
+  em_atraso: CobrancaItem[];
+  vence_hoje: CobrancaItem[];
+  a_vencer: CobrancaItem[];
+  pagas: CobrancaItem[];
+  resumo: CobrancasResumo;
+}
 
-  useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
+type Filtro = "todas" | "em_atraso" | "a_vencer" | "pagas";
 
-  // Carrega detalhes quando o form abre ou o tipo muda
-  useEffect(() => {
-    if (!showForm) return;
-    fetch(`${API_URL}/api/v1/plano/detalhes?tipo=${formTipo}`)
-      .then((res) => res.json())
-      .then((data) => setDetalhes(Array.isArray(data) ? data : []))
-      .catch(() => setDetalhes([]));
-  }, [showForm, formTipo]);
-
-  // Carrega detalhes para o sheet de edição de despesa
-  useEffect(() => {
-    if (!txSelecionada || txSelecionada.origem !== 'despesa_manual') return;
-    fetch(`${API_URL}/api/v1/plano/detalhes?tipo=despesa`)
-      .then((res) => res.json())
-      .then((data) => setEditDetalhes(Array.isArray(data) ? data : []))
-      .catch(() => setEditDetalhes([]));
-    setEditDetalheCustom(false);
-  }, [txSelecionada]);
-
-  const openForm = () => {
-    setFormModo("realizado");
-    setFormTipo("despesa");
-    setFormTipoItem("Outros");
-    setFormCategoria("Custo Fixo");
-    setFormDetalhe("");
-    setFormValor("");
-    setFormData(new Date().toISOString().split('T')[0]);
-    setShowCustomDetalhe(false);
-    setShowForm(true);
-  };
-
-  const closeForm = () => {
-    setShowForm(false);
-    setShowCustomDetalhe(false);
-    setFormDetalhe("");
-    setFormValor("");
-    setFormData("");
-  };
-
-  const copiarMes = async (mesOrigem: string) => {
-    setCopying(true);
-    try {
-      const res = await fetch(
-        `${API_URL}/api/v1/plano/copiar-mes?mes_origem=${mesOrigem}&mes_destino=${mesParam}`,
-        { method: "POST" }
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert((err as { detail?: string }).detail || "Erro ao copiar o mês");
-        return;
-      }
-      fetchDashboard();
-    } catch {
-      alert("Erro ao copiar o mês");
-    } finally {
-      setCopying(false);
-    }
-  };
-
-  const isEmptyMonth =
-    !loading &&
-    planoVsRealizado !== null &&
-    planoVsRealizado.itens_receita.length === 0 &&
-    planoVsRealizado.itens_despesas.length === 0 &&
-    movimentacoes.length === 0;
-
-  const handleSubmitNovo = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const v = parseFloat(formValor.replace(",", "."));
-    if (isNaN(v) || v < 0) return;
-    // Deriva anomes a partir da data escolhida (ex: "2026-04-15" → "202604")
-    const formAnoMes = formModo === "realizado" && formData
-      ? `${formData.slice(0, 4)}${formData.slice(5, 7)}`
-      : mesParam;
-    setSaving(true);
-    try {
-      if (formModo === "realizado" && formTipo === "despesa") {
-        await api.post('/api/v1/plano/despesas', {
-          anomes: formAnoMes,
-          tipo_item: formTipoItem,
-          detalhe: formDetalhe.trim() || null,
-          categoria: formCategoria,
-          valor: v,
-          data: formData,
-        });
-      } else {
-        // Plano ou receita → endpoint antigo
-        const payload = {
-          anomes: formAnoMes,
-          tipo: formTipo,
-          tipo_item: formTipoItem,
-          categoria: formTipo === "despesa" ? formCategoria : "Receita",
-          detalhe: formDetalhe.trim() || null,
-          valor_planejado: formModo === "plano" ? v : 0,
-          valor_realizado: formModo === "realizado" ? v : null,
-        };
-        const res = await fetch(`${API_URL}/api/v1/plano`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) throw new Error("Erro");
-      }
-      closeForm();
-      await fetchDashboard();
-    } catch (err) {
-      alert('Erro ao salvar: ' + String(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const selectClass = "flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1";
-
-  // ── Helpers para movimentações ────────────────────────────
-  type Grupo = { data: string | null; label: string; itens: PagamentoItem[]; saldoDia: number };
-
-  function formatDateLabel(iso: string): string {
-    const d = new Date(iso + 'T00:00:00');
-    return d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })
-            .replace('.', '').replace(/^\w/, c => c.toUpperCase());
+function parcelaLabel(item: CobrancaItem): string {
+  if (item.parcela_numero && item.parcela_total) {
+    if (item.parcela_numero === 1 && item.parcela_total > 1) return `Entrada (1 de ${item.parcela_total})`;
+    return `Parcela ${item.parcela_numero} de ${item.parcela_total}`;
   }
+  if (item.parcela_numero) return `Parcela ${item.parcela_numero}`;
+  return "À vista";
+}
 
-  function agruparPorData(itens: PagamentoItem[]): Grupo[] {
-    const map = new Map<string | null, PagamentoItem[]>();
-    for (const item of itens) {
-      const key = item.data ?? null;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(item);
-    }
-    const comData = [...map.entries()]
-      .filter(([k]) => k !== null)
-      .sort(([a], [b]) => b!.localeCompare(a!));
-    const semData = map.has(null) ? [[null, map.get(null)!] as [null, PagamentoItem[]]] : [];
-    return [...comData, ...semData].map(([data, its]) => ({
-      data,
-      label: data ? formatDateLabel(data) : 'Sem data cadastrada',
-      itens: its,
-      saldoDia: its.reduce((acc, i) => acc + (i.tipo === 'receita' ? i.valor : -i.valor), 0),
-    }));
-  }
+function CardCobranca({
+  item,
+  confirmandoId,
+  confirmandoData,
+  salvando,
+  onIniciarConfirmar,
+  onCancelarConfirmar,
+  onChangeData,
+  onConfirmar,
+}: {
+  item: CobrancaItem;
+  confirmandoId: number | null;
+  confirmandoData: string;
+  salvando: boolean;
+  onIniciarConfirmar: (id: number) => void;
+  onCancelarConfirmar: () => void;
+  onChangeData: (v: string) => void;
+  onConfirmar: () => void;
+}) {
+  const isConfirmando = confirmandoId === item.id;
 
-  async function abrirDetalhe(item: PagamentoItem) {
-    setTxSelecionada(item);
-    setPedidoDetalhe(null);
-    setDespesaDetalhe(null);
-    setConfirmDelete(false);
-    setDetalheCarregando(true);
-    try {
-      if (item.origem === 'pedido' && item.pedido_id) {
-        const p = await api.get<PedidoSnippet>(`/api/v1/pedidos/${item.pedido_id}`);
-        setPedidoDetalhe(p);
-      } else if (item.origem === 'despesa_manual' && item.despesa_id) {
-        const d = await api.get<DespesaSnippet>(`/api/v1/plano/despesas/${item.despesa_id}`);
-        setDespesaDetalhe(d);
-        setEditTipoItem(d.tipo_item ?? '');
-        setEditDetalhe(d.detalhe ?? '');
-        setEditCategoria(d.categoria ?? 'Custo Fixo');
-        setEditValor(d.valor.toFixed(2).replace('.', ','));
-        setEditData(d.data ?? '');
-        setEditDescricao(d.descricao ?? '');
-      }
-    } catch {
-      // mantém campos do item da lista como fallback
-      setEditTipoItem(item.tipo_item ?? '');
-      setEditDetalhe(item.detalhe ?? '');
-      setEditCategoria(item.cat_raw ?? 'Custo Fixo');
-      setEditValor(item.valor.toFixed(2).replace('.', ','));
-      setEditData(item.data ?? '');
-      setEditDescricao(item.descricao);
-    } finally {
-      setDetalheCarregando(false);
-    }
-  }
+  const borderColor =
+    item.status === "em_atraso" ? "#F7C1C1"
+    : item.status === "vence_hoje" ? "#FAC775"
+    : "var(--color-border-tertiary, #e5e7eb)";
 
-  async function handleSalvar() {
-    if (!txSelecionada || txSelecionada.origem !== 'despesa_manual') return;
-    if (!txSelecionada.despesa_id) return;
-    setSalvando(true);
-    try {
-      await api.patch(`/api/v1/plano/despesas/${txSelecionada.despesa_id}`, {
-        tipo_item: editTipoItem || null,
-        detalhe: editDetalhe.trim() || null,
-        categoria: editCategoria,
-        valor: parseFloat(editValor.replace(',', '.')),
-        data: editData || null,
-        descricao: editDescricao.trim() || null,
-      });
-      setMovimentacoes(prev => prev.map(i =>
-        i.id === txSelecionada.id && i.origem === 'despesa_manual'
-          ? { ...i, valor: parseFloat(editValor.replace(',', '.')), data: editData || null, descricao: editDescricao }
-          : i
-      ));
-      setTxSelecionada(null);
-      await fetchDashboard();
-    } finally {
-      setSalvando(false);
-    }
-  }
-
-  async function handleExcluir() {
-    if (!txSelecionada || txSelecionada.origem !== 'despesa_manual') return;
-    if (!txSelecionada.despesa_id) return;
-    if (!confirmDelete) { setConfirmDelete(true); return; }
-    setSalvando(true);
-    try {
-      await api.delete(`/api/v1/plano/despesas/${txSelecionada.despesa_id}`);
-      setMovimentacoes(prev => prev.filter(
-        i => !(i.id === txSelecionada.id && i.origem === 'despesa_manual')
-      ));
-      setTxSelecionada(null);
-      await fetchDashboard();
-    } finally {
-      setSalvando(false);
-    }
-  }
-
-  const itensFiltrados = movimentacoes.filter(
-    i => filtroTipo === 'todas' || i.tipo === filtroTipo
-  );
-  const grupos = agruparPorData(itensFiltrados);
+  const accentColor =
+    item.status === "em_atraso" ? "#A32D2D"
+    : item.status === "vence_hoje" ? "#854F0B"
+    : item.status === "pago" ? "#3B6D11"
+    : "var(--color-text-primary)";
 
   return (
-    <div className="pb-24">
-      {/* Header: scroll + toggle 4 opções (igual painel) */}
-      <div className="sticky top-14 z-40 bg-white border-b border-gray-200 px-4 py-3 shadow-sm">
-        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-          {period === "month" ? (
-            <MonthScrollPicker
-              selectedMonth={selectedMonth}
-              onMonthChange={setSelectedMonth}
-            />
-          ) : (
-            <YearScrollPicker
-              selectedYear={selectedYear}
-              onYearChange={setSelectedYear}
-            />
-          )}
-        </div>
-        <div className="flex justify-center mt-3">
-          <YTDToggle
-            value={period}
-            onChange={(v) => {
-              setPeriod(v);
-              if (v !== "month") setSelectedYear(selectedMonth.getFullYear());
-            }}
-          />
-        </div>
+    <div style={{ border: `0.5px solid ${borderColor}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8 }}>
+      {/* Linha 1: nome + valor */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 2 }}>
+        <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: "var(--color-text-primary)", flex: 1, paddingRight: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {item.cliente_nome}
+        </p>
+        <p style={{ fontSize: 15, fontWeight: 600, margin: 0, color: accentColor, flexShrink: 0 }}>
+          {formatMoney(item.valor)}
+        </p>
       </div>
 
-      <div className="px-4 py-6">
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-          </div>
-        ) : period !== "month" ? (
-          <div className="rounded-xl border border-gray-200 bg-gray-50 p-8 text-center text-gray-500">
-            <p>Selecione &quot;Mês&quot; no toggle para ver o plano vs realizado</p>
-          </div>
-        ) : (
-          <>
-            {/* Estado vazio: sem dados para o mês */}
-            {isEmptyMonth && (
-              <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center mb-6">
-                <p className="text-sm font-medium text-gray-700 mb-1">Nenhum dado para este mês</p>
-                <p className="text-xs text-gray-400 mb-5">Copiar plano financeiro de:</p>
-                <div className="flex gap-3 justify-center">
-                  <button
-                    onClick={() => copiarMes(mesAnteriorParam)}
-                    disabled={copying}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 shadow-sm transition"
-                  >
-                    {copying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
-                    ← {mesLabel(mesAnteriorParam)}
-                  </button>
-                  <button
-                    onClick={() => copiarMes(mesProximoParam)}
-                    disabled={copying}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 shadow-sm transition"
-                  >
-                    {copying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
-                    {mesLabel(mesProximoParam)} →
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Meta do Mês */}
-            {metaMes && metaMes.meta_receita > 0 && (
-              <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold text-gray-900">Meta do mês</h3>
-                  <span className="text-xs text-gray-400">{metaMes.dias_uteis_restantes} dias úteis restantes</span>
-                </div>
-                {/* Barra de progresso */}
-                <div className="mb-1 flex justify-between items-baseline">
-                  <span className="text-lg font-bold text-gray-900">{formatMoney(metaMes.realizado)}</span>
-                  <span className="text-xs text-gray-400">de {formatMoney(metaMes.meta_receita)}</span>
-                </div>
-                <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden mb-3">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${Math.min(100, metaMes.percentual)}%`,
-                      background: metaMes.percentual >= 90 ? '#1F4D35' : metaMes.percentual >= 60 ? '#D97706' : '#DC2626',
-                    }}
-                  />
-                </div>
-                <p className="text-xs font-medium" style={{ color: metaMes.percentual >= 90 ? '#1F4D35' : '#D97706' }}>
-                  {metaMes.percentual.toFixed(0)}% concluído
-                </p>
-                {/* Falta */}
-                {metaMes.faltam > 0 && (
-                  <div className="mt-3 bg-amber-50 border border-amber-100 rounded-lg p-3">
-                    <p className="text-xs font-medium text-amber-800 mb-1.5">
-                      Para bater a meta, faltam {formatMoney(metaMes.faltam)}
-                    </p>
-                    {metaMes.pecas_necessarias.slice(0, 2).map((p) => (
-                      <p key={p.tipo_item} className="text-xs text-amber-700">
-                        ~{p.pecas_necessarias} {p.tipo_item.toLowerCase()} (ticket médio {formatMoney(p.ticket_medio)})
-                      </p>
-                    ))}
-                  </div>
-                )}
-                {/* Peças entregues */}
-                {metaMes.pecas_entregues.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-2">Peças entregues</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {metaMes.pecas_entregues.map((p) => (
-                        <span key={p.tipo} className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
-                          {p.quantidade}× {p.tipo}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {/* Despesas não lançadas */}
-                {metaMes.despesas_nao_lancadas.length > 0 && (
-                  <div className="mt-3 border-t border-gray-100 pt-3">
-                    <p className="text-[10px] uppercase tracking-wide text-red-400 mb-2">Despesas não lançadas</p>
-                    {metaMes.despesas_nao_lancadas.map((d, i) => (
-                      <div key={i} className="flex justify-between items-center text-xs py-0.5">
-                        <span className="text-gray-600">{d.detalhe || d.tipo_item}</span>
-                        <span className="text-red-500 font-medium">{formatMoney(d.valor_planejado)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Resumo do Mês */}
-            {planoVsRealizado && (
-              <div className="rounded-xl border border-gray-200 bg-white p-4 mb-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-gray-900">Resumo do Mês</h3>
-                  <span
-                    className={cn(
-                      "text-xs font-medium px-2.5 py-1 rounded-full",
-                      planoVsRealizado.lucro_realizado >= (planoVsRealizado.lucro_planejado || 0)
-                        ? "bg-amber-100 text-amber-800"
-                        : "bg-red-100 text-red-800"
-                    )}
-                  >
-                    {planoVsRealizado.lucro_realizado >= (planoVsRealizado.lucro_planejado || 0)
-                      ? "Acima do plano"
-                      : "Abaixo do plano"}
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-3 divide-x divide-gray-200">
-                  <div className="pr-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-0.5">Receitas</p>
-                    <p className="text-base font-bold text-emerald-600">
-                      {formatMoney(planoVsRealizado.receita_realizada)}
-                    </p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">
-                      {planoVsRealizado.receita_planejada <= 0
-                        ? "sem plano"
-                        : planoVsRealizado.receita_realizada >= planoVsRealizado.receita_planejada
-                          ? `Acima ${formatMoney(planoVsRealizado.receita_realizada - planoVsRealizado.receita_planejada)}`
-                          : `Abaixo ${formatMoney(planoVsRealizado.receita_planejada - planoVsRealizado.receita_realizada)}`}
-                    </p>
-                  </div>
-                  <div className="px-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-0.5">Despesas</p>
-                    <p className="text-base font-bold text-red-600">
-                      {formatMoney(planoVsRealizado.despesas_realizadas)}
-                    </p>
-                    <p
-                      className={cn(
-                        "text-[10px] mt-0.5",
-                        planoVsRealizado.despesas_realizadas > planoVsRealizado.despesas_planejadas
-                          ? "text-red-600"
-                          : "text-gray-500"
-                      )}
-                    >
-                      {planoVsRealizado.despesas_planejadas <= 0
-                        ? "sem plano"
-                        : planoVsRealizado.despesas_realizadas > planoVsRealizado.despesas_planejadas
-                          ? `${formatMoney(planoVsRealizado.despesas_realizadas - planoVsRealizado.despesas_planejadas)} acima`
-                          : `${formatMoney(planoVsRealizado.despesas_planejadas - planoVsRealizado.despesas_realizadas)} abaixo`}
-                    </p>
-                  </div>
-                  <div className="pl-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-0.5">Lucro seu</p>
-                    <p
-                      className={cn(
-                        "text-base font-bold",
-                        planoVsRealizado.lucro_liquido_dono >= 0 ? "text-emerald-600" : "text-red-600"
-                      )}
-                    >
-                      {formatMoney(planoVsRealizado.lucro_liquido_dono ?? planoVsRealizado.lucro_realizado)}
-                    </p>
-                    {(planoVsRealizado.repasse_costureira ?? 0) > 0 && (
-                      <p className="text-[10px] text-orange-500 mt-0.5">
-                        −{formatMoney(planoVsRealizado.repasse_costureira)} Esli
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Gráfico Comparação Mensal */}
-            {evolucaoMensal.length > 0 && (
-              <div className="rounded-xl border border-gray-200 bg-white p-4 mb-6 overflow-hidden">
-                <h3 className="text-sm font-medium text-gray-700 mb-4">Comparação Mensal</h3>
-                <ChartComparacaoMensal data={evolucaoMensal} />
-              </div>
-            )}
-
-            {/* Card Lucro realizado do plano (collapse) */}
-            {planoVsRealizado &&
-              (planoVsRealizado.itens_receita.length > 0 || planoVsRealizado.itens_despesas.length > 0) && (
-              <Collapsible defaultOpen={false} className="group rounded-xl border border-gray-200 bg-gray-50 overflow-hidden mb-6">
-                <CollapsibleTrigger className="w-full p-4 hover:bg-gray-100 transition-colors text-left">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <h3 className="text-sm font-bold text-gray-900">Faturamento do mês</h3>
-                      <p className="text-[10px] text-gray-400 mt-0.5">
-                        Meta: {planoVsRealizado.receita_planejada > 0 ? formatMoney(planoVsRealizado.receita_planejada) : "sem plano"} ·{" "}
-                        {(planoVsRealizado.repasse_costureira ?? 0) > 0 ? `Repasse Esli ${formatMoney(planoVsRealizado.repasse_costureira)}` : "Entrega vs caixa"}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="text-right">
-                        <span className="text-sm font-bold text-emerald-600">
-                          {formatMoney(planoVsRealizado.receita_realizada)}
-                        </span>
-                        <p className="text-[10px] text-gray-400">em caixa</p>
-                      </div>
-                      <ChevronDown className="w-5 h-5 text-gray-400 group-data-[state=open]:rotate-180 transition-transform" />
-                    </div>
-                  </div>
-                  {/* Duas barras de faturamento */}
-                  <div className="mt-3 space-y-2.5">
-                    {(() => {
-                      const meta = planoVsRealizado.receita_planejada;
-                      const porEntrega = planoVsRealizado.receita_por_entrega ?? 0;
-                      const porPagamento = planoVsRealizado.receita_realizada;
-                      const base = Math.max(meta, porEntrega, porPagamento, 1);
-                      return (
-                        <>
-                          <div>
-                            <div className="flex justify-between mb-1">
-                              <span className="text-[10px] text-gray-500">Visão entrega</span>
-                              <span className="text-[10px] font-semibold text-gray-700">{formatMoney(porEntrega)}</span>
-                            </div>
-                            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full bg-gray-800 transition-all" style={{ width: `${Math.min(100, (porEntrega / base) * 100)}%` }} />
-                            </div>
-                          </div>
-                          <div>
-                            <div className="flex justify-between mb-1">
-                              <span className="text-[10px] text-gray-500">Visão pagamento</span>
-                              <span className="text-[10px] font-semibold text-emerald-600">{formatMoney(porPagamento)}</span>
-                            </div>
-                            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${Math.min(100, (porPagamento / base) * 100)}%` }} />
-                            </div>
-                          </div>
-                          {meta > 0 && (
-                            <div className="flex justify-between pt-0.5">
-                              <span className="text-[9px] text-gray-400">Meta: {formatMoney(meta)}</span>
-                              <span className="text-[9px] text-gray-400">{Math.round((porPagamento / meta) * 100)}% atingido</span>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="px-4 pb-4">
-                  {/* Toggle Visão Entrega | Visão Pagamento */}
-                  <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-4 mt-2">
-                    <button
-                      onClick={() => setPlanoTabAtiva("receitas")}
-                      className={cn(
-                        "flex-1 py-2 rounded-md text-sm font-semibold transition",
-                        planoTabAtiva === "receitas" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
-                      )}
-                    >
-                      Entrega
-                    </button>
-                    <button
-                      onClick={() => setPlanoTabAtiva("despesas")}
-                      className={cn(
-                        "flex-1 py-2 rounded-md text-sm font-semibold transition",
-                        planoTabAtiva === "despesas" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
-                      )}
-                    >
-                      Pagamento
-                    </button>
-                  </div>
-                  {/* Breakdown por tipo — mesmo dado para ambas as abas por ora */}
-                  <div className="space-y-3.5">
-                    {planoVsRealizado.itens_receita
-                      .filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0)
-                      .map((i, idx) => {
-                        const diff = i.valor_realizado - i.valor_planejado;
-                        const pct = i.valor_planejado > 0 ? (i.valor_realizado / i.valor_planejado) * 100 : 0;
-                        const color = getGoalColor(i.tipo_item, idx);
-                        return (
-                          <div key={idx}>
-                            <div className="flex items-center justify-between mb-1.5">
-                              <div className="flex items-center gap-2 shrink-0 min-w-0">
-                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                                <span className="text-sm text-gray-800 truncate">
-                                  {i.tipo_item}{i.detalhe ? ` (${i.detalhe})` : ""}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                                <span className={cn("text-xs", diff >= 0 ? "text-emerald-600 font-semibold" : "text-red-500 font-semibold")}>
-                                  {diff >= 0 ? `+${formatMoney(diff)}` : `-${formatMoney(-diff)}`}
-                                </span>
-                                <span className="text-sm font-semibold text-gray-900">{formatMoney(i.valor_realizado)}</span>
-                                <span className="text-[9px] text-gray-400">/ {formatMoney(i.valor_planejado)}</span>
-                              </div>
-                            </div>
-                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div
-                                className="h-full rounded-full transition-all"
-                                style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: diff >= 0 ? color : "#f87171" }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    {planoVsRealizado.itens_receita.filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0).length === 0 && (
-                      <p className="text-xs text-gray-400 py-2">Sem faturamento no período</p>
-                    )}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            )}
-
-            {/* ── MOVIMENTAÇÕES ─────────────────────────────────── */}
-            <div style={{ marginTop: 24 }}>
-              {/* Eyebrow */}
-              <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#8A93A5', marginBottom: 12 }}>
-                MOVIMENTAÇÕES · {mesLabel(mesParam).toUpperCase()}
-              </p>
-
-              {/* Cards resumo */}
-              {resumoMov && (
-                <div className="grid grid-cols-3 gap-2 mb-4">
-                  <div className="rounded-xl border border-gray-200 bg-white p-3 text-center">
-                    <p className="text-[10px] text-gray-500 mb-1">Receitas</p>
-                    <p className="text-sm font-bold text-green-600">{formatMoney(resumoMov.receitas)}</p>
-                  </div>
-                  <div className="rounded-xl border border-gray-200 bg-white p-3 text-center">
-                    <p className="text-[10px] text-gray-500 mb-1">Despesas</p>
-                    <p className="text-sm font-bold text-red-500">{formatMoney(resumoMov.despesas)}</p>
-                  </div>
-                  <div className={`rounded-xl border p-3 text-center ${resumoMov.saldo >= 0 ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
-                    <p className="text-[10px] text-gray-500 mb-1">Saldo</p>
-                    <p className={`text-sm font-bold ${resumoMov.saldo >= 0 ? "text-green-700" : "text-red-700"}`}>{formatMoney(resumoMov.saldo)}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Chips filtro */}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                {(['todas', 'receita', 'despesa'] as const).map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setFiltroTipo(f)}
-                    style={{
-                      padding: '4px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
-                      border: '1.5px solid',
-                      borderColor: filtroTipo === f ? '#A9852E' : '#E6E4DE',
-                      background: filtroTipo === f ? 'rgba(169,133,46,.10)' : 'transparent',
-                      color: filtroTipo === f ? '#A9852E' : '#4B5468',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {f === 'todas' ? 'Todas' : f === 'receita' ? 'Receitas' : 'Despesas'}
-                  </button>
-                ))}
-              </div>
-
-              {/* Lista agrupada por data */}
-              {grupos.length === 0 ? (
-                <p style={{ color: '#8A93A5', fontSize: 14, textAlign: 'center', padding: '24px 0' }}>
-                  Nenhuma movimentação neste mês.
-                </p>
-              ) : grupos.map(grupo => (
-                <div key={grupo.data ?? '__sem_data__'} style={{ marginBottom: 20 }}>
-                  {/* Cabeçalho do grupo */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#4B5468' }}>{grupo.label}</span>
-                    <span style={{
-                      fontSize: 13, fontWeight: 700,
-                      color: grupo.saldoDia >= 0 ? '#1F4D35' : '#6E1F27',
-                    }}>
-                      {grupo.saldoDia >= 0 ? '+' : ''}
-                      {grupo.saldoDia.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                    </span>
-                  </div>
-
-                  {/* Linhas de transação */}
-                  {grupo.itens.map(item => {
-                    const cor = COLOR_MAP[item.icon_key] ?? COLOR_MAP['outros'];
-                    return (
-                      <div
-                        key={`${item.origem}-${item.id}`}
-                        onClick={() => abrirDetalhe(item)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
-                          background: '#FFFFFF', borderRadius: 10, marginBottom: 6,
-                          boxShadow: '0 1px 3px rgba(0,0,0,.07)', cursor: 'pointer',
-                        }}
-                      >
-                        {/* Ícone */}
-                        <div style={{
-                          width: 36, height: 36, borderRadius: 10,
-                          background: cor.bg, color: cor.color,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 16, flexShrink: 0,
-                        }}>
-                          {ICON_MAP[item.icon_key] ?? ICON_MAP['outros']}
-                        </div>
-                        {/* Texto */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#0B1220',
-                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {item.descricao}
-                          </p>
-                          <p style={{ margin: 0, fontSize: 11, color: '#8A93A5' }}>{item.categoria}</p>
-                        </div>
-                        {/* Valor */}
-                        <span style={{
-                          fontSize: 14, fontWeight: 700, flexShrink: 0,
-                          color: item.tipo === 'receita' ? '#1F4D35' : '#6E1F27',
-                        }}>
-                          {item.tipo === 'despesa' ? '−' : '+'}
-                          {item.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-
-          </>
+      {/* Linha 2: tipo · forma + badge */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0 }}>
+          {item.tipo_pedido}{item.forma_pagamento ? ` · ${item.forma_pagamento}` : ""}
+        </p>
+        {item.status === "em_atraso" && (
+          <span style={{ fontSize: 11, background: "#F7C1C1", color: "#791F1F", padding: "2px 8px", borderRadius: 20, flexShrink: 0 }}>
+            {item.dias_atraso}d atraso
+          </span>
+        )}
+        {item.status === "vence_hoje" && (
+          <span style={{ fontSize: 11, background: "#FAC775", color: "#633806", padding: "2px 8px", borderRadius: 20, flexShrink: 0 }}>
+            hoje
+          </span>
+        )}
+        {item.status === "pago" && (
+          <span style={{ fontSize: 11, background: "#C0DD97", color: "#27500A", padding: "2px 8px", borderRadius: 20, flexShrink: 0 }}>
+            pago
+          </span>
         )}
       </div>
 
-      {/* ── BOTTOM SHEET: Detalhe / Edição de Movimentação ── */}
-      {txSelecionada && (
-        <>
-          {/* Overlay */}
-          <div
-            onClick={() => setTxSelecionada(null)}
-            style={{
-              position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
-              zIndex: 999, backdropFilter: 'blur(2px)',
-            }}
+      {/* Linha 3: parcela info + ação */}
+      {!isConfirmando ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderTop: "0.5px solid var(--color-border-tertiary, #f0f0f0)", paddingTop: 10 }}>
+          <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0, minWidth: 0 }}>
+            {parcelaLabel(item)}
+            {item.status !== "pago" && item.data_vencimento ? ` · vence ${formatDataBR(item.data_vencimento)}` : ""}
+            {item.status === "pago" && item.data_pagamento ? ` · ${formatDataBR(item.data_pagamento)}` : ""}
+          </p>
+          {item.status !== "pago" && (
+            <button
+              onClick={() => onIniciarConfirmar(item.id)}
+              style={{
+                fontSize: 12, padding: "6px 14px", borderRadius: 20, flexShrink: 0, whiteSpace: "nowrap",
+                border: `0.5px solid ${accentColor}`,
+                background: "transparent",
+                color: accentColor,
+                cursor: "pointer",
+              }}
+            >
+              Confirmar
+            </button>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "0.5px solid var(--color-border-tertiary, #f0f0f0)", paddingTop: 10 }}>
+          <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0, flexShrink: 0 }}>Recebido em</p>
+          <Input
+            type="date"
+            value={confirmandoData}
+            onChange={(e) => onChangeData(e.target.value)}
+            className="h-8 text-sm flex-1"
           />
-          {/* Sheet */}
-          <div style={{
-            position: 'fixed', bottom: 0, left: 0, right: 0,
-            background: '#FAF8F3', borderRadius: '20px 20px 0 0',
-            padding: '20px 20px 36px', zIndex: 1000,
-            boxShadow: '0 -4px 24px rgba(0,0,0,.18)',
-          }}>
-            {/* Handle */}
-            <div style={{ width: 40, height: 4, borderRadius: 2, background: '#E6E4DE', margin: '0 auto 20px' }} />
-
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0B1220' }}>
-                {txSelecionada.origem === 'pedido' ? 'Detalhe da Receita' : 'Editar Despesa'}
-              </h3>
-              <span style={{
-                padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-                background: txSelecionada.tipo === 'receita' ? 'rgba(31,77,53,.10)' : 'rgba(110,31,39,.10)',
-                color: txSelecionada.tipo === 'receita' ? '#1F4D35' : '#6E1F27',
-              }}>
-                {txSelecionada.tipo === 'receita' ? 'Receita' : 'Despesa'}
-              </span>
-            </div>
-
-            {/* Spinner de carregamento */}
-            {detalheCarregando && (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: '#A9852E' }}>
-                Carregando dados…
-              </div>
-            )}
-
-            {/* ── RECEITA (pedido) ── */}
-            {!detalheCarregando && txSelecionada.origem === 'pedido' && (
-              <>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {/* Cliente */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: '#8A93A5', textTransform: 'uppercase', letterSpacing: 1 }}>Cliente</span>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: '#0B1220' }}>
-                      {pedidoDetalhe?.cliente_nome ?? txSelecionada.descricao.split(' · ')[1] ?? '—'}
-                    </span>
-                  </div>
-                  {/* Peça */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: '#8A93A5', textTransform: 'uppercase', letterSpacing: 1 }}>Peça</span>
-                    <span style={{ fontSize: 15, color: '#0B1220' }}>
-                      {pedidoDetalhe?.tipo_pedido_nome ?? pedidoDetalhe?.descricao_produto ?? '—'}
-                    </span>
-                  </div>
-                  {/* Datas */}
-                  <div style={{ display: 'flex', gap: 16 }}>
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: '#8A93A5', textTransform: 'uppercase', letterSpacing: 1 }}>Data do pedido</span>
-                      <span style={{ fontSize: 14, color: '#0B1220' }}>
-                        {pedidoDetalhe?.data_pedido
-                          ? new Date(pedidoDetalhe.data_pedido + 'T12:00:00').toLocaleDateString('pt-BR')
-                          : '—'}
-                      </span>
-                    </div>
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: '#8A93A5', textTransform: 'uppercase', letterSpacing: 1 }}>Data de entrega</span>
-                      <span style={{ fontSize: 14, color: '#0B1220' }}>
-                        {pedidoDetalhe?.data_entrega
-                          ? new Date(pedidoDetalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')
-                          : '—'}
-                      </span>
-                    </div>
-                  </div>
-                  {/* Valor */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: '#8A93A5', textTransform: 'uppercase', letterSpacing: 1 }}>Valor recebido</span>
-                    <span style={{ fontSize: 20, fontWeight: 800, color: '#1F4D35' }}>
-                      {(pedidoDetalhe?.valor_pecas ?? txSelecionada.valor)
-                        .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                    </span>
-                  </div>
-                </div>
-                {/* Ações */}
-                <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-                  <button
-                    onClick={() => setTxSelecionada(null)}
-                    style={{
-                      flex: 1, padding: '12px 0', borderRadius: 12, fontWeight: 700, fontSize: 14,
-                      border: '1.5px solid #E6E4DE', background: 'transparent', color: '#4B5468', cursor: 'pointer',
-                    }}
-                  >
-                    Fechar
-                  </button>
-                  {txSelecionada.pedido_id && (
-                    <a
-                      href={`/mobile/pedidos/${txSelecionada.pedido_id}?from=financeiro`}
-                      style={{
-                        flex: 2, padding: '12px 0', borderRadius: 12, fontWeight: 700, fontSize: 14,
-                        background: '#1F4D35', color: '#fff', textDecoration: 'none',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      }}
-                    >
-                      Ver pedido →
-                    </a>
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* ── DESPESA ── */}
-            {!detalheCarregando && txSelecionada.origem === 'despesa_manual' && (
-              <>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {/* Tipo */}
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#4B5468' }}>
-                    Tipo
-                    <select
-                      value={editTipoItem}
-                      onChange={e => setEditTipoItem(e.target.value)}
-                      style={{
-                        display: 'block', width: '100%', marginTop: 4,
-                        padding: '10px 12px', borderRadius: 10, fontSize: 14, boxSizing: 'border-box' as const,
-                        border: '1.5px solid #E6E4DE', background: '#fff', color: '#0B1220',
-                      }}
-                    >
-                      {TIPOS_DESPESA.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </label>
-
-                  {/* Detalhe */}
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#4B5468' }}>
-                    Detalhe <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(opcional)</span>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                      {editDetalheCustom ? (
-                        <>
-                          <input
-                            type="text"
-                            value={editDetalhe}
-                            onChange={e => setEditDetalhe(e.target.value)}
-                            placeholder="Digite o novo detalhe"
-                            autoFocus
-                            style={{
-                              flex: 1, padding: '10px 12px', borderRadius: 10, fontSize: 14,
-                              border: '1.5px solid #A9852E', background: '#fff', boxSizing: 'border-box' as const,
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => { setEditDetalheCustom(false); setEditDetalhe(''); }}
-                            style={{
-                              width: 40, height: 40, borderRadius: 10, border: '1.5px solid #E6E4DE',
-                              background: '#fff', cursor: 'pointer', fontSize: 16, color: '#4B5468',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                            }}
-                          >✕</button>
-                        </>
-                      ) : (
-                        <>
-                          <select
-                            value={editDetalhe}
-                            onChange={e => setEditDetalhe(e.target.value)}
-                            style={{
-                              flex: 1, padding: '10px 12px', borderRadius: 10, fontSize: 14,
-                              border: '1.5px solid #E6E4DE', background: '#fff', color: '#0B1220',
-                              boxSizing: 'border-box' as const,
-                            }}
-                          >
-                            <option value="">— Opcional —</option>
-                            {editDetalhes.map(d => <option key={d} value={d}>{d}</option>)}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => { setEditDetalheCustom(true); setEditDetalhe(''); }}
-                            title="Adicionar novo detalhe"
-                            style={{
-                              width: 40, height: 40, borderRadius: 10, border: '1.5px solid #E6E4DE',
-                              background: '#fff', cursor: 'pointer', fontSize: 20, color: '#4B5468',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                            }}
-                          >+</button>
-                        </>
-                      )}
-                    </div>
-                  </label>
-
-                  {/* Categoria */}
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#4B5468' }}>
-                    Categoria
-                    <select
-                      value={editCategoria}
-                      onChange={e => setEditCategoria(e.target.value)}
-                      style={{
-                        display: 'block', width: '100%', marginTop: 4,
-                        padding: '10px 12px', borderRadius: 10, fontSize: 14, boxSizing: 'border-box' as const,
-                        border: '1.5px solid #E6E4DE', background: '#fff', color: '#0B1220',
-                      }}
-                    >
-                      {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </label>
-
-                  {/* Valor */}
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#4B5468' }}>
-                    Valor (R$)
-                    <input
-                      type="text"
-                      value={editValor}
-                      onChange={e => setEditValor(e.target.value)}
-                      style={{
-                        display: 'block', width: '100%', marginTop: 4,
-                        padding: '10px 12px', borderRadius: 10, fontSize: 16, fontWeight: 700,
-                        border: '1.5px solid #E6E4DE', boxSizing: 'border-box' as const,
-                        color: '#6E1F27', background: '#fff',
-                      }}
-                    />
-                  </label>
-
-                  {/* Data */}
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#4B5468' }}>
-                    Data do pagamento
-                    <input
-                      type="date"
-                      value={editData}
-                      onChange={e => setEditData(e.target.value)}
-                      style={{
-                        display: 'block', width: '100%', marginTop: 4,
-                        padding: '10px 12px', borderRadius: 10, fontSize: 14, boxSizing: 'border-box' as const,
-                        border: '1.5px solid #A9852E', background: '#fff',
-                      }}
-                    />
-                  </label>
-
-                  {/* Descrição */}
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#4B5468' }}>
-                    Descrição <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(opcional)</span>
-                    <input
-                      type="text"
-                      value={editDescricao}
-                      onChange={e => setEditDescricao(e.target.value)}
-                      style={{
-                        display: 'block', width: '100%', marginTop: 4,
-                        padding: '10px 12px', borderRadius: 10, fontSize: 14, boxSizing: 'border-box' as const,
-                        border: '1.5px solid #E6E4DE', background: '#fff',
-                      }}
-                    />
-                  </label>
-                </div>
-
-                {/* Ações */}
-                <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-                  <button
-                    onClick={handleExcluir}
-                    disabled={salvando}
-                    style={{
-                      flex: 1, padding: '12px 0', borderRadius: 12, fontWeight: 700, fontSize: 14,
-                      border: `1.5px solid ${confirmDelete ? '#6E1F27' : '#E6E4DE'}`,
-                      background: confirmDelete ? 'rgba(110,31,39,.08)' : 'transparent',
-                      color: confirmDelete ? '#6E1F27' : '#4B5468',
-                      cursor: salvando ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    {confirmDelete ? '⚠️ Confirmar' : 'Excluir'}
-                  </button>
-                  <button
-                    onClick={handleSalvar}
-                    disabled={salvando}
-                    style={{
-                      flex: 2, padding: '12px 0', borderRadius: 12, fontWeight: 700, fontSize: 14,
-                      background: '#1F4D35', color: '#fff', border: 'none',
-                      cursor: salvando ? 'not-allowed' : 'pointer',
-                      opacity: salvando ? 0.7 : 1,
-                    }}
-                  >
-                    {salvando ? 'Salvando…' : 'Salvar alterações'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* FAB + flutuante */}
-      {period === "month" && !showForm && (
-        <button
-          onClick={openForm}
-          className="fixed bottom-24 right-4 z-40 flex items-center gap-2 px-5 py-3.5 rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 active:scale-95 transition-transform"
-          aria-label="Adicionar receita ou despesa"
-        >
-          <Plus className="w-5 h-5 shrink-0" />
-          <span className="text-sm font-semibold">Lançar</span>
-        </button>
-      )}
-
-      {/* ── Bottom Sheet: Adicionar receita/despesa ── */}
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex items-end">
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/50" onClick={closeForm} />
-
-          {/* Sheet */}
-          <div className="relative w-full bg-white rounded-t-2xl max-h-[92dvh] flex flex-col shadow-2xl">
-            {/* Handle visual */}
-            <div className="flex justify-center pt-3 pb-1 shrink-0">
-              <div className="w-10 h-1 rounded-full bg-gray-300" />
-            </div>
-
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 shrink-0">
-              <h3 className="text-base font-semibold text-gray-900">Adicionar receita ou despesa</h3>
-              <button
-                onClick={closeForm}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition"
-              >
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
-            </div>
-
-            {/* Formulário com scroll */}
-            <form onSubmit={handleSubmitNovo} className="overflow-y-auto flex-1 flex flex-col">
-              <div className="px-4 py-4 space-y-4 flex-1">
-              {/* Modo: plano ou realizado */}
-              <div>
-                <Label>Adicionar como</Label>
-                <div className="flex gap-2 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setFormModo("plano")}
-                    className={cn(
-                      "flex-1 py-2 rounded-lg text-sm font-medium border transition",
-                      formModo === "plano"
-                        ? "bg-gray-900 text-white border-gray-900"
-                        : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
-                    )}
-                  >
-                    Novo tema no plano
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormModo("realizado")}
-                    className={cn(
-                      "flex-1 py-2 rounded-lg text-sm font-medium border transition",
-                      formModo === "realizado"
-                        ? "bg-gray-900 text-white border-gray-900"
-                        : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
-                    )}
-                  >
-                    Valor realizado
-                  </button>
-                </div>
-              </div>
-
-              {/* Tipo: receita ou despesa */}
-              <div>
-                <Label>Tipo</Label>
-                <div className="flex gap-2 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => { setFormTipo("receita"); setFormTipoItem("Outros"); }}
-                    className={cn(
-                      "flex-1 py-2 rounded-lg text-sm font-medium border transition",
-                      formTipo === "receita"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                        : "bg-white text-gray-600 border-gray-200"
-                    )}
-                  >
-                    Receita
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setFormTipo("despesa"); setFormTipoItem("Outros"); }}
-                    className={cn(
-                      "flex-1 py-2 rounded-lg text-sm font-medium border transition",
-                      formTipo === "despesa"
-                        ? "bg-red-50 text-red-700 border-red-300"
-                        : "bg-white text-gray-600 border-gray-200"
-                    )}
-                  >
-                    Despesa
-                  </button>
-                </div>
-              </div>
-
-              {/* Tipo item */}
-              <div>
-                <Label>{formTipo === "receita" ? "Tipo de receita" : "Tipo de despesa"} *</Label>
-                <select
-                  value={formTipoItem}
-                  onChange={(e) => setFormTipoItem(e.target.value)}
-                  className={cn(selectClass, "mt-1")}
-                  required
-                >
-                  {(formTipo === "receita" ? TIPOS_RECEITA : TIPOS_DESPESA).map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Categoria (só para despesa) */}
-              {formTipo === "despesa" && (
-                <div>
-                  <Label>Categoria</Label>
-                  <select
-                    value={formCategoria}
-                    onChange={(e) => setFormCategoria(e.target.value)}
-                    className={cn(selectClass, "mt-1")}
-                  >
-                    {CATEGORIAS.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Detalhe: dropdown com opção de adicionar novo */}
-              <div>
-                <Label>Detalhe (ex: Esli, Aluguel)</Label>
-                <div className="flex gap-2 mt-1">
-                  {showCustomDetalhe ? (
-                    <>
-                      <Input
-                        value={formDetalhe}
-                        onChange={(e) => setFormDetalhe(e.target.value)}
-                        placeholder="Digite o novo detalhe..."
-                        className="flex-1"
-                        autoFocus
-                      />
-                      <button
-                        type="button"
-                        onClick={() => { setShowCustomDetalhe(false); setFormDetalhe(""); }}
-                        className="w-10 h-10 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-500 hover:bg-gray-50 shrink-0 transition"
-                        title="Cancelar novo detalhe"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <select
-                        value={formDetalhe}
-                        onChange={(e) => setFormDetalhe(e.target.value)}
-                        className={cn(selectClass, "flex-1")}
-                      >
-                        <option value="">— Opcional —</option>
-                        {detalhes.map((d) => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => { setShowCustomDetalhe(true); setFormDetalhe(""); }}
-                        className="w-10 h-10 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-700 hover:bg-gray-50 shrink-0 transition"
-                        title="Adicionar novo detalhe"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </button>
-                    </>
-                  )}
-                </div>
-                {showCustomDetalhe && (
-                  <p className="text-[10px] text-gray-400 mt-1">
-                    Novo detalhe — ficará disponível para seleção em lançamentos futuros
-                  </p>
-                )}
-              </div>
-
-              {/* Valor */}
-              <div>
-                <Label>Valor (R$) *</Label>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={formValor}
-                  onChange={(e) => setFormValor(e.target.value)}
-                  placeholder="0,00"
-                  required
-                  className="mt-1"
-                />
-              </div>
-
-              {/* Data de pagamento (só no modo realizado) */}
-              {formModo === "realizado" && (
-                <div>
-                  <Label>Data de pagamento *</Label>
-                  <Input
-                    type="date"
-                    value={formData}
-                    onChange={(e) => setFormData(e.target.value)}
-                    required
-                    className="mt-1"
-                  />
-                </div>
-              )}
-
-              </div>
-              {/* Botões — sticky no rodapé do sheet */}
-              <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 pt-3 pb-24 flex gap-2">
-                <Button type="submit" disabled={saving} className="flex-1">
-                  {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Confirmar
-                </Button>
-                <Button type="button" variant="outline" onClick={closeForm}>
-                  Cancelar
-                </Button>
-              </div>
-            </form>
-          </div>
+          <button
+            onClick={onConfirmar}
+            disabled={salvando}
+            style={{ width: 32, height: 32, borderRadius: 8, background: "#639922", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          >
+            {salvando ? <Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} /> : <Check style={{ width: 14, height: 14 }} />}
+          </button>
+          <button
+            onClick={onCancelarConfirmar}
+            style={{ width: 32, height: 32, borderRadius: 8, background: "transparent", border: "0.5px solid var(--color-border-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          >
+            <X style={{ width: 14, height: 14 }} />
+          </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function SectionHeader({ cor, label, count, total }: { cor: string; label: string; count: number; total?: number }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, marginTop: 16 }}>
+      <div style={{ width: 8, height: 8, borderRadius: "50%", background: cor }} />
+      <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", letterSpacing: "0.06em" }}>
+        {label}
+      </span>
+      {count > 0 && (
+        <span style={{ fontSize: 11, background: "var(--color-background-secondary)", color: "var(--color-text-secondary)", padding: "1px 8px", borderRadius: 20 }}>
+          {count}{total !== undefined ? ` · ${formatMoney(total)}` : ""}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export default function FinanceiroPage() {
+  const [mes, setMes] = useState(hojeStr);
+  const [cobrancas, setCobrancas] = useState<CobrancasResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [filtro, setFiltro] = useState<Filtro>("todas");
+
+  const [confirmandoId, setConfirmandoId] = useState<number | null>(null);
+  const [confirmandoData, setConfirmandoData] = useState(hojeIso);
+  const [salvando, setSalvando] = useState(false);
+
+  const [pagasExpandido, setPagasExpandido] = useState(false);
+
+  const fetchCobrancas = useCallback(() => {
+    setLoading(true);
+    fetch(`${API_URL}/api/v1/pagamentos/cobrancas?mes=${mes}`)
+      .then((r) => r.json())
+      .then((d) => setCobrancas(d))
+      .catch(() => setCobrancas(null))
+      .finally(() => setLoading(false));
+  }, [mes]);
+
+  useEffect(() => { fetchCobrancas(); }, [fetchCobrancas]);
+
+  const handleConfirmar = async () => {
+    if (!confirmandoId || !confirmandoData) return;
+    setSalvando(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/pagamentos/${confirmandoId}/confirmar`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data_pagamento: confirmandoData }),
+      });
+      if (res.ok) {
+        setConfirmandoId(null);
+        fetchCobrancas();
+      }
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const cardProps = {
+    confirmandoId,
+    confirmandoData,
+    salvando,
+    onIniciarConfirmar: (id: number) => { setConfirmandoId(id); setConfirmandoData(hojeIso()); },
+    onCancelarConfirmar: () => setConfirmandoId(null),
+    onChangeData: setConfirmandoData,
+    onConfirmar: handleConfirmar,
+  };
+
+  const r = cobrancas?.resumo;
+
+  const mostrarEmAtraso = filtro === "todas" || filtro === "em_atraso";
+  const mostrarAVencer = filtro === "todas" || filtro === "a_vencer";
+  const mostrarPagas = filtro === "todas" || filtro === "pagas";
+
+  return (
+    <div className="pb-24">
+      {/* Header sticky */}
+      <div className="sticky top-14 z-40 bg-white border-b border-gray-200 px-4 py-3 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-semibold text-gray-900">Cobranças</h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMes((m) => addMes(m, -1))}
+              className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="text-sm font-medium text-gray-700 min-w-[80px] text-center">{labelMes(mes)}</span>
+            <button
+              onClick={() => setMes((m) => addMes(m, 1))}
+              className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Filtros */}
+        <div className="flex gap-2">
+          {(["todas", "em_atraso", "a_vencer", "pagas"] as Filtro[]).map((f) => {
+            const labels: Record<Filtro, string> = { todas: "Todas", em_atraso: "Em atraso", a_vencer: "A vencer", pagas: "Pagas" };
+            const active = filtro === f;
+            const isRed = f === "em_atraso" && active;
+            return (
+              <button
+                key={f}
+                onClick={() => setFiltro(f)}
+                className="text-xs px-3 py-1.5 rounded-full border transition-colors"
+                style={{
+                  borderColor: isRed ? "#A32D2D" : active ? "#1D9E75" : "var(--color-border-secondary, #d1d5db)",
+                  background: isRed ? "#FCEBEB" : active ? "#E1F5EE" : "transparent",
+                  color: isRed ? "#A32D2D" : active ? "#0F6E56" : "var(--color-text-secondary)",
+                  fontWeight: active ? 500 : 400,
+                }}
+              >
+                {labels[f]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="px-4 pt-4">
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <Loader2 className="w-7 h-7 animate-spin text-gray-300" />
+          </div>
+        ) : !cobrancas ? (
+          <p className="text-sm text-gray-400 text-center py-12">Não foi possível carregar.</p>
+        ) : (
+          <>
+            {/* Chips de resumo */}
+            <div className="grid grid-cols-2 gap-3 mb-2">
+              <div
+                className="rounded-xl p-3 cursor-pointer"
+                style={{ background: r && r.count_em_atraso > 0 ? "#FCEBEB" : "var(--color-background-secondary)" }}
+                onClick={() => setFiltro(filtro === "em_atraso" ? "todas" : "em_atraso")}
+              >
+                <p className="text-xs mb-1" style={{ color: r && r.count_em_atraso > 0 ? "#A32D2D" : "var(--color-text-secondary)" }}>Em atraso</p>
+                <p className="text-lg font-medium m-0" style={{ color: r && r.count_em_atraso > 0 ? "#791F1F" : "var(--color-text-primary)" }}>
+                  {r ? formatMoney(r.total_em_atraso) : "—"}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: r && r.count_em_atraso > 0 ? "#A32D2D" : "var(--color-text-secondary)" }}>
+                  {r?.count_em_atraso ?? 0} parcelas
+                </p>
+              </div>
+              <div
+                className="rounded-xl p-3 cursor-pointer"
+                style={{ background: r && r.count_vence_7dias > 0 ? "#FAEEDA" : "var(--color-background-secondary)" }}
+                onClick={() => setFiltro(filtro === "a_vencer" ? "todas" : "a_vencer")}
+              >
+                <p className="text-xs mb-1" style={{ color: r && r.count_vence_7dias > 0 ? "#854F0B" : "var(--color-text-secondary)" }}>Vence em 7 dias</p>
+                <p className="text-lg font-medium m-0" style={{ color: r && r.count_vence_7dias > 0 ? "#633806" : "var(--color-text-primary)" }}>
+                  {r ? formatMoney(r.total_vence_7dias) : "—"}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: r && r.count_vence_7dias > 0 ? "#854F0B" : "var(--color-text-secondary)" }}>
+                  {r?.count_vence_7dias ?? 0} parcelas
+                </p>
+              </div>
+              <div
+                className="rounded-xl p-3 cursor-pointer"
+                style={{ background: "var(--color-background-secondary)" }}
+                onClick={() => setFiltro(filtro === "a_vencer" ? "todas" : "a_vencer")}
+              >
+                <p className="text-xs text-gray-500 mb-1">A vencer</p>
+                <p className="text-lg font-medium text-gray-900 m-0">{r ? formatMoney(r.total_a_vencer) : "—"}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{r?.count_a_vencer ?? 0} parcelas</p>
+              </div>
+              <div
+                className="rounded-xl p-3 cursor-pointer"
+                style={{ background: r && r.count_pago > 0 ? "#EAF3DE" : "var(--color-background-secondary)" }}
+                onClick={() => setFiltro(filtro === "pagas" ? "todas" : "pagas")}
+              >
+                <p className="text-xs mb-1" style={{ color: r && r.count_pago > 0 ? "#3B6D11" : "var(--color-text-secondary)" }}>Pago em {labelMes(mes)}</p>
+                <p className="text-lg font-medium m-0" style={{ color: r && r.count_pago > 0 ? "#27500A" : "var(--color-text-primary)" }}>
+                  {r ? formatMoney(r.total_pago) : "—"}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: r && r.count_pago > 0 ? "#3B6D11" : "var(--color-text-secondary)" }}>
+                  {r?.count_pago ?? 0} parcelas
+                </p>
+              </div>
+            </div>
+
+            {/* EM ATRASO */}
+            {mostrarEmAtraso && cobrancas.em_atraso.length > 0 && (
+              <div>
+                <SectionHeader cor="#E24B4A" label="EM ATRASO" count={cobrancas.em_atraso.length} total={r?.total_em_atraso} />
+                {cobrancas.em_atraso.map((item) => (
+                  <CardCobranca key={item.id} item={item} {...cardProps} />
+                ))}
+              </div>
+            )}
+
+            {/* VENCE HOJE */}
+            {mostrarAVencer && cobrancas.vence_hoje.length > 0 && (
+              <div>
+                <SectionHeader cor="#EF9F27" label="VENCE HOJE" count={cobrancas.vence_hoje.length} total={cobrancas.vence_hoje.reduce((s, i) => s + i.valor, 0)} />
+                {cobrancas.vence_hoje.map((item) => (
+                  <CardCobranca key={item.id} item={item} {...cardProps} />
+                ))}
+              </div>
+            )}
+
+            {/* A VENCER */}
+            {mostrarAVencer && cobrancas.a_vencer.length > 0 && (
+              <div>
+                <SectionHeader cor="#B4B2A9" label="A VENCER" count={cobrancas.a_vencer.length} total={r?.total_a_vencer} />
+                {cobrancas.a_vencer.map((item) => (
+                  <CardCobranca key={item.id} item={item} {...cardProps} />
+                ))}
+              </div>
+            )}
+
+            {/* Nenhuma pendência */}
+            {mostrarEmAtraso && mostrarAVencer &&
+              cobrancas.em_atraso.length === 0 &&
+              cobrancas.vence_hoje.length === 0 &&
+              cobrancas.a_vencer.length === 0 && (
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-6 text-center mt-4">
+                <p className="text-sm text-gray-500">Nenhuma cobrança pendente</p>
+              </div>
+            )}
+
+            {/* PAGAS */}
+            {mostrarPagas && cobrancas.pagas.length > 0 && (
+              <div className="mt-4">
+                <button
+                  onClick={() => setPagasExpandido((v) => !v)}
+                  className="w-full flex items-center justify-between py-3 border-t border-gray-100 text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#639922" }} />
+                    <span className="text-xs font-medium tracking-wide" style={{ color: "#3B6D11" }}>
+                      PAGAS EM {labelMes(mes).toUpperCase()}
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#EAF3DE", color: "#3B6D11" }}>
+                      {cobrancas.pagas.length} · {formatMoney(r?.total_pago ?? 0)}
+                    </span>
+                  </div>
+                  <span className="text-xs text-gray-400">{pagasExpandido ? "▲" : "▼"}</span>
+                </button>
+                {pagasExpandido && (
+                  <div className="mt-1">
+                    {cobrancas.pagas.map((item) => (
+                      <CardCobranca key={item.id} item={item} {...cardProps} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {mostrarPagas && cobrancas.pagas.length === 0 && filtro === "pagas" && (
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-6 text-center mt-4">
+                <p className="text-sm text-gray-500">Nenhuma parcela paga em {labelMes(mes)}</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

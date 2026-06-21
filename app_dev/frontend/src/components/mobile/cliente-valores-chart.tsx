@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -27,11 +27,15 @@ export interface ValoresPorMesItem {
 }
 
 export function ClienteValoresChart({ data }: { data: ValoresPorMesItem[] }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   if (data.length === 0) return null;
+  if (!mounted) return <div className="h-[200px] w-full" />;
 
   return (
-    <div className="h-[200px]">
-      <ResponsiveContainer width="100%" height="100%" minHeight={200} initialDimension={{ width: 300, height: 200 }}>
+    <div className="h-[200px] w-full">
+      <ResponsiveContainer width="100%" height={200} minWidth={0}>
         <BarChart data={data} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis dataKey="label" tick={{ fontSize: 10 }} tickFormatter={(v) => v.split("/")[0]} />

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   PieChart,
@@ -67,6 +67,10 @@ export function MobileDashboardCharts({
 }: MobileDashboardChartsProps) {
   const router = useRouter();
   const mesAtual = new Date().getMonth();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) return <div style={{ height: 400 }} />;
 
   return (
     <>
@@ -82,7 +86,7 @@ export function MobileDashboardCharts({
             <div className="flex items-center gap-4">
               {/* Donut */}
               <div className="relative flex-shrink-0 w-[120px] h-[120px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <PieChart>
                     <Pie
                       data={mixParaPie}
@@ -136,13 +140,8 @@ export function MobileDashboardCharts({
             {period === "ytd-closed" && `Faturamento até ${MESES_LABELS[mesAtual]} (por ano)`}
             {period === "year" && "Faturamento por ano (anos fechados)"}
           </h3>
-          <div className="h-[220px] min-h-[220px] w-full min-w-0">
-            <ResponsiveContainer
-              width="100%"
-              height="100%"
-              minHeight={220}
-              initialDimension={{ width: 300, height: 220 }}
-            >
+          <div className="h-[220px] w-full">
+            <ResponsiveContainer width="100%" height={220} minWidth={0}>
               {period === "month" && lucroMensal.length > 0 && (
                 <BarChart data={lucroMensal} margin={{ top: 20, right: 5, left: 5, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />

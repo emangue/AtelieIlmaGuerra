@@ -96,6 +96,7 @@ class PedidoService:
             valor_pecas=p.valor_pecas,
             quantidade_pecas=p.quantidade_pecas,
             forma_pagamento=p.forma_pagamento,
+            pagamento_na_entrega=p.pagamento_na_entrega,
             status_pagamento=status_pag,
             parcelas_pagas=len(pagas) if parcelas else None,
             parcelas_total=len(parcelas) if parcelas else None,
