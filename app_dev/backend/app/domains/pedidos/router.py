@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB
 
-from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem, ParcelaCreate, ParcelasConfig, ParcelaOut
+from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem, ParcelaCreate, ParcelasConfig, ParcelaOut, PedidoHistoricoResponse
 from .service import PedidoService, _norm_foto_url
 from .models import FormaPeca, FormaPecaMedida
 
@@ -35,6 +35,25 @@ def list_pedidos_todos(
     service = PedidoService(db)
     pedidos = service.list_all(mes=mes, status=status)
     return [service.to_list_item(p) for p in pedidos]
+
+
+@router.get("/historico", response_model=PedidoHistoricoResponse)
+def list_pedidos_historico(
+    q: Optional[str] = Query(None, description="Busca por nome do cliente, descrição ou status"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    mes: Optional[str] = Query(None, description="YYYYMM - filtra por data_entrega no mês"),
+    status: Optional[str] = Query(None, description="Filtra por status exato"),
+    db: Session = Depends(get_db),
+):
+    """Busca paginada de pedidos com eager loading. Ideal para histórico."""
+    service = PedidoService(db)
+    items, total = service.search_historico(q=q, offset=offset, limit=limit, mes=mes, status=status)
+    return PedidoHistoricoResponse(
+        items=[service.to_list_item(p) for p in items],
+        total=total,
+        has_more=(offset + limit) < total,
+    )
 
 
 @router.get("/entregues", response_model=List[PedidoEntregueItem])

@@ -39,6 +39,16 @@ class PedidoService:
         """Lista todos os pedidos. Filtra opcionalmente por mes (YYYYMM) e/ou status."""
         return self.repo.list_all(mes=mes, status=status)
 
+    def search_historico(
+        self,
+        q: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 20,
+        mes: Optional[str] = None,
+        status: Optional[str] = None,
+    ):
+        return self.repo.search_historico(q=q, offset=offset, limit=limit, mes=mes, status=status)
+
     def list_entregues(self, mes: str) -> List[Pedido]:
         """Lista pedidos entregues no mês (para transações do financeiro)."""
         return self.repo.list_entregues(mes)

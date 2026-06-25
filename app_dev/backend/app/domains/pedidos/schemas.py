@@ -15,6 +15,12 @@ class TipoPedidoItem(BaseModel):
         from_attributes = True
 
 
+class PedidoHistoricoResponse(BaseModel):
+    items: List["PedidoListItem"]
+    total: int
+    has_more: bool
+
+
 class PedidoListItem(BaseModel):
     id: int
     cliente_id: int

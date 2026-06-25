@@ -4,8 +4,8 @@ Repository do domínio Pedidos.
 from datetime import date
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy import and_, or_
 
 from .models import Pedido, TipoPedido
 from .schemas import PedidoCreate, PedidoUpdate
@@ -133,6 +133,55 @@ class PedidoRepository:
         if status:
             query = query.filter(Pedido.status == status)
         return query.all()
+
+    def search_historico(
+        self,
+        q: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 20,
+        mes: Optional[str] = None,
+        status: Optional[str] = None,
+    ):
+        """Busca paginada com eager loading para evitar N+1. Retorna (items, total)."""
+        from app.domains.clientes.models import Cliente
+        from app.domains.plano.pagamentos_model import Pagamento
+
+        query = (
+            self.db.query(Pedido)
+            .options(
+                joinedload(Pedido.cliente),
+                joinedload(Pedido.tipo_pedido),
+                selectinload(Pedido.pagamentos),
+            )
+            .order_by(Pedido.data_entrega.desc().nullslast(), Pedido.data_pedido.desc())
+        )
+
+        if mes and len(mes) == 6:
+            try:
+                ano = int(mes[:4])
+                num_mes = int(mes[4:6])
+                inicio = date(ano, num_mes, 1)
+                fim = date(ano + 1, 1, 1) if num_mes == 12 else date(ano, num_mes + 1, 1)
+                query = query.filter(Pedido.data_entrega >= inicio, Pedido.data_entrega < fim)
+            except (ValueError, TypeError):
+                pass
+
+        if status:
+            query = query.filter(Pedido.status == status)
+
+        if q and q.strip():
+            term = f"%{q.strip()}%"
+            query = query.join(Cliente, Pedido.cliente_id == Cliente.id).filter(
+                or_(
+                    Cliente.nome.ilike(term),
+                    Pedido.descricao_produto.ilike(term),
+                    Pedido.status.ilike(term),
+                )
+            )
+
+        total = query.count()
+        items = query.offset(offset).limit(limit).all()
+        return items, total
 
     def list_entregues(self, mes: str) -> List[Pedido]:
         """Lista pedidos entregues no mês (status=Entregue, data_entrega no mês)."""
