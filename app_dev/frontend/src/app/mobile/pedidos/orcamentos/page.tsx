@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { Receipt, Loader2 } from "lucide-react";
+import { Receipt, Loader2, CheckCircle, Trash2 } from "lucide-react";
 import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -23,7 +23,6 @@ interface PedidoItem {
   data_entrega: string | null;
   valor_pecas: number | null;
   tipo_pedido_nome: string | null;
-  foto_url: string | null;
 }
 
 function formatDate(iso: string) {
@@ -46,6 +45,7 @@ function formatMoney(v: number) {
 export default function PedidosOrcamentosPage() {
   const [orcamentos, setOrcamentos] = useState<PedidoItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionId, setActionId] = useState<number | null>(null);
 
   useEffect(() => {
     authFetch(`${API_URL}/api/v1/pedidos/todos`)
@@ -56,6 +56,38 @@ export default function PedidosOrcamentosPage() {
       .catch(() => setOrcamentos([]))
       .finally(() => setLoading(false));
   }, []);
+
+  const handleAprovar = async (e: React.MouseEvent, id: number) => {
+    e.preventDefault();
+    if (!confirm("Aprovar este orçamento e transformar em pedido ativo (Encomenda)?")) return;
+    setActionId(id);
+    try {
+      await authFetch(`${API_URL}/api/v1/pedidos/${id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Encomenda" }),
+      });
+      setOrcamentos((prev) => prev.filter((p) => p.id !== id));
+    } catch {
+      alert("Erro ao aprovar. Tente novamente.");
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleExcluir = async (e: React.MouseEvent, id: number, nome: string) => {
+    e.preventDefault();
+    if (!confirm(`Excluir orçamento de ${nome}? Esta ação não pode ser desfeita.`)) return;
+    setActionId(id);
+    try {
+      await authFetch(`${API_URL}/api/v1/pedidos/${id}`, { method: "DELETE" });
+      setOrcamentos((prev) => prev.filter((p) => p.id !== id));
+    } catch {
+      alert("Erro ao excluir. Tente novamente.");
+    } finally {
+      setActionId(null);
+    }
+  };
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 pb-24">
@@ -79,34 +111,60 @@ export default function PedidosOrcamentosPage() {
       ) : (
         <div className="space-y-3">
           {orcamentos.map((p) => (
-            <Link
-              key={p.id}
-              href={`/mobile/pedidos/${p.id}?from=historico`}
-              className="block rounded-xl border border-gray-200 bg-white p-4 hover:bg-gray-50 transition-colors"
-            >
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <p className="text-sm font-semibold text-gray-900 truncate">{p.cliente_nome}</p>
-                {p.tipo_pedido_nome && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 shrink-0">
-                    {p.tipo_pedido_nome}
-                  </span>
+            <div key={p.id} className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+              <Link
+                href={`/mobile/pedidos/${p.id}?from=orcamentos`}
+                className="block p-4 hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{p.cliente_nome}</p>
+                  {p.tipo_pedido_nome && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 shrink-0">
+                      {p.tipo_pedido_nome}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-600 line-clamp-1 mb-2">{p.descricao_produto}</p>
+                <div className="flex items-center justify-between text-xs text-gray-400">
+                  <span>{formatDate(p.data_pedido)}</span>
+                  {p.valor_pecas != null && (
+                    <span className="font-semibold text-gray-700 text-sm">
+                      {formatMoney(p.valor_pecas)}
+                    </span>
+                  )}
+                </div>
+                {p.data_entrega && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Entrega prevista: {formatDate(p.data_entrega)}
+                  </p>
                 )}
+              </Link>
+
+              {/* Ações */}
+              <div className="flex border-t border-gray-100">
+                <button
+                  onClick={(e) => handleAprovar(e, p.id)}
+                  disabled={actionId === p.id}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-50"
+                >
+                  {actionId === p.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle className="h-3.5 w-3.5" />
+                  )}
+                  Aprovar pedido
+                </button>
+                <div className="w-px bg-gray-100" />
+                <button
+                  onClick={(e) => handleExcluir(e, p.id, p.cliente_nome)}
+                  disabled={actionId === p.id}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-red-400 hover:bg-red-50 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Excluir
+                </button>
               </div>
-              <p className="text-sm text-gray-600 line-clamp-1 mb-2">{p.descricao_produto}</p>
-              <div className="flex items-center justify-between text-xs text-gray-400">
-                <span>{formatDate(p.data_pedido)}</span>
-                {p.valor_pecas != null && (
-                  <span className="font-semibold text-gray-700 text-sm">
-                    {formatMoney(p.valor_pecas)}
-                  </span>
-                )}
-              </div>
-              {p.data_entrega && (
-                <p className="text-xs text-amber-600 mt-1">
-                  Entrega prevista: {formatDate(p.data_entrega)}
-                </p>
-              )}
-            </Link>
+            </div>
           ))}
         </div>
       )}
