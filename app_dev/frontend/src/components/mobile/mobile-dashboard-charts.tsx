@@ -48,6 +48,7 @@ interface MixPieItem {
 
 export interface MobileDashboardChartsProps {
   period: "month" | "ytd" | "year" | "ytd-closed";
+  mesParam?: string; // YYYYMM — para links do mix de status
   lucroMensal: LucroMensal[];
   chartDataYTD: Record<string, string | number>[];
   chartDataYTDClosed: { ano: string; label: string; valor: number }[];
@@ -58,6 +59,7 @@ export interface MobileDashboardChartsProps {
 
 export function MobileDashboardCharts({
   period,
+  mesParam,
   lucroMensal,
   chartDataYTD,
   chartDataYTDClosed,
@@ -116,13 +118,27 @@ export function MobileDashboardCharts({
               <div className="flex-1 space-y-2">
                 {sorted.map((s) => {
                   const pct = total > 0 ? Math.round((s.value / total) * 100) : 0;
-                  return (
-                    <div key={s.name} className="flex items-center gap-2">
+                  const href = mesParam
+                    ? `/mobile/pedidos/todos?mes=${mesParam}&status=${encodeURIComponent(s.name)}`
+                    : undefined;
+                  const row = (
+                    <div className="flex items-center gap-2">
                       <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: s.fill }} />
                       <span className="text-xs text-gray-700 flex-1 truncate">{s.name}</span>
                       <span className="text-xs font-medium text-gray-900">{s.value} un.</span>
                       <span className="text-xs text-gray-400 w-8 text-right">{pct}%</span>
                     </div>
+                  );
+                  return href ? (
+                    <button
+                      key={s.name}
+                      onClick={() => router.push(href)}
+                      className="w-full text-left hover:bg-gray-50 rounded-lg px-1 -mx-1 transition-colors cursor-pointer"
+                    >
+                      {row}
+                    </button>
+                  ) : (
+                    <div key={s.name}>{row}</div>
                   );
                 })}
               </div>

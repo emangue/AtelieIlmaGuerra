@@ -549,6 +549,7 @@ export default function PainelPage() {
             <>
               <MobileDashboardCharts
                 period={period}
+                mesParam={mesParam}
                 lucroMensal={[]}
                 chartDataYTD={[]}
                 chartDataYTDClosed={[]}
