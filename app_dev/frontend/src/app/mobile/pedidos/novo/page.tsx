@@ -110,6 +110,7 @@ function NovoPedidoContent() {
     null
   );
   const [fotosDisponiveis, setFotosDisponiveis] = useState<boolean | null>(null);
+  const [confirmarMargemAlta, setConfirmarMargemAlta] = useState(false);
 
   const [medidas, setMedidas] = useState<Record<string, number>>({});
   const [comentarioMedidas, setComentarioMedidas] = useState("");
@@ -248,7 +249,7 @@ function NovoPedidoContent() {
         valorMargem20: margem(0.2),
         valorMargem30: margem(0.3),
         valorMargem40: margem(0.4),
-        margemReal: Math.round(Math.max(0, margemRealCalc) * 1000) / 10,
+        margemReal: Math.round(margemRealCalc * 1000) / 10,
       };
     }, [
       parametros,
@@ -316,6 +317,11 @@ function NovoPedidoContent() {
       return;
     }
     if (!dataPedido) return;
+    if (valorPecas > 0 && Math.abs(margemReal) > 500 && !confirmarMargemAlta) {
+      setConfirmarMargemAlta(true);
+      return;
+    }
+    setConfirmarMargemAlta(false);
     setLoading(true);
     try {
       const body: Record<string, unknown> = {
@@ -331,7 +337,7 @@ function NovoPedidoContent() {
         horas_trabalho: horasTrabalho || null,
         custo_materiais: custoMateriais || null,
         custos_variaveis: custosVariaveis || null,
-        margem_real: margemReal || null,
+        margem_real: valorPecas > 0 ? margemReal : null,
         param_preco_hora: parametros?.preco_hora ?? null,
         param_impostos: parametros?.impostos ?? null,
         param_cartao_credito: parametros?.cartao_credito ?? null,
@@ -599,7 +605,7 @@ function NovoPedidoContent() {
               min={0}
               step={0.25}
               value={horasTrabalho || ""}
-              onChange={(e) => setHorasTrabalho(parseFloat(e.target.value) || 0)}
+              onChange={(e) => { setHorasTrabalho(parseFloat(e.target.value) || 0); setConfirmarMargemAlta(false); }}
               className="mt-1"
             />
           </div>
@@ -671,7 +677,7 @@ function NovoPedidoContent() {
               min={0}
               step={0.01}
               value={valorPecas || ""}
-              onChange={(e) => setValorPecas(parseFloat(e.target.value) || 0)}
+              onChange={(e) => { setValorPecas(parseFloat(e.target.value) || 0); setConfirmarMargemAlta(false); }}
               className="mt-1"
             />
           </div>
@@ -1008,6 +1014,17 @@ function NovoPedidoContent() {
 
         {formError && (
           <p className="text-sm text-red-600">{formError}</p>
+        )}
+
+        {confirmarMargemAlta && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-2">
+            <p className="text-sm font-medium text-amber-800">
+              Margem real de {margemReal.toFixed(1)}% — isso está correto?
+            </p>
+            <p className="text-xs text-amber-700">
+              Uma margem acima de 500% é incomum. Verifique se as horas e custos foram preenchidos corretamente. Se estiver certo, clique em Salvar novamente para confirmar.
+            </p>
+          </div>
         )}
 
         {/* Botões */}
