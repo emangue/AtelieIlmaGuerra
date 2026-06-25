@@ -38,15 +38,15 @@ export function ChartComparacaoMensal({ data }: { data: EvolucaoMensalItem[] }) 
   if (!mounted) return <div className="h-[200px] w-full" />;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleBarClick = (entry: any) => {
-    const anomes = entry?.activePayload?.[0]?.payload?.anomes;
-    if (anomes) router.push(`/mobile/pedidos/todos?mes=${anomes}`);
+  const handleBarClick = (barData: any) => {
+    const anomes = barData?.anomes;
+    if (anomes) router.push(`/mobile/pedidos/todos?mes=${anomes}&status=Entregue`);
   };
 
   return (
     <div className="h-[200px] w-full">
       <ResponsiveContainer width="100%" height={200} minWidth={0}>
-        <BarChart data={data} margin={{ top: 24, right: 8, left: 8, bottom: 0 }} onClick={handleBarClick} style={{ cursor: "pointer" }}>
+        <BarChart data={data} margin={{ top: 24, right: 8, left: 8, bottom: 0 }} style={{ cursor: "pointer" }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
           <XAxis dataKey="label" tick={{ fontSize: 10 }} />
           <YAxis hide />
@@ -60,6 +60,8 @@ export function ChartComparacaoMensal({ data }: { data: EvolucaoMensalItem[] }) 
             fill="#d1d5db"
             radius={[4, 4, 0, 0]}
             name="Planejado"
+            cursor="pointer"
+            onClick={(barData) => handleBarClick(barData)}
           >
             <LabelList
               position="top"
@@ -74,6 +76,8 @@ export function ChartComparacaoMensal({ data }: { data: EvolucaoMensalItem[] }) 
             fill="#1f2937"
             radius={[4, 4, 0, 0]}
             name="Realizado"
+            cursor="pointer"
+            onClick={(barData) => handleBarClick(barData)}
           >
             <LabelList
               position="top"

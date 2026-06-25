@@ -73,6 +73,7 @@ function formatDate(iso: string) {
 function PedidosTodosContent() {
   const searchParams = useSearchParams();
   const mesFilter = searchParams.get("mes"); // YYYYMM
+  const statusFilter = searchParams.get("status"); // ex: "Entregue"
   const [pedidos, setPedidos] = useState<PedidoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
@@ -128,14 +129,14 @@ function PedidosTodosContent() {
   };
 
   const searchLower = search.trim().toLowerCase();
-  const filtered = searchLower
-    ? pedidos.filter(
-        (p) =>
-          p.cliente_nome.toLowerCase().includes(searchLower) ||
-          (p.descricao_produto || "").toLowerCase().includes(searchLower) ||
-          p.status.toLowerCase().includes(searchLower)
-      )
-    : pedidos;
+  const filtered = pedidos
+    .filter((p) => !statusFilter || p.status === statusFilter)
+    .filter((p) =>
+      !searchLower ||
+      p.cliente_nome.toLowerCase().includes(searchLower) ||
+      (p.descricao_produto || "").toLowerCase().includes(searchLower) ||
+      p.status.toLowerCase().includes(searchLower)
+    );
 
   const grouped = filtered.reduce<Record<string, PedidoItem[]>>((acc, p) => {
     const key = p.data_entrega || "__sem_data__";
