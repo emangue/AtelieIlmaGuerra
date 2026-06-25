@@ -10,7 +10,10 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 
 from app.core.database import get_db
+from app.domains.auth.router import get_user_id_from_token
 from sqlalchemy.orm import Session
+
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB
 
 from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem, ParcelaCreate, ParcelasConfig, ParcelaOut
 from .service import PedidoService, _norm_foto_url
@@ -119,14 +122,19 @@ def list_formas_peca(
 
 
 @router.post("/upload-foto")
-async def upload_foto_pedido(file: UploadFile):
+async def upload_foto_pedido(
+    file: UploadFile,
+    _user_id: int = Depends(get_user_id_from_token),
+):
     """Recebe foto, salva em uploads/pedidos e retorna a URL."""
     ext = Path(file.filename or "img").suffix or ".jpg"
     if ext.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
         ext = ".jpg"
     name = f"{uuid.uuid4().hex}{ext}"
     path = UPLOADS_DIR / "pedidos" / name
-    content = await file.read()
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo: 8 MB.")
     path.write_bytes(content)
     # URL relativa: funciona em prod (mesmo domínio) e dev (rewrite)
     base = os.environ.get("BACKEND_URL", "").rstrip("/")
@@ -338,3 +346,21 @@ def configurar_pagamento(
 
     db.commit()
     return get_parcelas(pedido_id, db)
+
+
+@router.delete("/{pedido_id}", status_code=204)
+def delete_pedido(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+):
+    """Exclui um pedido e seus pagamentos associados."""
+    from app.domains.plano.pagamentos_model import Pagamento
+
+    service = PedidoService(db)
+    pedido = service.get_by_id(pedido_id)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+
+    db.query(Pagamento).filter(Pagamento.pedido_id == pedido_id).delete()
+    db.delete(pedido)
+    db.commit()

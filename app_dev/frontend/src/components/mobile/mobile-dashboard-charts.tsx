@@ -86,7 +86,7 @@ export function MobileDashboardCharts({
             <div className="flex items-center gap-4">
               {/* Donut */}
               <div className="relative flex-shrink-0 w-[120px] h-[120px]">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                <ResponsiveContainer width={120} height={120} minWidth={0}>
                   <PieChart>
                     <Pie
                       data={mixParaPie}

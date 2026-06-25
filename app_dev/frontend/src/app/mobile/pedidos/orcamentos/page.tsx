@@ -2,57 +2,67 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Receipt, Plus, Loader2 } from "lucide-react";
+import { Receipt, Loader2 } from "lucide-react";
+import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
-interface OrcamentoItem {
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
+
+interface PedidoItem {
   id: number;
   cliente_nome: string;
-  data: string;
-  descricao: string | null;
-  valor: number | null;
+  descricao_produto: string;
   status: string;
-  margem_20: number | null;
-  margem_30: number | null;
-  margem_40: number | null;
+  data_pedido: string;
+  data_entrega: string | null;
+  valor_pecas: number | null;
+  tipo_pedido_nome: string | null;
+  foto_url: string | null;
+}
+
+function formatDate(iso: string) {
+  return new Date(iso + "T12:00:00").toLocaleDateString("pt-BR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatMoney(v: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(v);
 }
 
 export default function PedidosOrcamentosPage() {
-  const [orcamentos, setOrcamentos] = useState<OrcamentoItem[]>([]);
+  const [orcamentos, setOrcamentos] = useState<PedidoItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/v1/orcamentos`)
+    authFetch(`${API_URL}/api/v1/pedidos/todos`)
       .then((res) => res.json())
-      .then(setOrcamentos)
+      .then((data: PedidoItem[]) =>
+        setOrcamentos(data.filter((p) => p.status === "Orçamento"))
+      )
       .catch(() => setOrcamentos([]))
       .finally(() => setLoading(false));
   }, []);
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-4 pb-24">
-      <div className="flex flex-col gap-2">
+    <div className="flex flex-1 flex-col gap-4 p-4 pb-24">
+      <div className="flex flex-col gap-1">
         <h2 className="text-xl font-semibold text-gray-900">Orçamentos ativos</h2>
-        <p className="text-sm text-gray-500">
-          Cotações com cálculo de Margem 20%, 30%, 40%
-        </p>
+        <p className="text-sm text-gray-500">Pedidos aguardando aprovação</p>
       </div>
-
-      <Link href="/mobile/orcamentos/novo" className="block">
-        <Button className="w-full" size="lg">
-          <Plus className="mr-2 h-5 w-5" />
-          Novo Orçamento
-        </Button>
-      </Link>
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -61,45 +71,41 @@ export default function PedidosOrcamentosPage() {
       ) : orcamentos.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-gray-50 p-8 flex flex-col items-center justify-center min-h-[200px]">
           <Receipt className="w-12 h-12 text-gray-300 mb-4" />
-          <p className="text-gray-500 text-center">
-            Nenhum orçamento cadastrado
-          </p>
+          <p className="text-gray-500 text-center">Nenhum orçamento em aberto</p>
           <p className="text-sm text-gray-400 mt-1">
-            Clique em &quot;Novo Orçamento&quot; para começar
+            Crie um pedido com status &quot;Orçamento&quot; para aparecer aqui
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {orcamentos.map((o) => (
-            <Link key={o.id} href={`/mobile/orcamentos/${o.id}`}>
-              <Card className="transition-colors hover:bg-gray-50">
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between">
-                    <CardTitle className="text-base">{o.cliente_nome}</CardTitle>
-                    <span className="text-xs font-medium px-2 py-0.5 rounded bg-gray-100 text-gray-700">
-                      {o.status}
-                    </span>
-                  </div>
-                  <CardDescription>
-                    {new Date(o.data).toLocaleDateString("pt-BR")} •{" "}
-                    {o.descricao || "—"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="flex gap-4 text-sm">
-                    {o.valor != null && (
-                      <span className="font-medium">
-                        R$ {o.valor.toLocaleString("pt-BR")}
-                      </span>
-                    )}
-                    {o.margem_20 != null && (
-                      <span className="text-gray-500">
-                        Margem 20%: R$ {o.margem_20.toLocaleString("pt-BR")}
-                      </span>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+          {orcamentos.map((p) => (
+            <Link
+              key={p.id}
+              href={`/mobile/pedidos/${p.id}?from=historico`}
+              className="block rounded-xl border border-gray-200 bg-white p-4 hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <p className="text-sm font-semibold text-gray-900 truncate">{p.cliente_nome}</p>
+                {p.tipo_pedido_nome && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 shrink-0">
+                    {p.tipo_pedido_nome}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-gray-600 line-clamp-1 mb-2">{p.descricao_produto}</p>
+              <div className="flex items-center justify-between text-xs text-gray-400">
+                <span>{formatDate(p.data_pedido)}</span>
+                {p.valor_pecas != null && (
+                  <span className="font-semibold text-gray-700 text-sm">
+                    {formatMoney(p.valor_pecas)}
+                  </span>
+                )}
+              </div>
+              {p.data_entrega && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Entrega prevista: {formatDate(p.data_entrega)}
+                </p>
+              )}
             </Link>
           ))}
         </div>

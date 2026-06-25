@@ -155,6 +155,7 @@ class PlanoVsRealizado(BaseModel):
     repasse_costureira: float = 0.0
     lucro_liquido_dono: float = 0.0
     itens_receita: List[PlanoVsRealizadoItem]
+    itens_receita_entrega: List[PlanoVsRealizadoItem] = []
     itens_despesas: List[PlanoVsRealizadoItem]
 
 

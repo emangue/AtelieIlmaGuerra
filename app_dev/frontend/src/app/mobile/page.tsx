@@ -11,6 +11,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { getToken } from "@/lib/api-client";
 import { MonthScrollPicker } from "@/components/mobile/month-scroll-picker";
 import { YearScrollPicker } from "@/components/mobile/year-scroll-picker";
 import { YTDToggle, PeriodView } from "@/components/mobile/ytd-toggle";
@@ -83,6 +84,7 @@ interface PlanoVsRealizado {
   lucro_realizado: number;
   percentual_atingimento: number;
   itens_receita: PlanoVsRealizadoItem[];
+  itens_receita_entrega: PlanoVsRealizadoItem[];
   itens_despesas: PlanoVsRealizadoItem[];
 }
 
@@ -144,7 +146,10 @@ export default function PainelPage() {
   const fetchWithTimeout = (url: string, ms = 8000) => {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), ms);
-    return fetch(url, { signal: ctrl.signal })
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return fetch(url, { signal: ctrl.signal, headers })
       .then((r) => {
         clearTimeout(timeout);
         return r.json();
@@ -497,9 +502,9 @@ export default function PainelPage() {
                     Pagamento
                   </button>
                 </div>
-                {/* Breakdown por tipo — mesmo dado para ambas as abas por ora */}
+                {/* Breakdown por tipo — entrega ou pagamento */}
                 <div className="space-y-3.5">
-                  {planoVsRealizado.itens_receita
+                  {(planoTabAtiva === "receitas" ? planoVsRealizado.itens_receita_entrega : planoVsRealizado.itens_receita)
                     .filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0)
                     .map((i, idx) => {
                       const diff = i.valor_realizado - i.valor_planejado;
@@ -532,7 +537,7 @@ export default function PainelPage() {
                         </div>
                       );
                     })}
-                  {planoVsRealizado.itens_receita.filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0).length === 0 && (
+                  {(planoTabAtiva === "receitas" ? planoVsRealizado.itens_receita_entrega : planoVsRealizado.itens_receita).filter((i) => i.valor_planejado > 0 || i.valor_realizado > 0).length === 0 && (
                     <p className="text-xs text-gray-400 py-2">Sem faturamento no período</p>
                   )}
                 </div>

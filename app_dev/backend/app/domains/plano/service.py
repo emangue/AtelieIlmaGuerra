@@ -172,6 +172,44 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         .scalar() or 0
     )
 
+    # Breakdown por tipo — visão entrega
+    entrega_por_tipo = (
+        db.query(
+            TipoPedido.nome,
+            func.coalesce(func.sum(Pedido.valor_pecas), 0).label("valor"),
+        )
+        .join(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
+        .filter(
+            Pedido.status == "Entregue",
+            Pedido.data_entrega >= inicio,
+            Pedido.data_entrega < fim,
+        )
+        .group_by(TipoPedido.nome)
+        .all()
+    )
+    entrega_map: Dict[str, float] = {}
+    for r in entrega_por_tipo:
+        plano_tipo = TIPO_PEDIDO_TO_PLANO.get(r.nome.upper(), "Outros")
+        entrega_map[plano_tipo] = entrega_map.get(plano_tipo, 0) + float(r.valor)
+
+    itens_receita_entrega: List[PlanoVsRealizadoItem] = []
+    plano_tipos_set = {i.tipo_item for i in itens_rec}
+    for i in itens_rec:
+        real_e = entrega_map.get(i.tipo_item, 0)
+        itens_receita_entrega.append(PlanoVsRealizadoItem(
+            tipo_item=i.tipo_item,
+            detalhe=i.detalhe,
+            valor_planejado=float(i.valor_planejado),
+            valor_realizado=real_e,
+            status=_status_receita(float(i.valor_planejado), real_e),
+        ))
+    for tipo_plano, real_e in entrega_map.items():
+        if tipo_plano not in plano_tipos_set and real_e > 0:
+            itens_receita_entrega.append(PlanoVsRealizadoItem(
+                tipo_item=tipo_plano, detalhe=None, valor_planejado=0,
+                valor_realizado=real_e, status="ok",
+            ))
+
     return PlanoVsRealizado(
         anomes=mes,
         receita_planejada=receita_planejada,
@@ -185,6 +223,7 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         repasse_costureira=repasse_costureira,
         lucro_liquido_dono=lucro_liquido_dono,
         itens_receita=itens_receita,
+        itens_receita_entrega=itens_receita_entrega,
         itens_despesas=itens_despesas,
     )
 

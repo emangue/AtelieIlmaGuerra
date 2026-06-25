@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   Loader2,
   Pencil,
+  Trash2,
   Calendar,
   Package,
   Clock,
@@ -20,8 +21,16 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { PagamentoFormEdit } from "@/components/mobile/pagamento-form";
+import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
 
 const STATUS_OPCOES = [
   "Orçamento",
@@ -227,7 +236,7 @@ export default function PedidoDetailPage() {
   const [comentarioFoto3, setComentarioFoto3] = useState("");
 
   const loadPedido = () => {
-    fetch(`${API_URL}/api/v1/pedidos/${id}`)
+    authFetch(`${API_URL}/api/v1/pedidos/${id}`)
       .then((res) => {
         if (!res.ok) throw new Error("Não encontrado");
         return res.json();
@@ -270,7 +279,7 @@ export default function PedidoDetailPage() {
   const loadParcelas = () => {
     if (!id || isNaN(id)) { setParcelasLoaded(true); return; }
     setParcelasLoaded(false);
-    fetch(`${API_URL}/api/v1/pedidos/${id}/parcelas`)
+    authFetch(`${API_URL}/api/v1/pedidos/${id}/parcelas`)
       .then((res) => res.json())
       .then((data: { id: number; valor: number; data_vencimento: string | null; data_pagamento: string | null; status: string }[]) => {
         setParcelas(data.map((p) => ({
@@ -295,7 +304,7 @@ export default function PedidoDetailPage() {
       setFormasPeca([]);
       return;
     }
-    fetch(`${API_URL}/api/v1/pedidos/formas-peca?tipo_pedido_id=${pedido.tipo_pedido_id}`)
+    authFetch(`${API_URL}/api/v1/pedidos/formas-peca?tipo_pedido_id=${pedido.tipo_pedido_id}`)
       .then((res) => res.json())
       .then(setFormasPeca)
       .catch(() => setFormasPeca([]));
@@ -367,14 +376,14 @@ export default function PedidoDetailPage() {
         const v = medidas[key];
         if (v != null && v > 0) body[key] = v;
       });
-      const res = await fetch(`${API_URL}/api/v1/pedidos/${id}`, {
+      const res = await authFetch(`${API_URL}/api/v1/pedidos/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Erro ao salvar");
       // Refetch para obter o pedido completo (PATCH retorna PedidoListItem)
-      const detailRes = await fetch(`${API_URL}/api/v1/pedidos/${id}`);
+      const detailRes = await authFetch(`${API_URL}/api/v1/pedidos/${id}`);
       if (detailRes.ok) {
         const updated = await detailRes.json();
         setPedido(updated);
@@ -384,6 +393,17 @@ export default function PedidoDetailPage() {
       // ignore
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!pedido) return;
+    if (!confirm(`Excluir pedido de ${pedido.cliente_nome}? Esta ação não pode ser desfeita.`)) return;
+    try {
+      await authFetch(`${API_URL}/api/v1/pedidos/${pedido.id}`, { method: "DELETE" });
+      router.push(backUrl);
+    } catch {
+      alert("Erro ao excluir pedido. Tente novamente.");
     }
   };
 
@@ -798,7 +818,7 @@ export default function PedidoDetailPage() {
                       try {
                         const form = new FormData();
                         form.append("file", file);
-                        const res = await fetch(
+                        const res = await authFetch(
                           `${API_URL}/api/v1/pedidos/upload-foto`,
                           { method: "POST", body: form }
                         );
@@ -853,7 +873,7 @@ export default function PedidoDetailPage() {
                         try {
                           const form = new FormData();
                           form.append("file", file);
-                          const res = await fetch(
+                          const res = await authFetch(
                             `${API_URL}/api/v1/pedidos/upload-foto`,
                             { method: "POST", body: form }
                           );
@@ -903,7 +923,7 @@ export default function PedidoDetailPage() {
                         try {
                           const form = new FormData();
                           form.append("file", file);
-                          const res = await fetch(
+                          const res = await authFetch(
                             `${API_URL}/api/v1/pedidos/upload-foto`,
                             { method: "POST", body: form }
                           );
@@ -1301,6 +1321,15 @@ export default function PedidoDetailPage() {
         aria-label="Editar"
       >
         <Pencil className="h-6 w-6" />
+      </button>
+
+      {/* Botão Excluir */}
+      <button
+        onClick={handleDelete}
+        className="fixed bottom-24 right-20 z-40 w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 flex items-center justify-center shadow hover:text-red-500 hover:border-red-200"
+        aria-label="Excluir pedido"
+      >
+        <Trash2 className="h-4 w-4" />
       </button>
     </div>
   );
