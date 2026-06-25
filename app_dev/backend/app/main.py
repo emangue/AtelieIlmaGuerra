@@ -21,6 +21,7 @@ from .domains.orcamentos.router import router as orcamentos_router
 from .domains.dashboard.router import router as dashboard_router
 from .domains.plano.router import router as plano_router
 from .domains.plano.pagamentos_router import router as pagamentos_router
+from .domains.despesas.router import router as despesas_router
 
 # Importar modelos para criar tabelas
 from .domains.clientes.models import Cliente  # noqa: F401
@@ -30,6 +31,7 @@ from .domains.orcamentos.models import Orcamento  # noqa: F401
 from .domains.plano.models import PlanoItem  # noqa: F401
 from .domains.plano.pagamentos_model import Pagamento  # noqa: F401
 from .domains.users.models import User  # noqa: F401
+from .domains.despesas.models import DespesaDetalhada  # noqa: F401
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -55,6 +57,7 @@ app.include_router(orcamentos_router, prefix="/api/v1")
 app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(plano_router, prefix="/api/v1")
 app.include_router(pagamentos_router, prefix="/api/v1")
+app.include_router(despesas_router, prefix="/api/v1")
 
 # Uploads estáticos
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
