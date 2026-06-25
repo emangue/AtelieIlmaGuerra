@@ -12,7 +12,16 @@ import {
 } from "@/components/ui/card";
 import { FileText, FileDown, Plus, Loader2 } from "lucide-react";
 
+import { getToken } from "@/lib/api-client";
+
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer `);
+  return fetch(url, { ...init, headers });
+}
 
 interface ContractItem {
   id: number;
@@ -51,7 +60,7 @@ export default function ContratosPage() {
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/v1/contracts`)
+    authFetch(`${API_URL}/api/v1/contracts`)
       .then((res) => res.json())
       .then((data) => setContracts(data))
       .catch(() => setContracts([]))
@@ -61,7 +70,7 @@ export default function ContratosPage() {
   const handleDownload = async (c: ContractItem) => {
     setDownloadingId(c.id);
     try {
-      const res = await fetch(`${API_URL}/api/v1/contracts/${c.id}/pdf`);
+      const res = await authFetch(`${API_URL}/api/v1/contracts/${c.id}/pdf`);
       if (!res.ok) throw new Error("Erro ao baixar");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

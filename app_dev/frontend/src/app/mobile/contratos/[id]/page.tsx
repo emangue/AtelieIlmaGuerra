@@ -20,7 +20,16 @@ import {
   Loader2,
 } from "lucide-react";
 
+import { getToken } from "@/lib/api-client";
+
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer `);
+  return fetch(url, { ...init, headers });
+}
 
 interface ContractDetail {
   id: number;
@@ -75,7 +84,7 @@ export default function ContratoDetailPage() {
       setLoading(false);
       return;
     }
-    fetch(`${API_URL}/api/v1/contracts/${id}`)
+    authFetch(`${API_URL}/api/v1/contracts/${id}`)
       .then((res) => {
         if (!res.ok) throw new Error("Contrato não encontrado");
         return res.json();
@@ -88,7 +97,7 @@ export default function ContratoDetailPage() {
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/contracts/${id}/pdf`);
+      const res = await authFetch(`${API_URL}/api/v1/contracts/${id}/pdf`);
       if (!res.ok) throw new Error("Erro ao baixar");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

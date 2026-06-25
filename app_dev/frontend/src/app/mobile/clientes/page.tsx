@@ -13,7 +13,16 @@ import {
 } from "@/components/ui/card";
 import { Users, Plus, Loader2, Search, Pencil } from "lucide-react";
 
+import { getToken } from "@/lib/api-client";
+
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer `);
+  return fetch(url, { ...init, headers });
+}
 
 interface ClienteItem {
   id: number;
@@ -30,7 +39,7 @@ export default function ClientesPage() {
   useEffect(() => {
     setLoading(true);
     const params = search ? `?q=${encodeURIComponent(search)}` : "";
-    fetch(`${API_URL}/api/v1/clientes${params}`)
+    authFetch(`${API_URL}/api/v1/clientes${params}`)
       .then((res) => res.json())
       .then((data) => setClientes(data))
       .catch(() => setClientes([]))

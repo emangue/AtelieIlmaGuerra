@@ -7,7 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Loader2, List } from "lucide-react";
 
+import { getToken } from "@/lib/api-client";
+
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer `);
+  return fetch(url, { ...init, headers });
+}
 
 function formatMoney(val: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -27,7 +36,7 @@ export default function ParametrosPage() {
   const [totalDespesas, setTotalDespesas] = useState(0);
 
   const fetchParametros = () => {
-    fetch(`${API_URL}/api/v1/parametros`)
+    authFetch(`${API_URL}/api/v1/parametros`)
       .then((res) => res.json())
       .then((data) => {
         setImpostos(String(data.impostos ?? 0.06));
@@ -68,7 +77,7 @@ export default function ParametrosPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/parametros`, {
+      const res = await authFetch(`${API_URL}/api/v1/parametros`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

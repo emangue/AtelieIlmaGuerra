@@ -3,8 +3,16 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { ChevronLeft, ChevronRight, Loader2, Check, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
 
 function formatMoney(val: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -234,7 +242,7 @@ export default function FinanceiroPage() {
 
   const fetchCobrancas = useCallback(() => {
     setLoading(true);
-    fetch(`${API_URL}/api/v1/pagamentos/cobrancas?mes=${mes}`)
+    authFetch(`${API_URL}/api/v1/pagamentos/cobrancas?mes=${mes}`)
       .then((r) => r.json())
       .then((d) => setCobrancas(d))
       .catch(() => setCobrancas(null))
@@ -247,7 +255,7 @@ export default function FinanceiroPage() {
     if (!confirmandoId || !confirmandoData) return;
     setSalvando(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/pagamentos/${confirmandoId}/confirmar`, {
+      const res = await authFetch(`${API_URL}/api/v1/pagamentos/${confirmandoId}/confirmar`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data_pagamento: confirmandoData }),

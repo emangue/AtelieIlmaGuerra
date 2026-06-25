@@ -4,13 +4,14 @@ Router do domínio Orçamentos.
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.database import get_db
+from app.domains.auth.router import get_user_id_from_token
 from sqlalchemy.orm import Session
 
 from .schemas import OrcamentoCreate, OrcamentoUpdate, OrcamentoListItem, OrcamentoDetail
 from .repository import OrcamentoRepository
 
 
-router = APIRouter(prefix="/orcamentos", tags=["Orçamentos"])
+router = APIRouter(prefix="/orcamentos", tags=["Orçamentos"], dependencies=[Depends(get_user_id_from_token)])
 
 
 @router.get("", response_model=list[OrcamentoListItem])

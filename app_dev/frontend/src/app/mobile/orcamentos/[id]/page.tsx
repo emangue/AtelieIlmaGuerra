@@ -12,8 +12,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
 
 interface OrcamentoDetail {
   id: number;
@@ -37,7 +45,7 @@ export default function OrcamentoDetailPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/v1/orcamentos/${id}`)
+    authFetch(`${API_URL}/api/v1/orcamentos/${id}`)
       .then((res) => {
         if (!res.ok) throw new Error("Não encontrado");
         return res.json();

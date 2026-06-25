@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.core.database import get_db
+from app.domains.auth.router import get_user_id_from_token
 from sqlalchemy.orm import Session
 
 from .schemas import ContractData, ContractListItem, ContractDetail
@@ -13,9 +14,11 @@ from .service import ContractService
 
 router = APIRouter(prefix="/contracts", tags=["Contracts"])
 
+_auth = Depends(get_user_id_from_token)
+
 
 @router.post("/preview")
-def preview_contract(data: ContractData, db: Session = Depends(get_db)):
+def preview_contract(data: ContractData, db: Session = Depends(get_db), _u: int = _auth):
     """
     Gera PDF para pré-visualização (não salva no banco).
     Retorna PDF para exibir no navegador (inline).
@@ -31,7 +34,7 @@ def preview_contract(data: ContractData, db: Session = Depends(get_db)):
 
 
 @router.post("/generate")
-def generate_contract(data: ContractData, db: Session = Depends(get_db)):
+def generate_contract(data: ContractData, db: Session = Depends(get_db), _u: int = _auth):
     """
     Salva contrato no banco e retorna PDF para download.
     """
@@ -49,7 +52,7 @@ def generate_contract(data: ContractData, db: Session = Depends(get_db)):
 
 
 @router.get("")
-def list_contracts(db: Session = Depends(get_db)):
+def list_contracts(db: Session = Depends(get_db), _u: int = _auth):
     """Lista histórico de contratos gerados."""
     service = ContractService(db)
     contracts = service.list_contracts()
@@ -65,7 +68,7 @@ def list_contracts(db: Session = Depends(get_db)):
 
 
 @router.get("/{contract_id}/pdf")
-def download_contract_pdf(contract_id: int, db: Session = Depends(get_db)):
+def download_contract_pdf(contract_id: int, db: Session = Depends(get_db), _u: int = _auth):
     """Regenera e retorna PDF do contrato para download."""
     service = ContractService(db)
     c = service.get_contract(contract_id)
@@ -79,7 +82,7 @@ def download_contract_pdf(contract_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{contract_id}/preview")
-def preview_contract_pdf(contract_id: int, db: Session = Depends(get_db)):
+def preview_contract_pdf(contract_id: int, db: Session = Depends(get_db), _u: int = _auth):
     """Retorna PDF para visualização inline (iframe)."""
     service = ContractService(db)
     c = service.get_contract(contract_id)
@@ -93,7 +96,7 @@ def preview_contract_pdf(contract_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/{contract_id}", response_model=ContractDetail)
-def update_contract(contract_id: int, data: ContractData, db: Session = Depends(get_db)):
+def update_contract(contract_id: int, data: ContractData, db: Session = Depends(get_db), _u: int = _auth):
     """Atualiza dados do contrato."""
     service = ContractService(db)
     c = service.update_contract(contract_id, data)
@@ -125,7 +128,7 @@ def update_contract(contract_id: int, data: ContractData, db: Session = Depends(
 
 
 @router.get("/{contract_id}", response_model=ContractDetail)
-def get_contract(contract_id: int, db: Session = Depends(get_db)):
+def get_contract(contract_id: int, db: Session = Depends(get_db), _u: int = _auth):
     """Retorna dados completos de um contrato."""
     service = ContractService(db)
     c = service.get_contract(contract_id)

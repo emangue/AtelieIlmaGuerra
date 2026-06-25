@@ -22,7 +22,16 @@ const ClienteValoresChart = dynamic(
   { ssr: false }
 );
 
+import { getToken } from "@/lib/api-client";
+
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer `);
+  return fetch(url, { ...init, headers });
+}
 
 const MEDIDAS_CAMPOS: { key: string; label: string }[] = [
   { key: "medida_ombro", label: "Ombro" },
@@ -128,13 +137,13 @@ export default function ClienteDetailPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch(`${API_URL}/api/v1/clientes/${id}`).then((r) =>
+      authFetch(`${API_URL}/api/v1/clientes/${id}`).then((r) =>
         r.ok ? r.json() : Promise.reject()
       ),
-      fetch(`${API_URL}/api/v1/clientes/${id}/pedidos?limit=10`).then((r) =>
+      authFetch(`${API_URL}/api/v1/clientes/${id}/pedidos?limit=10`).then((r) =>
         r.ok ? r.json() : []
       ),
-      fetch(`${API_URL}/api/v1/clientes/${id}/valores-por-mes?meses=12`).then(
+      authFetch(`${API_URL}/api/v1/clientes/${id}/valores-por-mes?meses=12`).then(
         (r) => (r.ok ? r.json() : [])
       ),
     ])
@@ -173,7 +182,7 @@ export default function ClienteDetailPage() {
           payload[key] = v != null && v > 0 ? v : null;
         });
       }
-      const res = await fetch(`${API_URL}/api/v1/clientes/${id}`, {
+      const res = await authFetch(`${API_URL}/api/v1/clientes/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

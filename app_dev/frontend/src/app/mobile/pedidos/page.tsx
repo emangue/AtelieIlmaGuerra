@@ -19,8 +19,16 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
 
 interface PedidoItem {
   id: number;
@@ -363,7 +371,7 @@ export default function PedidosPage() {
 
   const fetchPedidos = () => {
     setLoading(true);
-    fetch(`${API_URL}/api/v1/pedidos/ativos`)
+    authFetch(`${API_URL}/api/v1/pedidos/ativos`)
       .then((res) => res.json())
       .then((data) => setPedidos(data))
       .catch(() => setPedidos([]))
@@ -380,7 +388,7 @@ export default function PedidosPage() {
     setUpdatingId(pedido.id);
     try {
       // 1. Marcar status como Entregue
-      const statusRes = await fetch(`${API_URL}/api/v1/pedidos/${pedido.id}/status`, {
+      const statusRes = await authFetch(`${API_URL}/api/v1/pedidos/${pedido.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "Entregue" }),
@@ -389,7 +397,7 @@ export default function PedidosPage() {
 
       // 2. Se há configuração de pagamento, salvar parcelas
       if (config && (config.entrada || config.parcelas.length > 0)) {
-        await fetch(`${API_URL}/api/v1/pedidos/${pedido.id}/pagamento`, {
+        await authFetch(`${API_URL}/api/v1/pedidos/${pedido.id}/pagamento`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(config),
@@ -413,7 +421,7 @@ export default function PedidosPage() {
     }
     setUpdatingId(pedido.id);
     try {
-      const res = await fetch(`${API_URL}/api/v1/pedidos/${pedido.id}/status`, {
+      const res = await authFetch(`${API_URL}/api/v1/pedidos/${pedido.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),

@@ -18,7 +18,16 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
+import { getToken } from "@/lib/api-client";
+
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer `);
+  return fetch(url, { ...init, headers });
+}
 
 interface FormData {
   nome_completo: string;
@@ -116,7 +125,7 @@ export default function EditarContratoPage() {
       setLoading(false);
       return;
     }
-    fetch(`${API_URL}/api/v1/contracts/${id}`)
+    authFetch(`${API_URL}/api/v1/contracts/${id}`)
       .then((res) => {
         if (!res.ok) throw new Error("Contrato não encontrado");
         return res.json();
@@ -137,7 +146,7 @@ export default function EditarContratoPage() {
     setError(null);
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/contracts/${id}`, {
+      const res = await authFetch(`${API_URL}/api/v1/contracts/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildPayload(form)),

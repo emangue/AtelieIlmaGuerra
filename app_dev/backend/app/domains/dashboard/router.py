@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 
 from app.core.database import get_db
+from app.domains.auth.router import get_user_id_from_token
 from sqlalchemy.orm import Session
 
 from .service import (
@@ -25,7 +26,7 @@ def _mes_atual() -> str:
     return f"{d.year}{d.month:02d}"
 
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(prefix="/dashboard", tags=["Dashboard"], dependencies=[Depends(get_user_id_from_token)])
 
 
 @router.get("/kpis")

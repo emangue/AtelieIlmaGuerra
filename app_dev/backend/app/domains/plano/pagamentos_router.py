@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.domains.auth.router import get_user_id_from_token
 from .pagamentos_model import Pagamento
 from .models import PlanoItem
 from .schemas import (
@@ -23,7 +24,7 @@ from .schemas import (
     CobrancaItem, CobrancasResumo, CobrancasResponse,
 )
 
-router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"])
+router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"], dependencies=[Depends(get_user_id_from_token)])
 
 _ICON_KEY_MAP = {
     "Colaboradores": "colab",

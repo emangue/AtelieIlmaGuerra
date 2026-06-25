@@ -7,6 +7,7 @@ from typing import Optional, List, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.database import get_db
+from app.domains.auth.router import get_user_id_from_token
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -16,7 +17,7 @@ from app.domains.pedidos.models import Pedido
 from app.domains.pedidos.service import PedidoService
 
 
-router = APIRouter(prefix="/clientes", tags=["Clientes"])
+router = APIRouter(prefix="/clientes", tags=["Clientes"], dependencies=[Depends(get_user_id_from_token)])
 
 
 @router.get("", response_model=list[ClienteListItem])

@@ -4,13 +4,14 @@ Router do domínio Parâmetros.
 from fastapi import APIRouter, Depends
 
 from app.core.database import get_db
+from app.domains.auth.router import get_user_id_from_token
 from sqlalchemy.orm import Session
 
 from .schemas import ParametrosOrcamentoSchema, ParametrosOrcamentoUpdate, CalcularMargensRequest, CalcularMargensResponse
 from .service import get_or_create_parametros, get_parametros, calcular_margens, get_total_despesas
 
 
-router = APIRouter(prefix="/parametros", tags=["Parâmetros"])
+router = APIRouter(prefix="/parametros", tags=["Parâmetros"], dependencies=[Depends(get_user_id_from_token)])
 
 
 def _build_parametros_response(p, total_despesas: float):

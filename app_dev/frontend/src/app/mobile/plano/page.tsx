@@ -41,8 +41,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
 
 function formatMoney(val: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -221,8 +229,8 @@ export default function PlanoPage() {
     setError(null);
     const anoAnterior = ano - 1;
     Promise.all([
-      fetch(`${API_URL}/api/v1/plano/resumo-mensal?ano=${ano}`).then((r) => r.json()),
-      fetch(`${API_URL}/api/v1/plano/resumo-mensal?ano=${anoAnterior}`).then((r) => r.json()),
+      authFetch(`${API_URL}/api/v1/plano/resumo-mensal?ano=${ano}`).then((r) => r.json()),
+      authFetch(`${API_URL}/api/v1/plano/resumo-mensal?ano=${anoAnterior}`).then((r) => r.json()),
     ])
       .then(([rAno, rAnoAnt]) => {
         setResumo([...(rAnoAnt || []), ...(rAno || [])]);
@@ -240,7 +248,7 @@ export default function PlanoPage() {
 
   const fetchItensMes = useCallback(() => {
     setLoadingMes(true);
-    fetch(`${API_URL}/api/v1/plano?anomes=${mesSel}`)
+    authFetch(`${API_URL}/api/v1/plano?anomes=${mesSel}`)
       .then((r) => r.json())
       .then((data) => setItensMes(Array.isArray(data) ? data : []))
       .catch(() => setItensMes([]))
@@ -249,7 +257,7 @@ export default function PlanoPage() {
 
   const fetchMeta = useCallback(() => {
     setLoadingMeta(true);
-    fetch(`${API_URL}/api/v1/plano/meta-mes?mes=${mesSel}`)
+    authFetch(`${API_URL}/api/v1/plano/meta-mes?mes=${mesSel}`)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => setMeta(data))
       .catch(() => setMeta(null))
@@ -272,7 +280,7 @@ export default function PlanoPage() {
     if (isNaN(val) || val <= 0) return;
     setLancarLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/pagamentos/despesa`, {
+      const res = await authFetch(`${API_URL}/api/v1/pagamentos/despesa`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ anomes: mesSel, plano_item_id: item.id, valor: val }),
@@ -295,7 +303,7 @@ export default function PlanoPage() {
     if (!deleteItem) return;
     setDeleteLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/plano/${deleteItem.id}`, { method: "DELETE" });
+      const res = await authFetch(`${API_URL}/api/v1/plano/${deleteItem.id}`, { method: "DELETE" });
       if (res.ok) {
         setDeleteItem(null);
         fetchItensMes();
@@ -320,7 +328,7 @@ export default function PlanoPage() {
     if (isNaN(qtd) || isNaN(ticket) || qtd < 0 || ticket < 0) return;
     setSavingItemId(item.id);
     try {
-      const res = await fetch(`${API_URL}/api/v1/plano/${item.id}`, {
+      const res = await authFetch(`${API_URL}/api/v1/plano/${item.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ quantidade: qtd, ticket_medio: ticket, valor_planejado: qtd * ticket }),
@@ -348,7 +356,7 @@ export default function PlanoPage() {
     if (isNaN(val) || val < 0) return;
     setSavingItemId(item.id);
     try {
-      const res = await fetch(`${API_URL}/api/v1/plano/${item.id}`, {
+      const res = await authFetch(`${API_URL}/api/v1/plano/${item.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ valor_planejado: val }),
@@ -390,7 +398,7 @@ export default function PlanoPage() {
     if (!addRecTipoItem.trim() || isNaN(qtd) || isNaN(ticket)) return;
     setAddRecLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/plano`, {
+      const res = await authFetch(`${API_URL}/api/v1/plano`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -422,7 +430,7 @@ export default function PlanoPage() {
     if (!addDespTipoItem.trim() || isNaN(val) || val < 0) return;
     setAddDespPlanoLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/plano`, {
+      const res = await authFetch(`${API_URL}/api/v1/plano`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -479,7 +487,7 @@ export default function PlanoPage() {
     setAddDespesaValor("");
     setAddDespesaDescricao("");
     setShowAddDespesa(true);
-    fetch(`${API_URL}/api/v1/plano/opcoes-despesa?mes=${mes}`)
+    authFetch(`${API_URL}/api/v1/plano/opcoes-despesa?mes=${mes}`)
       .then((r) => r.json())
       .then(setOpcoesDespesa)
       .catch(() => setOpcoesDespesa([]));
@@ -504,7 +512,7 @@ export default function PlanoPage() {
         body.detalhe = opt.detalhe;
         body.categoria = opt.categoria;
       }
-      const res = await fetch(`${API_URL}/api/v1/pagamentos/despesa`, {
+      const res = await authFetch(`${API_URL}/api/v1/pagamentos/despesa`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -1310,7 +1318,7 @@ export default function PlanoPage() {
                   value={addDespesaMes}
                   onChange={(e) => {
                     setAddDespesaMes(e.target.value);
-                    fetch(`${API_URL}/api/v1/plano/opcoes-despesa?mes=${e.target.value}`)
+                    authFetch(`${API_URL}/api/v1/plano/opcoes-despesa?mes=${e.target.value}`)
                       .then((r) => r.json())
                       .then(setOpcoesDespesa)
                       .catch(() => setOpcoesDespesa([]));

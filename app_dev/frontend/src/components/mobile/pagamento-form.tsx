@@ -2,6 +2,14 @@
 
 import React, { useEffect, useState } from "react";
 import { Loader2, Check } from "lucide-react";
+import { getToken } from "@/lib/api-client";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
 
 export interface ParcelaConfig {
   valor: number;
@@ -270,7 +278,7 @@ export function PagamentoFormEdit({
   const loadParcelas = () => {
     if (!pedidoId || isNaN(pedidoId)) { setLoaded(true); return; }
     setLoaded(false);
-    fetch(`${apiUrl}/api/v1/pedidos/${pedidoId}/parcelas`)
+    authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}/parcelas`)
       .then((r) => r.json())
       .then((data: ParcelaOut[]) => {
         const rows = data.map((p) => ({
@@ -302,13 +310,13 @@ export function PagamentoFormEdit({
   const handleSave = async () => {
     setSaving(true);
     try {
-      await fetch(`${apiUrl}/api/v1/pedidos/${pedidoId}`, {
+      await authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ forma_pagamento: formaPagamento, pagamento_na_entrega: pnEntrega }),
       });
       if (!pnEntrega) {
-        await fetch(`${apiUrl}/api/v1/pedidos/${pedidoId}/pagamento`, {
+        await authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}/pagamento`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -459,7 +467,7 @@ export function PagamentoFormEdit({
           onClick={async () => {
             setSaving(true);
             try {
-              await fetch(`${apiUrl}/api/v1/pedidos/${pedidoId}`, {
+              await authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ pagamento_na_entrega: true }),

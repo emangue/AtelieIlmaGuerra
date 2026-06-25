@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.core.database import get_db
+from app.domains.auth.router import get_user_id_from_token
 from .models import PlanoItem
 from .schemas import (
     PlanoItemOut,
@@ -24,7 +25,7 @@ from .schemas import (
 from .service import get_plano_vs_realizado, get_evolucao_bulk, get_meta_mes
 from .schemas import MetaMes
 
-router = APIRouter(prefix="/plano", tags=["Plano"])
+router = APIRouter(prefix="/plano", tags=["Plano"], dependencies=[Depends(get_user_id_from_token)])
 
 
 @router.get("", response_model=List[PlanoItemOut])

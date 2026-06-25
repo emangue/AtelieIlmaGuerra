@@ -18,7 +18,16 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ArrowLeft, Eye, FileDown, Loader2 } from "lucide-react";
 
+import { getToken } from "@/lib/api-client";
+
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer `);
+  return fetch(url, { ...init, headers });
+}
 
 interface FormData {
   nome_completo: string;
@@ -127,7 +136,7 @@ function NovoContratoContent() {
 
   useEffect(() => {
     if (!clienteId) return;
-    fetch(`${API_URL}/api/v1/clientes/${clienteId}`)
+    authFetch(`${API_URL}/api/v1/clientes/${clienteId}`)
       .then((res) => res.json())
       .then((c: { nome?: string; cpf?: string; rg?: string; endereco?: string; telefone?: string }) => {
         setForm((prev) => ({
@@ -188,7 +197,7 @@ function NovoContratoContent() {
     setPreviewLoading(true);
     try {
       const payload = buildPayload(form);
-      const res = await fetch(`${API_URL}/api/v1/contracts/preview`, {
+      const res = await authFetch(`${API_URL}/api/v1/contracts/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -213,7 +222,7 @@ function NovoContratoContent() {
     setLoading(true);
     try {
       const payload = buildPayload(form);
-      const res = await fetch(`${API_URL}/api/v1/contracts/generate`, {
+      const res = await authFetch(`${API_URL}/api/v1/contracts/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

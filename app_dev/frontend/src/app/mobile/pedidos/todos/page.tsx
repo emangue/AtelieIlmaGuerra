@@ -19,8 +19,16 @@ import {
   DollarSign,
   FileText,
 } from "lucide-react";
+import { getToken } from "@/lib/api-client";
 
 const API_URL = "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
 
 interface PedidoItem {
   id: number;
@@ -77,7 +85,7 @@ function PedidosTodosContent() {
     const url = mesFilter
       ? `${API_URL}/api/v1/pedidos/todos?mes=${mesFilter}`
       : `${API_URL}/api/v1/pedidos/todos`;
-    fetch(url)
+    authFetch(url)
       .then((res) => res.json())
       .then((data) => setPedidos(data))
       .catch(() => setPedidos([]))
@@ -93,7 +101,7 @@ function PedidosTodosContent() {
       setResumo(null);
       return;
     }
-    fetch(`${API_URL}/api/v1/dashboard/pecas-por-tipo?mes=${mesFilter}`)
+    authFetch(`${API_URL}/api/v1/dashboard/pecas-por-tipo?mes=${mesFilter}`)
       .then((res) => res.json())
       .then((data: PecasPorTipo[]) => setResumo(data))
       .catch(() => setResumo(null));
@@ -102,7 +110,7 @@ function PedidosTodosContent() {
   const handleStatusClick = async (pedido: PedidoItem, newStatus: string) => {
     setUpdatingId(pedido.id);
     try {
-      const res = await fetch(`${API_URL}/api/v1/pedidos/${pedido.id}/status`, {
+      const res = await authFetch(`${API_URL}/api/v1/pedidos/${pedido.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),

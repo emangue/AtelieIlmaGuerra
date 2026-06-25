@@ -8,8 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Loader2, Plus, Ruler, Search } from "lucide-react";
 import { PagamentoForm, PagamentoConfig } from "@/components/mobile/pagamento-form";
+import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
 
 interface ClienteItem {
   id: number;
@@ -129,7 +137,7 @@ function NovoPedidoContent() {
       const id = parseInt(cid, 10);
       if (!isNaN(id)) {
         setClienteId(id);
-        fetch(`${API_URL}/api/v1/clientes/${id}`)
+        authFetch(`${API_URL}/api/v1/clientes/${id}`)
           .then((res) => res.json())
           .then((c) => setClienteNome(c.nome))
           .catch(() => {});
@@ -138,15 +146,15 @@ function NovoPedidoContent() {
   }, [searchParams]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/v1/clientes`)
+    authFetch(`${API_URL}/api/v1/clientes`)
       .then((res) => res.json())
       .then(setClientes)
       .catch(() => setClientes([]));
-    fetch(`${API_URL}/api/v1/pedidos/tipos`)
+    authFetch(`${API_URL}/api/v1/pedidos/tipos`)
       .then((res) => res.json())
       .then(setTipos)
       .catch(() => setTipos([]));
-    fetch(`${API_URL}/api/v1/parametros`)
+    authFetch(`${API_URL}/api/v1/parametros`)
       .then((res) => res.json())
       .then((data) =>
         setParametros({
@@ -166,7 +174,7 @@ function NovoPedidoContent() {
       setFormaPecaId(null);
       return;
     }
-    fetch(`${API_URL}/api/v1/pedidos/formas-peca?tipo_pedido_id=${tipoId}`)
+    authFetch(`${API_URL}/api/v1/pedidos/formas-peca?tipo_pedido_id=${tipoId}`)
       .then((res) => res.json())
       .then(setFormasPeca)
       .catch(() => setFormasPeca([]));
@@ -180,7 +188,7 @@ function NovoPedidoContent() {
       setMedidasFromCliente(false);
       return;
     }
-    fetch(`${API_URL}/api/v1/clientes/${clienteId}`)
+    authFetch(`${API_URL}/api/v1/clientes/${clienteId}`)
       .then((res) => res.json())
       .then((c) => {
         const hasMedidas =
@@ -295,7 +303,7 @@ function NovoPedidoContent() {
     }
     // Validar se o cliente existe na base antes de prosseguir
     try {
-      const checkRes = await fetch(`${API_URL}/api/v1/clientes/${clienteId}`);
+      const checkRes = await authFetch(`${API_URL}/api/v1/clientes/${clienteId}`);
       if (!checkRes.ok) {
         setClienteId(null);
         setClienteNome("");
@@ -349,7 +357,7 @@ function NovoPedidoContent() {
         const v = medidas[key];
         if (v != null && v > 0) body[key] = v;
       });
-      const res = await fetch(`${API_URL}/api/v1/pedidos`, {
+      const res = await authFetch(`${API_URL}/api/v1/pedidos`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -364,7 +372,7 @@ function NovoPedidoContent() {
           data_vencimento: pagamentoConfig.parcelas[0]?.data_vencimento ?? new Date().toISOString().slice(0, 10),
           data_pagamento: pagamentoConfig.entrada.data_pagamento,
         } : null;
-        await fetch(`${API_URL}/api/v1/pedidos/${novoPedido.id}/pagamento`, {
+        await authFetch(`${API_URL}/api/v1/pedidos/${novoPedido.id}/pagamento`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -386,7 +394,7 @@ function NovoPedidoContent() {
           if (v != null && v > 0) clienteMedidas[key] = v;
         });
         if (Object.keys(clienteMedidas).length > 0) {
-          await fetch(`${API_URL}/api/v1/clientes/${clienteId}`, {
+          await authFetch(`${API_URL}/api/v1/clientes/${clienteId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -857,7 +865,7 @@ function NovoPedidoContent() {
                     try {
                       const form = new FormData();
                       form.append("file", file);
-                      const res = await fetch(
+                      const res = await authFetch(
                         `${API_URL}/api/v1/pedidos/upload-foto`,
                         { method: "POST", body: form }
                       );

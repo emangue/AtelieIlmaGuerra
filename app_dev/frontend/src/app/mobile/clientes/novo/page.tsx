@@ -8,7 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
+import { getToken } from "@/lib/api-client";
+
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer `);
+  return fetch(url, { ...init, headers });
+}
 
 export default function NovoClientePage() {
   const router = useRouter();
@@ -25,7 +34,7 @@ export default function NovoClientePage() {
     setFormError("");
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/clientes`, {
+      const res = await authFetch(`${API_URL}/api/v1/clientes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

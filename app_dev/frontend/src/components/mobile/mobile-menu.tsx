@@ -101,7 +101,7 @@ export function MobileMenu() {
 
         {/* Links */}
         <nav className="flex flex-col divide-y divide-gray-100">
-          {MENU_ITEMS.map(({ href, label, sub, Icon, iconBg, iconColor, isNew }) => (
+          {MENU_ITEMS.map(({ href, label, sub, Icon, iconBg, iconColor }) => (
             <Link
               key={href}
               href={href}
@@ -115,11 +115,6 @@ export function MobileMenu() {
                 <p className="text-sm font-medium text-gray-900">{label}</p>
                 <p className="text-xs text-gray-500 mt-0.5">{sub}</p>
               </div>
-              {isNew && (
-                <span className="text-[10px] font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
-                  Novo
-                </span>
-              )}
             </Link>
           ))}
 
