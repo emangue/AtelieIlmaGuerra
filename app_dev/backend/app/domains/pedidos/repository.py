@@ -111,8 +111,9 @@ class PedidoRepository:
     def list_all(
         self,
         mes: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> List[Pedido]:
-        """Lista todos os pedidos. Se mes=YYYYMM, filtra por data_entrega no mês."""
+        """Lista todos os pedidos. Filtra opcionalmente por mes (YYYYMM) e/ou status."""
         query = (
             self.db.query(Pedido)
             .order_by(Pedido.data_entrega.asc().nullslast(), Pedido.data_pedido.asc())
@@ -129,6 +130,8 @@ class PedidoRepository:
                 )
             except (ValueError, TypeError):
                 pass
+        if status:
+            query = query.filter(Pedido.status == status)
         return query.all()
 
     def list_entregues(self, mes: str) -> List[Pedido]:

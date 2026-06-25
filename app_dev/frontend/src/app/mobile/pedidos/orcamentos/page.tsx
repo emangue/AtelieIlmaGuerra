@@ -48,11 +48,9 @@ export default function PedidosOrcamentosPage() {
   const [actionId, setActionId] = useState<number | null>(null);
 
   useEffect(() => {
-    authFetch(`${API_URL}/api/v1/pedidos/todos`)
+    authFetch(`${API_URL}/api/v1/pedidos/todos?status=${encodeURIComponent("Orçamento")}`)
       .then((res) => res.json())
-      .then((data: PedidoItem[]) =>
-        setOrcamentos(data.filter((p) => p.status === "Orçamento"))
-      )
+      .then((data: PedidoItem[]) => setOrcamentos(data))
       .catch(() => setOrcamentos([]))
       .finally(() => setLoading(false));
   }, []);
