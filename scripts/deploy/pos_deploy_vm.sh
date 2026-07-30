@@ -87,7 +87,9 @@ echo ""
 # 5. Permissões (se deploy user existe)
 if id "$DEPLOY_USER" &>/dev/null && [ "$(id -u)" -eq 0 ]; then
   echo "5. Permissões (chown $DEPLOY_USER)..."
+  mkdir -p "$BACKEND/uploads/pedidos"
   chown -R "$DEPLOY_USER:$DEPLOY_USER" "$ATELIE_PATH"
+  chmod -R u+rwX,g+rwX "$BACKEND/uploads"
   chmod 600 "$BACKEND/.env" 2>/dev/null || true
   echo "   OK"
 else

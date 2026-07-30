@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { FileText, FileDown, Plus, Loader2 } from "lucide-react";
 
+import { formatDateOnlyBR, formatDateTimeBR } from "@/lib/date-utils";
 import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -19,7 +20,7 @@ const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 function authFetch(url: string, init?: RequestInit) {
   const token = getToken();
   const headers = new Headers(init?.headers);
-  if (token) headers.set("Authorization", `Bearer `);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(url, { ...init, headers });
 }
 
@@ -28,30 +29,6 @@ interface ContractItem {
   nome_completo: string;
   data_contrato: string;
   created_at: string;
-}
-
-function formatDate(iso: string) {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function formatDataContrato(iso: string) {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString("pt-BR");
-  } catch {
-    return iso;
-  }
 }
 
 export default function ContratosPage() {
@@ -126,8 +103,8 @@ export default function ContratosPage() {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base">{c.nome_completo}</CardTitle>
                     <CardDescription>
-                      Contrato de {formatDataContrato(c.data_contrato)} • Gerado em{" "}
-                      {formatDate(c.created_at)}
+                      Contrato de {formatDateOnlyBR(c.data_contrato)} • Gerado em{" "}
+                      {formatDateTimeBR(c.created_at)}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="pt-0">

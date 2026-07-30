@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Loader2, Plus, Ruler, Search } from "lucide-react";
 import { PagamentoForm, PagamentoConfig } from "@/components/mobile/pagamento-form";
+import { PedidoConfirmacaoAtipica } from "@/components/mobile/pedido-confirmacao-atipica";
+import { calcularMargem, avaliarAvisosPedido, AvisoPedido } from "@/lib/margem-pedido";
 import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -94,6 +96,8 @@ function NovoPedidoContent() {
   const [custosVariaveis, setCustosVariaveis] = useState(0);
   const [valorPecas, setValorPecas] = useState(0);
   const [quantidadePecas, setQuantidadePecas] = useState(0);
+  const [percentualLucroDono, setPercentualLucroDono] = useState(100);
+  const [percentualLucroDonoEditado, setPercentualLucroDonoEditado] = useState(false);
 
   const [formaPagamento, setFormaPagamento] = useState<string | null>(null);
   const [valorEntrada, setValorEntrada] = useState(0);
@@ -110,7 +114,8 @@ function NovoPedidoContent() {
     null
   );
   const [fotosDisponiveis, setFotosDisponiveis] = useState<boolean | null>(null);
-  const [confirmarMargemAlta, setConfirmarMargemAlta] = useState(false);
+  const [avisosAtipicos, setAvisosAtipicos] = useState<AvisoPedido[]>([]);
+  const [confirmadoAtipico, setConfirmadoAtipico] = useState(false);
 
   const [medidas, setMedidas] = useState<Record<string, number>>({});
   const [comentarioMedidas, setComentarioMedidas] = useState("");
@@ -183,6 +188,13 @@ function NovoPedidoContent() {
   }, [tipoId]);
 
   useEffect(() => {
+    if (percentualLucroDonoEditado) return;
+    const tipo = tipos.find((t) => t.id === tipoId);
+    const nome = tipo?.nome.toLowerCase();
+    setPercentualLucroDono(nome === "ajuste" || nome === "ajustes" ? 50 : 100);
+  }, [tipoId, tipos, percentualLucroDonoEditado]);
+
+  useEffect(() => {
     if (!clienteId) {
       setMedidasDisponiveis(null);
       setMedidas({});
@@ -231,25 +243,18 @@ function NovoPedidoContent() {
           valorMargem40: 0,
           margemReal: 0,
         };
-      const custoTotal =
-        parametros.preco_hora * horasTrabalho +
-        custoMateriais +
-        custosVariaveis;
-      const denom = (m: number) =>
-        1 - parametros.impostos - parametros.cartao_credito - m;
-      const margem = (x: number) =>
-        denom(x) <= 0 ? 0 : Math.round((custoTotal / denom(x)) * 100) / 100;
-      const margemRealCalc =
-        valorPecas > 0
-          ? (valorPecas - custoTotal) / valorPecas -
-            parametros.impostos -
-            parametros.cartao_credito
-          : 0;
+      const r = calcularMargem(
+        valorPecas,
+        horasTrabalho,
+        custoMateriais,
+        custosVariaveis,
+        parametros
+      );
       return {
-        valorMargem20: margem(0.2),
-        valorMargem30: margem(0.3),
-        valorMargem40: margem(0.4),
-        margemReal: Math.round(margemRealCalc * 1000) / 10,
+        valorMargem20: r.valorMargem20,
+        valorMargem30: r.valorMargem30,
+        valorMargem40: r.valorMargem40,
+        margemReal: r.margemReal,
       };
     }, [
       parametros,
@@ -317,11 +322,12 @@ function NovoPedidoContent() {
       return;
     }
     if (!dataPedido) return;
-    if (valorPecas > 0 && Math.abs(margemReal) > 500 && !confirmarMargemAlta) {
-      setConfirmarMargemAlta(true);
+    const avisos = avaliarAvisosPedido(valorPecas, quantidadePecas, horasTrabalho, margemReal);
+    if (avisos.length > 0 && !confirmadoAtipico) {
+      setAvisosAtipicos(avisos);
+      setConfirmadoAtipico(true);
       return;
     }
-    setConfirmarMargemAlta(false);
     setLoading(true);
     try {
       const body: Record<string, unknown> = {
@@ -337,12 +343,8 @@ function NovoPedidoContent() {
         horas_trabalho: horasTrabalho || null,
         custo_materiais: custoMateriais || null,
         custos_variaveis: custosVariaveis || null,
-        margem_real: valorPecas > 0 ? margemReal : null,
-        param_preco_hora: parametros?.preco_hora ?? null,
-        param_impostos: parametros?.impostos ?? null,
-        param_cartao_credito: parametros?.cartao_credito ?? null,
-        param_total_horas_mes: parametros?.total_horas_mes ?? null,
-        param_margem_target: parametros?.margem_target ?? null,
+        confirmado_atipico: confirmadoAtipico,
+        percentual_lucro_dono: percentualLucroDono,
         forma_pagamento: pagamentoConfig.forma_pagamento,
         pagamento_na_entrega: pagamentoConfig.pagamento_na_entrega || null,
         valor_entrada: valorEntrada || null,
@@ -368,6 +370,14 @@ function NovoPedidoContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      if (res.status === 422) {
+        const errBody = await res.json().catch(() => null);
+        const avisosBackend: AvisoPedido[] = errBody?.detail?.avisos ?? [];
+        setAvisosAtipicos(avisosBackend);
+        setConfirmadoAtipico(true);
+        setLoading(false);
+        return;
+      }
       if (!res.ok) throw new Error("Erro ao salvar");
       const novoPedido = await res.json();
 
@@ -605,7 +615,7 @@ function NovoPedidoContent() {
               min={0}
               step={0.25}
               value={horasTrabalho || ""}
-              onChange={(e) => { setHorasTrabalho(parseFloat(e.target.value) || 0); setConfirmarMargemAlta(false); }}
+              onChange={(e) => { setHorasTrabalho(parseFloat(e.target.value) || 0); setConfirmadoAtipico(false); setAvisosAtipicos([]); }}
               className="mt-1"
             />
           </div>
@@ -677,7 +687,7 @@ function NovoPedidoContent() {
               min={0}
               step={0.01}
               value={valorPecas || ""}
-              onChange={(e) => { setValorPecas(parseFloat(e.target.value) || 0); setConfirmarMargemAlta(false); }}
+              onChange={(e) => { setValorPecas(parseFloat(e.target.value) || 0); setConfirmadoAtipico(false); setAvisosAtipicos([]); }}
               className="mt-1"
             />
           </div>
@@ -699,11 +709,33 @@ function NovoPedidoContent() {
               min={0}
               step={1}
               value={quantidadePecas || ""}
-              onChange={(e) =>
-                setQuantidadePecas(parseInt(e.target.value, 10) || 0)
-              }
+              onChange={(e) => {
+                setQuantidadePecas(parseInt(e.target.value, 10) || 0);
+                setConfirmadoAtipico(false);
+                setAvisosAtipicos([]);
+              }}
               className="mt-1"
             />
+          </div>
+          <div>
+            <Label>% para Ilma</Label>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={percentualLucroDono}
+              onChange={(e) => {
+                const value = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                setPercentualLucroDono(value);
+                setPercentualLucroDonoEditado(true);
+              }}
+              className="mt-1"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              {percentualLucroDono.toFixed(0)}% fica para Ilma e{" "}
+              {(100 - percentualLucroDono).toFixed(0)}% fica como repasse para funcionária.
+            </p>
           </div>
         </div>
 
@@ -921,7 +953,7 @@ function NovoPedidoContent() {
                       try {
                         const form = new FormData();
                         form.append("file", file);
-                        const res = await fetch(
+                        const res = await authFetch(
                           `${API_URL}/api/v1/pedidos/upload-foto`,
                           { method: "POST", body: form }
                         );
@@ -972,7 +1004,7 @@ function NovoPedidoContent() {
                       try {
                         const form = new FormData();
                         form.append("file", file);
-                        const res = await fetch(
+                        const res = await authFetch(
                           `${API_URL}/api/v1/pedidos/upload-foto`,
                           { method: "POST", body: form }
                         );
@@ -1016,16 +1048,7 @@ function NovoPedidoContent() {
           <p className="text-sm text-red-600">{formError}</p>
         )}
 
-        {confirmarMargemAlta && (
-          <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-2">
-            <p className="text-sm font-medium text-amber-800">
-              Margem real de {margemReal.toFixed(1)}% — isso está correto?
-            </p>
-            <p className="text-xs text-amber-700">
-              Uma margem acima de 500% é incomum. Verifique se as horas e custos foram preenchidos corretamente. Se estiver certo, clique em Salvar novamente para confirmar.
-            </p>
-          </div>
-        )}
+        <PedidoConfirmacaoAtipica avisos={avisosAtipicos} />
 
         {/* Botões */}
         <div className="flex gap-2 pt-4">

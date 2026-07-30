@@ -146,19 +146,17 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     lucro_realizado = receita_total_realizado - despesas_realizadas
     percentual = (lucro_realizado / lucro_planejado * 100) if lucro_planejado else 0
 
-    # Repasse para costureira: 50% dos ajustes entregues no mês
-    valor_ajustes = (
-        db.query(func.coalesce(func.sum(Pedido.valor_pecas), 0))
-        .join(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
+    # Repasse para funcionária: despesas pendentes ligadas aos pedidos.
+    # Repasses já pagos entram em despesas_realizadas; aqui reservamos só o que ainda falta pagar.
+    repasse_costureira = round(float(
+        db.query(func.coalesce(func.sum(Pagamento.valor), 0))
         .filter(
-            Pedido.status == "Entregue",
-            Pedido.data_entrega >= inicio,
-            Pedido.data_entrega < fim,
-            func.lower(TipoPedido.nome) == "ajustes",
+            Pagamento.tipo == "despesa",
+            Pagamento.origem == "repasse_funcionaria",
+            Pagamento.data_pagamento.is_(None),
         )
         .scalar() or 0
-    )
-    repasse_costureira = round(float(valor_ajustes) * 0.5, 2)
+    ), 2)
     lucro_liquido_dono = round(lucro_realizado - repasse_costureira, 2)
 
     # Visão entrega: soma valor_pecas dos pedidos com data_entrega no mês

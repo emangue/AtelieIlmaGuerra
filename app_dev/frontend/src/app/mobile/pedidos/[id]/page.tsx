@@ -21,6 +21,8 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { PagamentoFormEdit } from "@/components/mobile/pagamento-form";
+import { PedidoConfirmacaoAtipica } from "@/components/mobile/pedido-confirmacao-atipica";
+import { calcularMargem, avaliarAvisosPedido, AvisoPedido, ParametrosCalculo } from "@/lib/margem-pedido";
 import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -79,6 +81,7 @@ interface PedidoDetail {
   custo_materiais: number | null;
   custos_variaveis: number | null;
   margem_real: number | null;
+  percentual_lucro_dono: number | null;
   forma_pagamento: string | null;
   valor_entrada: number | null;
   valor_restante: number | null;
@@ -234,6 +237,10 @@ export default function PedidoDetailPage() {
   const [comentarioFoto1, setComentarioFoto1] = useState("");
   const [comentarioFoto2, setComentarioFoto2] = useState("");
   const [comentarioFoto3, setComentarioFoto3] = useState("");
+  const [percentualLucroDono, setPercentualLucroDono] = useState<number | "">("");
+  const [parametros, setParametros] = useState<ParametrosCalculo | null>(null);
+  const [avisosAtipicos, setAvisosAtipicos] = useState<AvisoPedido[]>([]);
+  const [confirmadoAtipico, setConfirmadoAtipico] = useState(false);
 
   const loadPedido = () => {
     authFetch(`${API_URL}/api/v1/pedidos/${id}`)
@@ -251,6 +258,7 @@ export default function PedidoDetailPage() {
         setHorasTrabalho(data.horas_trabalho ?? "");
         setCustoMateriais(data.custo_materiais ?? "");
         setCustosVariaveis(data.custos_variaveis ?? "");
+        setPercentualLucroDono(data.percentual_lucro_dono ?? "");
         setFormaPagamento(data.forma_pagamento || null);
         setValorEntrada(data.valor_entrada ?? "");
         setDetalhesPagamento(data.detalhes_pagamento || "");
@@ -297,6 +305,16 @@ export default function PedidoDetailPage() {
   useEffect(() => {
     loadPedido();
     loadParcelas();
+    authFetch(`${API_URL}/api/v1/parametros`)
+      .then((res) => res.json())
+      .then((data) =>
+        setParametros({
+          preco_hora: data.preco_hora ?? 50,
+          impostos: data.impostos ?? 0.06,
+          cartao_credito: data.cartao_credito ?? 0.03,
+        })
+      )
+      .catch(() => setParametros(null));
   }, [id]);
 
   useEffect(() => {
@@ -310,6 +328,17 @@ export default function PedidoDetailPage() {
       .catch(() => setFormasPeca([]));
   }, [pedido?.tipo_pedido_id, editing]);
 
+  const margemPreview = React.useMemo(() => {
+    if (!parametros) return null;
+    return calcularMargem(
+      Number(valorPecas) || 0,
+      Number(horasTrabalho) || 0,
+      Number(custoMateriais) || 0,
+      Number(custosVariaveis) || 0,
+      parametros
+    );
+  }, [parametros, valorPecas, horasTrabalho, custoMateriais, custosVariaveis]);
+
   const enterEditMode = () => {
     if (pedido) {
       setDescricao(pedido.descricao_produto || "");
@@ -320,6 +349,7 @@ export default function PedidoDetailPage() {
       setHorasTrabalho(pedido.horas_trabalho ?? "");
       setCustoMateriais(pedido.custo_materiais ?? "");
       setCustosVariaveis(pedido.custos_variaveis ?? "");
+      setPercentualLucroDono(pedido.percentual_lucro_dono ?? "");
       setFormaPagamento(pedido.forma_pagamento || null);
       setValorEntrada(pedido.valor_entrada ?? "");
       setDetalhesPagamento(pedido.detalhes_pagamento || "");
@@ -340,11 +370,26 @@ export default function PedidoDetailPage() {
       setComentarioFoto1(pedido.comentario_foto_1 || "");
       setComentarioFoto2(pedido.comentario_foto_2 || "");
       setComentarioFoto3(pedido.comentario_foto_3 || "");
+      setAvisosAtipicos([]);
+      setConfirmadoAtipico(false);
       setEditing(true);
     }
   };
 
   const handleSave = async () => {
+    if (margemPreview) {
+      const avisos = avaliarAvisosPedido(
+        Number(valorPecas) || 0,
+        Number(quantidadePecas) || 0,
+        Number(horasTrabalho) || 0,
+        margemPreview.margemReal
+      );
+      if (avisos.length > 0 && !confirmadoAtipico) {
+        setAvisosAtipicos(avisos);
+        setConfirmadoAtipico(true);
+        return;
+      }
+    }
     setSaving(true);
     try {
       const body: Record<string, unknown> = {
@@ -356,6 +401,8 @@ export default function PedidoDetailPage() {
         horas_trabalho: horasTrabalho === "" ? null : horasTrabalho,
         custo_materiais: custoMateriais === "" ? null : custoMateriais,
         custos_variaveis: custosVariaveis === "" ? null : custosVariaveis,
+        confirmado_atipico: confirmadoAtipico,
+        percentual_lucro_dono: percentualLucroDono === "" ? null : percentualLucroDono,
         forma_pagamento: formaPagamento,
         valor_entrada: valorEntrada === "" ? null : valorEntrada,
         valor_restante: Math.max(0, (Number(valorPecas) || 0) - (Number(valorEntrada) || 0)) || null,
@@ -381,6 +428,13 @@ export default function PedidoDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      if (res.status === 422) {
+        const errBody = await res.json().catch(() => null);
+        const avisosBackend: AvisoPedido[] = errBody?.detail?.avisos ?? [];
+        setAvisosAtipicos(avisosBackend);
+        setConfirmadoAtipico(true);
+        return;
+      }
       if (!res.ok) throw new Error("Erro ao salvar");
       // Refetch para obter o pedido completo (PATCH retorna PedidoListItem)
       const detailRes = await authFetch(`${API_URL}/api/v1/pedidos/${id}`);
@@ -388,6 +442,8 @@ export default function PedidoDetailPage() {
         const updated = await detailRes.json();
         setPedido(updated);
       }
+      setAvisosAtipicos([]);
+      setConfirmadoAtipico(false);
       setEditing(false);
     } catch {
       // ignore
@@ -409,6 +465,8 @@ export default function PedidoDetailPage() {
 
   const handleCancel = () => {
     setEditing(false);
+    setAvisosAtipicos([]);
+    setConfirmadoAtipico(false);
     if (pedido) {
       setDescricao(pedido.descricao_produto || "");
       setStatus(pedido.status || "Encomenda");
@@ -580,11 +638,13 @@ export default function PedidoDetailPage() {
                   min={0}
                   step={1}
                   value={quantidadePecas}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setQuantidadePecas(
                       e.target.value === "" ? "" : parseInt(e.target.value, 10) || 0
-                    )
-                  }
+                    );
+                    setConfirmadoAtipico(false);
+                    setAvisosAtipicos([]);
+                  }}
                   className="mt-1"
                 />
               </div>
@@ -595,11 +655,13 @@ export default function PedidoDetailPage() {
                   min={0}
                   step={0.25}
                   value={horasTrabalho}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setHorasTrabalho(
                       e.target.value === "" ? "" : parseFloat(e.target.value) || 0
-                    )
-                  }
+                    );
+                    setConfirmadoAtipico(false);
+                    setAvisosAtipicos([]);
+                  }}
                   className="mt-1"
                 />
               </div>
@@ -647,20 +709,46 @@ export default function PedidoDetailPage() {
                   min={0}
                   step={0.01}
                   value={valorPecas}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setValorPecas(
                       e.target.value === "" ? "" : parseFloat(e.target.value) || 0
+                    );
+                    setConfirmadoAtipico(false);
+                    setAvisosAtipicos([]);
+                  }}
+                  className="mt-1"
+                />
+              </div>
+              {margemPreview && (
+                <div className="py-2 px-3 rounded-lg bg-gray-50">
+                  <p className="text-xs text-gray-500">Margem estimada com os valores atuais</p>
+                  <p className="font-medium">{margemPreview.margemReal.toFixed(1)}%</p>
+                </div>
+              )}
+              <div>
+                <Label>% para Ilma</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={percentualLucroDono}
+                  onChange={(e) =>
+                    setPercentualLucroDono(
+                      e.target.value === ""
+                        ? ""
+                        : Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))
                     )
                   }
                   className="mt-1"
                 />
+                {percentualLucroDono !== "" && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    {Number(percentualLucroDono).toFixed(0)}% fica para Ilma e{" "}
+                    {(100 - Number(percentualLucroDono)).toFixed(0)}% fica como repasse para funcionária.
+                  </p>
+                )}
               </div>
-              {pedido.margem_real != null && (
-                <div className="py-2 px-3 rounded-lg bg-gray-50">
-                  <p className="text-xs text-gray-500">Margem real (calculada)</p>
-                  <p className="font-medium">{pedido.margem_real.toFixed(1)}%</p>
-                </div>
-              )}
             </div>
           </section>
 
@@ -964,6 +1052,8 @@ export default function PedidoDetailPage() {
             )}
           </section>
 
+          <PedidoConfirmacaoAtipica avisos={avisosAtipicos} />
+
           {/* Botões Salvar / Cancelar */}
           <div className="flex gap-2 pt-4">
             <Button
@@ -1171,6 +1261,22 @@ export default function PedidoDetailPage() {
                 }
                 icon={DollarSign}
               />
+              <Field
+                label="% para Ilma"
+                value={
+                  pedido.percentual_lucro_dono != null
+                    ? `${pedido.percentual_lucro_dono.toFixed(0)}%`
+                    : null
+                }
+                icon={DollarSign}
+              />
+              {pedido.percentual_lucro_dono != null && (
+                <Field
+                  label="% repasse"
+                  value={`${(100 - pedido.percentual_lucro_dono).toFixed(0)}%`}
+                  icon={DollarSign}
+                />
+              )}
             </div>
           </section>
         )}

@@ -52,11 +52,75 @@ def _percentual_por_tipo(db: Session, tipo_pedido_id) -> float:
     return 100.0
 
 
+def _sync_repasse_funcionaria(db: Session, pedido: Pedido) -> None:
+    """Mantém uma despesa pendente de repasse para funcionária ligada ao pedido."""
+    from app.domains.plano.pagamentos_model import Pagamento
+
+    pendente = (
+        db.query(Pagamento)
+        .filter(
+            Pagamento.origem == "repasse_funcionaria",
+            Pagamento.pedido_id == pedido.id,
+            Pagamento.data_pagamento.is_(None),
+        )
+        .first()
+    )
+
+    percentual_dono = pedido.percentual_lucro_dono
+    if percentual_dono is None:
+        percentual_dono = _percentual_por_tipo(db, pedido.tipo_pedido_id)
+
+    valor_pedido = float(pedido.valor_pecas or 0)
+    percentual_repasse = max(0.0, min(100.0, 100.0 - float(percentual_dono)))
+    valor_repasse = round(valor_pedido * percentual_repasse / 100.0, 2)
+
+    deve_ter_repasse = pedido.status == "Entregue" and valor_repasse > 0
+    if not deve_ter_repasse:
+        if pendente:
+            db.delete(pendente)
+        return
+
+    vencimento = pedido.data_entrega or pedido.data_pedido or date.today()
+    descricao = f"Repasse funcionária - Pedido #{pedido.id}"
+
+    if pendente:
+        pendente.valor = valor_repasse
+        pendente.data_vencimento = vencimento
+        pendente.categoria = "Colaboradores"
+        pendente.tipo_item = "Repasse funcionária"
+        pendente.descricao = descricao
+    else:
+        db.add(
+            Pagamento(
+                anomes=None,
+                tipo="despesa",
+                origem="repasse_funcionaria",
+                pedido_id=pedido.id,
+                data_vencimento=vencimento,
+                data_pagamento=None,
+                categoria="Colaboradores",
+                tipo_item="Repasse funcionária",
+                valor=valor_repasse,
+                descricao=descricao,
+            )
+        )
+
+
 class PedidoRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, data: PedidoCreate) -> Pedido:
+    def create(
+        self,
+        data: PedidoCreate,
+        *,
+        margem_real: float,
+        param_preco_hora: float,
+        param_impostos: float,
+        param_cartao_credito: float,
+        param_total_horas_mes: Optional[float],
+        param_margem_target: Optional[float],
+    ) -> Pedido:
         d = data.model_dump()
         base = {
             "cliente_id", "tipo_pedido_id", "forma_peca_id", "data_pedido", "data_entrega",
@@ -64,9 +128,7 @@ class PedidoRepository:
             "horas_trabalho", "custo_materiais", "custos_variaveis",
         }
         extra = {
-            "margem_real",
-            "param_preco_hora", "param_impostos", "param_cartao_credito",
-            "param_total_horas_mes", "param_margem_target",
+            "percentual_lucro_dono",
             "forma_pagamento", "valor_entrada", "valor_restante", "pagamento_na_entrega",
             "detalhes_pagamento", "medidas_disponiveis", "observacao_pedido",
             "fotos_disponiveis", "foto_url", "foto_url_2", "foto_url_3",
@@ -82,13 +144,21 @@ class PedidoRepository:
         }
         kwargs = {k: v for k, v in d.items() if k in base or (k in extra and v is not None)}
         kwargs.setdefault("descricao_produto", "")
+        kwargs["margem_real"] = margem_real
+        kwargs["param_preco_hora"] = param_preco_hora
+        kwargs["param_impostos"] = param_impostos
+        kwargs["param_cartao_credito"] = param_cartao_credito
+        kwargs["param_total_horas_mes"] = param_total_horas_mes
+        kwargs["param_margem_target"] = param_margem_target
         pedido = Pedido(**kwargs)
-        pedido.percentual_lucro_dono = _percentual_por_tipo(self.db, pedido.tipo_pedido_id)
+        if pedido.percentual_lucro_dono is None:
+            pedido.percentual_lucro_dono = _percentual_por_tipo(self.db, pedido.tipo_pedido_id)
         if pedido.status == "Entregue" and pedido.data_entrega is None:
             pedido.data_entrega = date.today()
         self.db.add(pedido)
         self.db.flush()
         _sync_medidas_cliente(self.db, pedido)
+        _sync_repasse_funcionaria(self.db, pedido)
         self.db.commit()
         self.db.refresh(pedido)
         return pedido
@@ -223,15 +293,27 @@ class PedidoRepository:
             query = query.filter(Pedido.data_entrega <= data_fim)
         return query.all()
 
-    def update(self, pedido_id: int, data: PedidoUpdate) -> Optional[Pedido]:
+    def update(
+        self,
+        pedido_id: int,
+        data: PedidoUpdate,
+        *,
+        margem_real: float,
+        param_preco_hora: Optional[float] = None,
+        param_impostos: Optional[float] = None,
+        param_cartao_credito: Optional[float] = None,
+        param_total_horas_mes: Optional[float] = None,
+        param_margem_target: Optional[float] = None,
+    ) -> Optional[Pedido]:
         pedido = self.get_by_id(pedido_id)
         if not pedido:
             return None
         update_data = data.model_dump(exclude_unset=True)
+        update_data.pop("confirmado_atipico", None)
         era_entregue = pedido.status == "Entregue"
         for key, value in update_data.items():
             setattr(pedido, key, value)
-        if "tipo_pedido_id" in update_data:
+        if "tipo_pedido_id" in update_data and "percentual_lucro_dono" not in update_data:
             pedido.percentual_lucro_dono = _percentual_por_tipo(self.db, update_data["tipo_pedido_id"])
         if "status" in update_data:
             status = update_data["status"]
@@ -239,7 +321,15 @@ class PedidoRepository:
                 pedido.data_entrega = pedido.data_pedido or date.today()
             elif status != "Entregue" and era_entregue:
                 pedido.data_entrega = None
+        pedido.margem_real = margem_real
+        if param_preco_hora is not None:
+            pedido.param_preco_hora = param_preco_hora
+            pedido.param_impostos = param_impostos
+            pedido.param_cartao_credito = param_cartao_credito
+            pedido.param_total_horas_mes = param_total_horas_mes
+            pedido.param_margem_target = param_margem_target
         _sync_medidas_cliente(self.db, pedido)
+        _sync_repasse_funcionaria(self.db, pedido)
         self.db.commit()
         self.db.refresh(pedido)
         return pedido
@@ -256,6 +346,7 @@ class PedidoRepository:
         else:
             if era_entregue:
                 pedido.data_entrega = None
+        _sync_repasse_funcionaria(self.db, pedido)
         self.db.commit()
         self.db.refresh(pedido)
         return pedido

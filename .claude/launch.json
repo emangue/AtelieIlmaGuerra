@@ -1,0 +1,22 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3001,
+      "autoPort": true,
+      "cwd": "app_dev/frontend"
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "venv/bin/python",
+      "runtimeArgs": ["run.py"],
+      "port": 8001,
+      "autoPort": true,
+      "cwd": "app_dev/backend",
+      "env": { "PORT": "8001" }
+    }
+  ]
+}

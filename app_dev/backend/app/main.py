@@ -1,16 +1,19 @@
 """
 FastAPI Main - Ateliê Ilma Guerra
 """
+import traceback as tb_module
 from pathlib import Path
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .core.config import settings
-from .core.database import engine, Base
+from .core.database import engine, Base, SessionLocal
 from .domains.auth.router import router as auth_router
 from .domains.users.router import router as users_router
 from .domains.contracts.router import router as contracts_router
@@ -22,6 +25,9 @@ from .domains.dashboard.router import router as dashboard_router
 from .domains.plano.router import router as plano_router
 from .domains.plano.pagamentos_router import router as pagamentos_router
 from .domains.despesas.router import router as despesas_router
+from .domains.error_logs.router import router as logs_router
+from .domains.error_logs.repository import LogRepository
+from .domains.historico.router import router as historico_router
 
 # Importar modelos para criar tabelas
 from .domains.clientes.models import Cliente  # noqa: F401
@@ -32,6 +38,8 @@ from .domains.plano.models import PlanoItem  # noqa: F401
 from .domains.plano.pagamentos_model import Pagamento  # noqa: F401
 from .domains.users.models import User  # noqa: F401
 from .domains.despesas.models import DespesaDetalhada  # noqa: F401
+from .domains.error_logs.models import ErrorLog  # noqa: F401
+from .domains.historico.models import HistoricoAlteracao  # noqa: F401
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -58,6 +66,45 @@ app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(plano_router, prefix="/api/v1")
 app.include_router(pagamentos_router, prefix="/api/v1")
 app.include_router(despesas_router, prefix="/api/v1")
+app.include_router(logs_router, prefix="/api/v1")
+app.include_router(historico_router, prefix="/api/v1")
+
+
+def _record_error(request: Request, exc: Exception, status_code: int) -> None:
+    """Grava o erro em error_logs numa sessão própria (a do request pode já estar inválida)."""
+    db = SessionLocal()
+    try:
+        LogRepository(db).create(
+            method=request.method,
+            path=request.url.path,
+            status_code=status_code,
+            exception_type=type(exc).__name__,
+            message=str(exc),
+            traceback="".join(tb_module.format_exception(type(exc), exc, exc.__traceback__)),
+        )
+    except Exception:
+        pass  # nunca deixar o log de erro derrubar a resposta de erro
+    finally:
+        db.close()
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    _record_error(request, exc, 422)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Não foi possível salvar: verifique se todos os campos obrigatórios foram preenchidos."},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    _record_error(request, exc, 500)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Erro interno no servidor. O ocorrido foi registrado para análise."},
+    )
+
 
 # Uploads estáticos
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"

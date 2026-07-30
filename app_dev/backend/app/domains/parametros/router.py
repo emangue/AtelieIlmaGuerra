@@ -8,20 +8,14 @@ from app.domains.auth.router import get_user_id_from_token
 from sqlalchemy.orm import Session
 
 from .schemas import ParametrosOrcamentoSchema, ParametrosOrcamentoUpdate, CalcularMargensRequest, CalcularMargensResponse
-from .service import get_or_create_parametros, get_parametros, calcular_margens, get_total_despesas
+from .service import get_or_create_parametros, get_parametros, calcular_margens, get_total_despesas, get_preco_hora_efetivo
 
 
 router = APIRouter(prefix="/parametros", tags=["Parâmetros"], dependencies=[Depends(get_user_id_from_token)])
 
 
-def _build_parametros_response(p, total_despesas: float):
+def _build_parametros_response(p, total_despesas: float, preco_hora: float):
     """Monta resposta com valores calculados."""
-    total_horas = p.total_horas_mes or 0
-    preco_hora = (
-        round(total_despesas / total_horas, 2)
-        if total_horas > 0 and total_despesas > 0
-        else p.preco_hora
-    )
     denom = 1 - (p.cartao_credito or 0) - (p.impostos or 0) - (p.margem_target or 0)
     faturamento_target = round(total_despesas / denom, 2) if denom > 0 and total_despesas > 0 else None
     return ParametrosOrcamentoSchema(
@@ -44,7 +38,8 @@ def get_parametros_endpoint(db: Session = Depends(get_db)):
     """
     p = get_or_create_parametros(db)
     total_despesas = get_total_despesas(db)
-    return _build_parametros_response(p, total_despesas)
+    preco_hora = get_preco_hora_efetivo(db)
+    return _build_parametros_response(p, total_despesas, preco_hora)
 
 
 @router.patch("", response_model=ParametrosOrcamentoSchema)
@@ -62,7 +57,8 @@ def update_parametros(data: ParametrosOrcamentoUpdate, db: Session = Depends(get
     db.commit()
     db.refresh(p)
     total_despesas = get_total_despesas(db)
-    return _build_parametros_response(p, total_despesas)
+    preco_hora = get_preco_hora_efetivo(db)
+    return _build_parametros_response(p, total_despesas, preco_hora)
 
 
 @router.post("/calcular-margens", response_model=CalcularMargensResponse)
@@ -72,8 +68,9 @@ def calcular_margens_endpoint(
 ):
     """Calcula Margem20, Margem30, Margem40 a partir dos parâmetros e inputs."""
     p = get_or_create_parametros(db)
+    preco_hora = get_preco_hora_efetivo(db)
     m20, m30, m40, custo = calcular_margens(
-        preco_hora=p.preco_hora,
+        preco_hora=preco_hora,
         impostos=p.impostos,
         cartao_credito=p.cartao_credito,
         horas_trabalho=data.horas_trabalho,

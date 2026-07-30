@@ -68,17 +68,13 @@ class PedidoCreate(BaseModel):
     data_entrega: Optional[date] = None
     descricao_produto: str = ""
     status: str = "Encomenda"
-    valor_pecas: Optional[float] = None
-    quantidade_pecas: Optional[int] = None
-    horas_trabalho: Optional[float] = None
-    custo_materiais: Optional[float] = None
-    custos_variaveis: Optional[float] = None
-    margem_real: Optional[float] = None
-    param_preco_hora: Optional[float] = None
-    param_impostos: Optional[float] = None
-    param_cartao_credito: Optional[float] = None
-    param_total_horas_mes: Optional[float] = None
-    param_margem_target: Optional[float] = None
+    valor_pecas: Optional[float] = Field(default=None, ge=0)
+    quantidade_pecas: Optional[int] = Field(default=None, ge=0)
+    horas_trabalho: Optional[float] = Field(default=None, ge=0)
+    custo_materiais: Optional[float] = Field(default=None, ge=0)
+    custos_variaveis: Optional[float] = Field(default=None, ge=0)
+    confirmado_atipico: bool = False
+    percentual_lucro_dono: Optional[float] = Field(default=None, ge=0, le=100)
     forma_pagamento: Optional[str] = None
     valor_entrada: Optional[float] = None
     valor_restante: Optional[float] = None
@@ -119,11 +115,13 @@ class PedidoUpdate(BaseModel):
     descricao_produto: Optional[str] = None
     status: Optional[str] = None
     data_entrega: Optional[date] = None
-    valor_pecas: Optional[float] = None
-    quantidade_pecas: Optional[int] = None
-    horas_trabalho: Optional[float] = None
-    custo_materiais: Optional[float] = None
-    custos_variaveis: Optional[float] = None
+    valor_pecas: Optional[float] = Field(default=None, ge=0)
+    quantidade_pecas: Optional[int] = Field(default=None, ge=0)
+    horas_trabalho: Optional[float] = Field(default=None, ge=0)
+    custo_materiais: Optional[float] = Field(default=None, ge=0)
+    custos_variaveis: Optional[float] = Field(default=None, ge=0)
+    confirmado_atipico: bool = False
+    percentual_lucro_dono: Optional[float] = Field(default=None, ge=0, le=100)
     forma_pagamento: Optional[str] = None
     valor_entrada: Optional[float] = None
     valor_restante: Optional[float] = None
@@ -204,6 +202,7 @@ class PedidoDetail(PedidoListItem):
     param_cartao_credito: Optional[float] = None
     param_total_horas_mes: Optional[float] = None
     param_margem_target: Optional[float] = None
+    percentual_lucro_dono: Optional[float] = None
     foto_url_2: Optional[str] = None
     foto_url_3: Optional[str] = None
     comentario_foto_1: Optional[str] = None

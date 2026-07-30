@@ -84,6 +84,31 @@ interface CobrancasResponse {
   resumo: CobrancasResumo;
 }
 
+interface RepasseItem {
+  id: number;
+  pedido_id: number;
+  cliente_nome: string;
+  tipo_pedido: string;
+  valor_pedido: number;
+  percentual_lucro_dono: number;
+  percentual_repasse: number;
+  valor: number;
+  data_vencimento: string | null;
+  data_pagamento: string | null;
+  status: string;
+}
+
+interface RepassesResponse {
+  pendentes: RepasseItem[];
+  pagos: RepasseItem[];
+  resumo: {
+    total_pendente: number;
+    count_pendente: number;
+    total_pago: number;
+    count_pago: number;
+  };
+}
+
 type Filtro = "todas" | "em_atraso" | "a_vencer" | "pagas";
 
 function parcelaLabel(item: CobrancaItem): string {
@@ -228,9 +253,92 @@ function SectionHeader({ cor, label, count, total }: { cor: string; label: strin
   );
 }
 
+function CardRepasse({
+  item,
+  confirmandoId,
+  confirmandoData,
+  salvando,
+  onIniciarConfirmar,
+  onCancelarConfirmar,
+  onChangeData,
+  onConfirmar,
+}: {
+  item: RepasseItem;
+  confirmandoId: number | null;
+  confirmandoData: string;
+  salvando: boolean;
+  onIniciarConfirmar: (id: number) => void;
+  onCancelarConfirmar: () => void;
+  onChangeData: (v: string) => void;
+  onConfirmar: () => void;
+}) {
+  const isConfirmando = confirmandoId === item.id;
+  const pago = item.status === "pago";
+  const accentColor = pago ? "#3B6D11" : item.status === "em_atraso" ? "#A32D2D" : "#854F0B";
+
+  return (
+    <div className="mb-2 rounded-xl border border-gray-200 bg-white px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-gray-900">{item.cliente_nome}</p>
+          <p className="text-xs text-gray-500">
+            Pedido #{item.pedido_id} · {item.tipo_pedido} · {item.percentual_repasse.toFixed(0)}% de repasse
+          </p>
+        </div>
+        <p className="shrink-0 text-sm font-semibold" style={{ color: accentColor }}>
+          {formatMoney(item.valor)}
+        </p>
+      </div>
+
+      {!isConfirmando ? (
+        <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3">
+          <p className="text-xs text-gray-500">
+            {pago && item.data_pagamento
+              ? `Pago em ${formatDataBR(item.data_pagamento)}`
+              : `Pagar${item.data_vencimento ? ` até ${formatDataBR(item.data_vencimento)}` : ""}`}
+          </p>
+          {!pago && (
+            <button
+              onClick={() => onIniciarConfirmar(item.id)}
+              className="rounded-full border px-3 py-1.5 text-xs"
+              style={{ borderColor: accentColor, color: accentColor }}
+            >
+              Marcar pago
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3">
+          <p className="shrink-0 text-xs text-gray-500">Pago em</p>
+          <Input
+            type="date"
+            value={confirmandoData}
+            onChange={(e) => onChangeData(e.target.value)}
+            className="h-8 flex-1 text-sm"
+          />
+          <button
+            onClick={onConfirmar}
+            disabled={salvando}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-700 text-white"
+          >
+            {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            onClick={onCancelarConfirmar}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FinanceiroPage() {
   const [mes, setMes] = useState(hojeStr);
   const [cobrancas, setCobrancas] = useState<CobrancasResponse | null>(null);
+  const [repasses, setRepasses] = useState<RepassesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState<Filtro>("todas");
 
@@ -245,7 +353,12 @@ export default function FinanceiroPage() {
     authFetch(`${API_URL}/api/v1/pagamentos/cobrancas?mes=${mes}`)
       .then((r) => r.json())
       .then((d) => setCobrancas(d))
-      .catch(() => setCobrancas(null))
+      .catch(() => setCobrancas(null));
+
+    authFetch(`${API_URL}/api/v1/pagamentos/repasses?mes=${mes}`)
+      .then((r) => r.json())
+      .then((d) => setRepasses(d))
+      .catch(() => setRepasses(null))
       .finally(() => setLoading(false));
   }, [mes]);
 
@@ -393,6 +506,28 @@ export default function FinanceiroPage() {
                 </p>
               </div>
             </div>
+
+            {/* EM ATRASO */}
+            {repasses && (repasses.pendentes.length > 0 || repasses.pagos.length > 0) && (
+              <div className="mb-5">
+                <SectionHeader
+                  cor="#7C3AED"
+                  label="ACERTOS FUNCIONÁRIA"
+                  count={repasses.resumo.count_pendente}
+                  total={repasses.resumo.total_pendente}
+                />
+                {repasses.pendentes.map((item) => (
+                  <CardRepasse key={item.id} item={item} {...cardProps} />
+                ))}
+                {repasses.pagos.length > 0 && (
+                  <div className="mt-2 rounded-xl bg-green-50 px-4 py-3">
+                    <p className="text-xs font-medium text-green-800">
+                      Pago em {labelMes(mes)}: {formatMoney(repasses.resumo.total_pago)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* EM ATRASO */}
             {mostrarEmAtraso && cobrancas.em_atraso.length > 0 && (

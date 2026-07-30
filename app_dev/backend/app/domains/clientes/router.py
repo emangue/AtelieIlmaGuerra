@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.database import get_db
 from app.domains.auth.router import get_user_id_from_token
+from app.domains.historico.repository import registrar_alteracao
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -29,7 +30,11 @@ def list_clientes(q: Optional[str] = None, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=ClienteDetail, status_code=201)
-def create_cliente(data: ClienteCreate, db: Session = Depends(get_db)):
+def create_cliente(
+    data: ClienteCreate,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id_from_token),
+):
     """Cria novo cliente. Nome deve ser único."""
     service = ClienteService(db)
     if service.repo.exists_by_nome(data.nome):
@@ -38,6 +43,11 @@ def create_cliente(data: ClienteCreate, db: Session = Depends(get_db)):
             detail="Já existe um cliente com este nome. O nome é a chave de busca e deve ser único.",
         )
     cliente = service.create(data)
+    registrar_alteracao(
+        db, user_id=user_id, entidade="cliente", entidade_id=cliente.id, acao="criou",
+        resumo=f"Cliente {cliente.nome} criado",
+    )
+    db.commit()
     return service.to_detail(cliente)
 
 
@@ -52,11 +62,16 @@ def get_cliente(cliente_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/{cliente_id}", response_model=ClienteDetail)
-def update_cliente(cliente_id: int, data: ClienteUpdate, db: Session = Depends(get_db)):
+def update_cliente(
+    cliente_id: int,
+    data: ClienteUpdate,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id_from_token),
+):
     """Atualiza cliente. Nome deve ser único."""
     service = ClienteService(db)
-    cliente = service.get_by_id(cliente_id)
-    if not cliente:
+    cliente_antes = service.get_by_id(cliente_id)
+    if not cliente_antes:
         raise HTTPException(status_code=404, detail="Cliente não encontrado")
     if data.nome is not None and data.nome.strip():
         if service.repo.exists_by_nome(data.nome, exclude_id=cliente_id):
@@ -64,17 +79,37 @@ def update_cliente(cliente_id: int, data: ClienteUpdate, db: Session = Depends(g
                 status_code=400,
                 detail="Já existe um cliente com este nome. O nome é a chave de busca e deve ser único.",
             )
+    campos_alterados = data.model_dump(exclude_unset=True)
+    antes = {k: getattr(cliente_antes, k, None) for k in campos_alterados}
     cliente = service.update(cliente_id, data)
+    depois = {k: getattr(cliente, k, None) for k in campos_alterados}
+    registrar_alteracao(
+        db, user_id=user_id, entidade="cliente", entidade_id=cliente_id, acao="editou",
+        antes=antes, depois=depois,
+    )
+    db.commit()
     return service.to_detail(cliente)
 
 
 @router.delete("/{cliente_id}", status_code=204)
-def delete_cliente(cliente_id: int, db: Session = Depends(get_db)):
+def delete_cliente(
+    cliente_id: int,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id_from_token),
+):
     """Remove cliente."""
     service = ClienteService(db)
+    cliente = service.get_by_id(cliente_id)
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado")
+    resumo = f"Cliente {cliente.nome} apagado"
     ok = service.delete(cliente_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Cliente não encontrado")
+    registrar_alteracao(
+        db, user_id=user_id, entidade="cliente", entidade_id=cliente_id, acao="apagou", resumo=resumo,
+    )
+    db.commit()
 
 
 @router.get("/{cliente_id}/pedidos")

@@ -25,7 +25,7 @@ const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 function authFetch(url: string, init?: RequestInit) {
   const token = getToken();
   const headers = new Headers(init?.headers);
-  if (token) headers.set("Authorization", `Bearer `);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(url, { ...init, headers });
 }
 
@@ -52,6 +52,8 @@ interface FormData {
   testemunha2_nome: string;
   testemunha2_cpf: string;
 }
+
+type FieldErrors = Partial<Record<keyof FormData, string>>;
 
 function contractToForm(c: Record<string, unknown>): FormData {
   const toStr = (v: unknown) => (v != null ? String(v) : "");
@@ -82,6 +84,26 @@ function contractToForm(c: Record<string, unknown>): FormData {
     testemunha2_nome: toStr(c.testemunha2_nome),
     testemunha2_cpf: toStr(c.testemunha2_cpf),
   };
+}
+
+async function readApiError(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const body = JSON.parse(text) as { detail?: unknown };
+    if (!body.detail) return "Erro ao salvar";
+    if (typeof body.detail === "string") return body.detail;
+    if (Array.isArray(body.detail)) {
+      return body.detail
+        .map((e: { loc?: string[]; msg?: string }) => {
+          const campo = e.loc ? e.loc.slice(1).join(" -> ") : "";
+          return campo ? `${campo}: ${e.msg}` : e.msg || "erro";
+        })
+        .join(" | ");
+    }
+    return JSON.stringify(body.detail);
+  } catch {
+    return text || `Erro ${res.status} ao salvar`;
+  }
 }
 
 function buildPayload(form: FormData) {
@@ -118,6 +140,7 @@ export default function EditarContratoPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   useEffect(() => {
     if (isNaN(id)) {
@@ -137,13 +160,55 @@ export default function EditarContratoPage() {
 
   const update = (k: keyof FormData, v: string | boolean) => {
     setForm((p) => (p ? { ...p, [k]: v } : null));
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[k];
+      return next;
+    });
     setError(null);
+  };
+
+  const validate = (current: FormData): boolean => {
+    const errs: FieldErrors = {};
+    if (!current.nome_completo.trim() || current.nome_completo.trim().length < 3)
+      errs.nome_completo = "Nome completo é obrigatório (mín. 3 caracteres)";
+    const cpfDigits = current.cpf.replace(/\D/g, "");
+    if (cpfDigits.length < 11)
+      errs.cpf = "CPF inválido — informe os 11 dígitos";
+    if (!current.endereco.trim() || current.endereco.trim().length < 5)
+      errs.endereco = "Endereço é obrigatório";
+    if (!current.telefone.trim() || current.telefone.replace(/\D/g, "").length < 10)
+      errs.telefone = "Telefone inválido — informe DDD + número";
+    if (!current.especificacoes.trim())
+      errs.especificacoes = "Especificações são obrigatórias";
+    if (!current.tecidos.trim())
+      errs.tecidos = "Tecidos são obrigatórios";
+    if (!current.valor_total || parseFloat(current.valor_total) <= 0)
+      errs.valor_total = "Informe um valor total válido";
+    if (!current.data_contrato)
+      errs.data_contrato = "Data do contrato é obrigatória";
+    if (!current.prova_final_data)
+      errs.prova_final_data = "Data da prova final é obrigatória";
+    if (!current.semana_revisao_inicio)
+      errs.semana_revisao_inicio = "Data de início da semana de revisão é obrigatória";
+    if (!current.semana_revisao_fim)
+      errs.semana_revisao_fim = "Data de fim da semana de revisão é obrigatória";
+    if (
+      current.semana_revisao_inicio &&
+      current.semana_revisao_fim &&
+      current.semana_revisao_fim < current.semana_revisao_inicio
+    )
+      errs.semana_revisao_fim = "Fim da revisão não pode ser antes do início";
+
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form) return;
     setError(null);
+    if (!validate(form)) return;
     setSaving(true);
     try {
       const res = await authFetch(`${API_URL}/api/v1/contracts/${id}`, {
@@ -152,8 +217,7 @@ export default function EditarContratoPage() {
         body: JSON.stringify(buildPayload(form)),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Erro ao salvar");
+        throw new Error(await readApiError(res));
       }
       router.push(`/mobile/contratos/${id}`);
     } catch (err: unknown) {
@@ -197,7 +261,7 @@ export default function EditarContratoPage() {
         <h2 className="text-lg font-semibold">Editar contrato</h2>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" noValidate>
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
@@ -214,8 +278,10 @@ export default function EditarContratoPage() {
               <Input
                 value={form.nome_completo}
                 onChange={(e) => update("nome_completo", e.target.value)}
+                className={fieldErrors.nome_completo ? "border-red-500" : ""}
                 required
               />
+              {fieldErrors.nome_completo && <p className="text-xs text-red-500">{fieldErrors.nome_completo}</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -223,8 +289,10 @@ export default function EditarContratoPage() {
                 <Input
                   value={form.cpf}
                   onChange={(e) => update("cpf", e.target.value)}
+                  className={fieldErrors.cpf ? "border-red-500" : ""}
                   required
                 />
+                {fieldErrors.cpf && <p className="text-xs text-red-500">{fieldErrors.cpf}</p>}
               </div>
               <div className="space-y-2">
                 <Label>RG</Label>
@@ -239,16 +307,20 @@ export default function EditarContratoPage() {
               <Input
                 value={form.endereco}
                 onChange={(e) => update("endereco", e.target.value)}
+                className={fieldErrors.endereco ? "border-red-500" : ""}
                 required
               />
+              {fieldErrors.endereco && <p className="text-xs text-red-500">{fieldErrors.endereco}</p>}
             </div>
             <div className="space-y-2">
               <Label>Telefone</Label>
               <Input
                 value={form.telefone}
                 onChange={(e) => update("telefone", e.target.value)}
+                className={fieldErrors.telefone ? "border-red-500" : ""}
                 required
               />
+              {fieldErrors.telefone && <p className="text-xs text-red-500">{fieldErrors.telefone}</p>}
             </div>
           </CardContent>
         </Card>
@@ -263,18 +335,22 @@ export default function EditarContratoPage() {
               <Textarea
                 value={form.especificacoes}
                 onChange={(e) => update("especificacoes", e.target.value)}
+                className={fieldErrors.especificacoes ? "border-red-500" : ""}
                 rows={5}
                 required
               />
+              {fieldErrors.especificacoes && <p className="text-xs text-red-500">{fieldErrors.especificacoes}</p>}
             </div>
             <div className="space-y-2">
               <Label>Tecidos</Label>
               <Textarea
                 value={form.tecidos}
                 onChange={(e) => update("tecidos", e.target.value)}
+                className={fieldErrors.tecidos ? "border-red-500" : ""}
                 rows={3}
                 required
               />
+              {fieldErrors.tecidos && <p className="text-xs text-red-500">{fieldErrors.tecidos}</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -284,8 +360,10 @@ export default function EditarContratoPage() {
                   step="0.01"
                   value={form.valor_total}
                   onChange={(e) => update("valor_total", e.target.value)}
+                  className={fieldErrors.valor_total ? "border-red-500" : ""}
                   required
                 />
+                {fieldErrors.valor_total && <p className="text-xs text-red-500">{fieldErrors.valor_total}</p>}
               </div>
               <div className="space-y-2">
                 <Label>Serviço vestir (R$/h)</Label>
@@ -312,8 +390,10 @@ export default function EditarContratoPage() {
                   type="date"
                   value={form.data_contrato}
                   onChange={(e) => update("data_contrato", e.target.value)}
+                  className={fieldErrors.data_contrato ? "border-red-500" : ""}
                   required
                 />
+                {fieldErrors.data_contrato && <p className="text-xs text-red-500">{fieldErrors.data_contrato}</p>}
               </div>
               <div className="space-y-2">
                 <Label>Prova final</Label>
@@ -321,8 +401,10 @@ export default function EditarContratoPage() {
                   type="date"
                   value={form.prova_final_data}
                   onChange={(e) => update("prova_final_data", e.target.value)}
+                  className={fieldErrors.prova_final_data ? "border-red-500" : ""}
                   required
                 />
+                {fieldErrors.prova_final_data && <p className="text-xs text-red-500">{fieldErrors.prova_final_data}</p>}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -332,8 +414,10 @@ export default function EditarContratoPage() {
                   type="date"
                   value={form.semana_revisao_inicio}
                   onChange={(e) => update("semana_revisao_inicio", e.target.value)}
+                  className={fieldErrors.semana_revisao_inicio ? "border-red-500" : ""}
                   required
                 />
+                {fieldErrors.semana_revisao_inicio && <p className="text-xs text-red-500">{fieldErrors.semana_revisao_inicio}</p>}
               </div>
               <div className="space-y-2">
                 <Label>Revisão fim</Label>
@@ -341,8 +425,10 @@ export default function EditarContratoPage() {
                   type="date"
                   value={form.semana_revisao_fim}
                   onChange={(e) => update("semana_revisao_fim", e.target.value)}
+                  className={fieldErrors.semana_revisao_fim ? "border-red-500" : ""}
                   required
                 />
+                {fieldErrors.semana_revisao_fim && <p className="text-xs text-red-500">{fieldErrors.semana_revisao_fim}</p>}
               </div>
             </div>
             <div className="space-y-2">

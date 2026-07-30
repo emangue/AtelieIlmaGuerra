@@ -166,6 +166,68 @@ def get_cobrancas(
     )
 
 
+@router.get("/repasses")
+def get_repasses_funcionaria(
+    mes: str = Query(..., description="YYYYMM — mês para exibir repasses pagos"),
+    db: Session = Depends(get_db),
+):
+    """Lista acertos com funcionária: pendentes + pagos no mês selecionado."""
+    if len(mes) != 6 or not mes.isdigit():
+        raise HTTPException(status_code=400, detail="mes deve ser YYYYMM")
+
+    from app.domains.pedidos.models import Pedido
+    from app.domains.clientes.models import Cliente
+    from app.domains.pedidos.models import TipoPedido
+
+    rows = (
+        db.query(Pagamento, Pedido, Cliente, TipoPedido)
+        .join(Pedido, Pedido.id == Pagamento.pedido_id)
+        .outerjoin(Cliente, Cliente.id == Pedido.cliente_id)
+        .outerjoin(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
+        .filter(
+            Pagamento.tipo == "despesa",
+            Pagamento.origem == "repasse_funcionaria",
+            (Pagamento.data_pagamento.is_(None)) | (Pagamento.anomes == mes),
+        )
+        .order_by(Pagamento.data_pagamento.asc().nullsfirst(), Pagamento.data_vencimento.asc().nullslast())
+        .all()
+    )
+
+    itens = []
+    for pag, pedido, cliente, tipo in rows:
+        status = "pago" if pag.data_pagamento else (
+            "em_atraso" if pag.data_vencimento and pag.data_vencimento < date_type.today() else "a_pagar"
+        )
+        percentual_dono = float(pedido.percentual_lucro_dono or 100)
+        itens.append({
+            "id": pag.id,
+            "pedido_id": pedido.id,
+            "cliente_nome": cliente.nome if cliente else "—",
+            "tipo_pedido": tipo.nome if tipo else "Pedido",
+            "valor_pedido": float(pedido.valor_pecas or 0),
+            "percentual_lucro_dono": percentual_dono,
+            "percentual_repasse": round(100 - percentual_dono, 2),
+            "valor": float(pag.valor),
+            "data_vencimento": pag.data_vencimento.isoformat() if pag.data_vencimento else None,
+            "data_pagamento": pag.data_pagamento.isoformat() if pag.data_pagamento else None,
+            "status": status,
+        })
+
+    pendentes = [i for i in itens if i["status"] != "pago"]
+    pagos = [i for i in itens if i["status"] == "pago"]
+    return {
+        "mes": mes,
+        "pendentes": pendentes,
+        "pagos": pagos,
+        "resumo": {
+            "total_pendente": round(sum(i["valor"] for i in pendentes), 2),
+            "count_pendente": len(pendentes),
+            "total_pago": round(sum(i["valor"] for i in pagos), 2),
+            "count_pago": len(pagos),
+        },
+    }
+
+
 @router.get("", response_model=PagamentosResponse)
 def list_pagamentos(
     mes: str = Query(..., description="YYYYMM — mês de referência"),

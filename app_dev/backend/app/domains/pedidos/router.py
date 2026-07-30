@@ -11,18 +11,33 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 
 from app.core.database import get_db
 from app.domains.auth.router import get_user_id_from_token
+from app.domains.historico.repository import registrar_alteracao
 from sqlalchemy.orm import Session
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB
 
 from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem, ParcelaCreate, ParcelasConfig, ParcelaOut, PedidoHistoricoResponse
-from .service import PedidoService, _norm_foto_url
+from .service import PedidoService, PedidoAtipicoWarning, _norm_foto_url
+
+
+def _avisos_detail(exc: PedidoAtipicoWarning) -> dict:
+    return {
+        "code": "pedido_atipico",
+        "avisos": [{"codigo": a.codigo, "mensagem": a.mensagem} for a in exc.avisos],
+        "margem_real_calculada": exc.margem_real,
+    }
 from .models import FormaPeca, FormaPecaMedida
 
 UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads"
 (UPLOADS_DIR / "pedidos").mkdir(parents=True, exist_ok=True)
 
-router = APIRouter(prefix="/pedidos", tags=["Pedidos"])
+# Auth no router inteiro, inclusive nos GETs: o detalhe do pedido devolve nome
+# da cliente e medidas corporais — dado pessoal que não pode ficar aberto.
+router = APIRouter(
+    prefix="/pedidos",
+    tags=["Pedidos"],
+    dependencies=[Depends(get_user_id_from_token)],
+)
 
 
 @router.get("/todos", response_model=List[PedidoListItem])
@@ -163,10 +178,22 @@ async def upload_foto_pedido(
 
 
 @router.post("", response_model=PedidoListItem, status_code=201)
-def create_pedido(data: PedidoCreate, db: Session = Depends(get_db)):
+def create_pedido(
+    data: PedidoCreate,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id_from_token),
+):
     """Cria novo pedido."""
     service = PedidoService(db)
-    pedido = service.create(data)
+    try:
+        pedido = service.create(data)
+    except PedidoAtipicoWarning as exc:
+        raise HTTPException(status_code=422, detail=_avisos_detail(exc))
+    registrar_alteracao(
+        db, user_id=user_id, entidade="pedido", entidade_id=pedido.id, acao="criou",
+        resumo=f"Pedido #{pedido.id} criado",
+    )
+    db.commit()
     return service.to_list_item(pedido)
 
 
@@ -216,6 +243,7 @@ def get_pedido(pedido_id: int, db: Session = Depends(get_db)):
         param_cartao_credito=getattr(pedido, "param_cartao_credito", None),
         param_total_horas_mes=getattr(pedido, "param_total_horas_mes", None),
         param_margem_target=getattr(pedido, "param_margem_target", None),
+        percentual_lucro_dono=getattr(pedido, "percentual_lucro_dono", None),
         foto_url_2=_norm_foto_url(getattr(pedido, "foto_url_2", None)),
         foto_url_3=_norm_foto_url(getattr(pedido, "foto_url_3", None)),
         comentario_foto_1=getattr(pedido, "comentario_foto_1", None),
@@ -231,22 +259,48 @@ def update_pedido_status(
     pedido_id: int,
     data: PedidoStatusUpdate,
     db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id_from_token),
 ):
     """Atualiza apenas o status do pedido (usado pelos ícones)."""
     service = PedidoService(db)
-    pedido = service.update_status(pedido_id, data.status)
-    if not pedido:
+    pedido_antes = service.get_by_id(pedido_id)
+    if not pedido_antes:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    status_antes = pedido_antes.status
+    pedido = service.update_status(pedido_id, data.status)
+    registrar_alteracao(
+        db, user_id=user_id, entidade="pedido", entidade_id=pedido_id, acao="mudou_status",
+        resumo=f"status: {status_antes} → {data.status}",
+        antes={"status": status_antes}, depois={"status": data.status},
+    )
+    db.commit()
     return service.to_list_item(pedido)
 
 
 @router.patch("/{pedido_id}", response_model=PedidoListItem)
-def update_pedido(pedido_id: int, data: PedidoUpdate, db: Session = Depends(get_db)):
+def update_pedido(
+    pedido_id: int,
+    data: PedidoUpdate,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id_from_token),
+):
     """Atualiza pedido."""
     service = PedidoService(db)
-    pedido = service.update(pedido_id, data)
-    if not pedido:
+    pedido_antes = service.get_by_id(pedido_id)
+    if not pedido_antes:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    campos_alterados = data.model_dump(exclude_unset=True)
+    antes = {k: getattr(pedido_antes, k, None) for k in campos_alterados}
+    try:
+        pedido = service.update(pedido_id, data)
+    except PedidoAtipicoWarning as exc:
+        raise HTTPException(status_code=422, detail=_avisos_detail(exc))
+    depois = {k: getattr(pedido, k, None) for k in campos_alterados}
+    registrar_alteracao(
+        db, user_id=user_id, entidade="pedido", entidade_id=pedido_id, acao="editou",
+        antes=antes, depois=depois,
+    )
+    db.commit()
     return service.to_list_item(pedido)
 
 
@@ -287,6 +341,7 @@ def configurar_pagamento(
     pedido_id: int,
     data: ParcelasConfig,
     db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id_from_token),
 ):
     """Cria ou recria as parcelas de um pedido. Apaga as anteriores e insere as novas."""
     from app.domains.plano.pagamentos_model import Pagamento
@@ -364,6 +419,10 @@ def configurar_pagamento(
     for p in novas:
         db.add(p)
 
+    registrar_alteracao(
+        db, user_id=user_id, entidade="pedido", entidade_id=pedido_id, acao="editou",
+        resumo="Parcelas de pagamento reconfiguradas",
+    )
     db.commit()
     return get_parcelas(pedido_id, db)
 
@@ -372,6 +431,7 @@ def configurar_pagamento(
 def delete_pedido(
     pedido_id: int,
     db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id_from_token),
 ):
     """Exclui um pedido e seus pagamentos associados."""
     from app.domains.plano.pagamentos_model import Pagamento
@@ -381,6 +441,10 @@ def delete_pedido(
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
 
+    resumo = f"Pedido #{pedido_id} apagado ({pedido.descricao_produto or ''})".strip()
     db.query(Pagamento).filter(Pagamento.pedido_id == pedido_id).delete()
     db.delete(pedido)
+    registrar_alteracao(
+        db, user_id=user_id, entidade="pedido", entidade_id=pedido_id, acao="apagou", resumo=resumo,
+    )
     db.commit()

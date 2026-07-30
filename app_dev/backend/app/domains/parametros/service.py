@@ -50,6 +50,18 @@ def get_total_despesas(db: Session) -> float:
     return DespesaRepository(db).get_total()
 
 
+def get_preco_hora_efetivo(db: Session) -> float:
+    """Preço-hora usado em cálculos de margem: total_despesas/total_horas_mes quando
+    disponível, senão o valor bruto configurado. Fonte única reaproveitada por
+    /parametros, /calcular-margens e pelo cálculo de margem de pedidos."""
+    p = get_or_create_parametros(db)
+    total_despesas = get_total_despesas(db)
+    total_horas = p.total_horas_mes or 0
+    if total_horas > 0 and total_despesas > 0:
+        return round(total_despesas / total_horas, 2)
+    return p.preco_hora
+
+
 def get_or_create_parametros(db: Session) -> ParametrosOrcamento:
     """Retorna parâmetros existentes ou cria com valores padrão."""
     p = get_parametros(db)

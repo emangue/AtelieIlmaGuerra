@@ -18,6 +18,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ArrowLeft, Eye, FileDown, Loader2 } from "lucide-react";
 
+import { todayLocalISO } from "@/lib/date-utils";
 import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -25,7 +26,7 @@ const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 function authFetch(url: string, init?: RequestInit) {
   const token = getToken();
   const headers = new Headers(init?.headers);
-  if (token) headers.set("Authorization", `Bearer `);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(url, { ...init, headers });
 }
 
@@ -70,7 +71,7 @@ const defaultForm: FormData = {
   prova_final_data: "",
   semana_revisao_inicio: "",
   semana_revisao_fim: "",
-  data_contrato: new Date().toISOString().slice(0, 10),
+  data_contrato: todayLocalISO(),
   cidade_contrato: "Araraquara",
   autoriza_imagem_completa: false,
   testemunha1_nome: "",
@@ -82,6 +83,15 @@ const defaultForm: FormData = {
 function extractErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return "Erro desconhecido";
+}
+
+async function readApiError(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    return parseApiError(JSON.parse(text));
+  } catch {
+    return text || `Erro ${res.status} ao processar a requisição`;
+  }
 }
 
 function parseApiError(body: { detail?: unknown }): string {
@@ -176,6 +186,18 @@ function NovoContratoContent() {
       errs.valor_total = "Informe um valor total válido";
     if (!form.data_contrato)
       errs.data_contrato = "Data do contrato é obrigatória";
+    if (!form.prova_final_data)
+      errs.prova_final_data = "Data da prova final é obrigatória";
+    if (!form.semana_revisao_inicio)
+      errs.semana_revisao_inicio = "Data de início da semana de revisão é obrigatória";
+    if (!form.semana_revisao_fim)
+      errs.semana_revisao_fim = "Data de fim da semana de revisão é obrigatória";
+    if (
+      form.semana_revisao_inicio &&
+      form.semana_revisao_fim &&
+      form.semana_revisao_fim < form.semana_revisao_inicio
+    )
+      errs.semana_revisao_fim = "Fim da revisão não pode ser antes do início";
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -203,8 +225,7 @@ function NovoContratoContent() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const body = await res.json();
-        throw new Error(parseApiError(body));
+        throw new Error(await readApiError(res));
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -228,8 +249,7 @@ function NovoContratoContent() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const body = await res.json();
-        throw new Error(parseApiError(body));
+        throw new Error(await readApiError(res));
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -259,7 +279,7 @@ function NovoContratoContent() {
         <h2 className="text-lg font-semibold">Novo Contrato</h2>
       </div>
 
-      <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
+      <form className="space-y-6" noValidate onSubmit={(e) => e.preventDefault()}>
         {apiError && (
           <Alert variant="destructive">
             <AlertDescription>{apiError}</AlertDescription>
@@ -407,8 +427,10 @@ function NovoContratoContent() {
                   type="date"
                   value={form.prova_final_data}
                   onChange={(e) => update("prova_final_data", e.target.value)}
+                  className={fieldErrors.prova_final_data ? "border-red-500" : ""}
                   required
                 />
+                {fieldErrors.prova_final_data && <p className="text-xs text-red-500">{fieldErrors.prova_final_data}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="data_contrato">Data do contrato</Label>
@@ -430,8 +452,10 @@ function NovoContratoContent() {
                   type="date"
                   value={form.semana_revisao_inicio}
                   onChange={(e) => update("semana_revisao_inicio", e.target.value)}
+                  className={fieldErrors.semana_revisao_inicio ? "border-red-500" : ""}
                   required
                 />
+                {fieldErrors.semana_revisao_inicio && <p className="text-xs text-red-500">{fieldErrors.semana_revisao_inicio}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="revisao_fim">Semana revisão fim</Label>
@@ -440,8 +464,10 @@ function NovoContratoContent() {
                   type="date"
                   value={form.semana_revisao_fim}
                   onChange={(e) => update("semana_revisao_fim", e.target.value)}
+                  className={fieldErrors.semana_revisao_fim ? "border-red-500" : ""}
                   required
                 />
+                {fieldErrors.semana_revisao_fim && <p className="text-xs text-red-500">{fieldErrors.semana_revisao_fim}</p>}
               </div>
             </div>
             <div className="space-y-2">

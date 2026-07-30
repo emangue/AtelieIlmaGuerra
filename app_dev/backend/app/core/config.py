@@ -18,7 +18,9 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "Ateliê Ilma Guerra - API"
     APP_VERSION: str = "1.0.0"
-    DEBUG: bool = True
+    # Default False de propósito: DEBUG controla o flag `secure` do cookie de
+    # sessão. Se o .env sumir num deploy, é melhor falhar fechado.
+    DEBUG: bool = False
 
     DATABASE_PATH: Path = Path(
         "/Users/emangue/Documents/ProjetoVSCode/AtelieIlmaGuerra/app_dev/backend/database/atelie.db"

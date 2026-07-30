@@ -20,6 +20,7 @@ import {
   Loader2,
 } from "lucide-react";
 
+import { formatDateOnlyBR, formatDateTimeBR } from "@/lib/date-utils";
 import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -27,7 +28,7 @@ const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 function authFetch(url: string, init?: RequestInit) {
   const token = getToken();
   const headers = new Headers(init?.headers);
-  if (token) headers.set("Authorization", `Bearer `);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(url, { ...init, headers });
 }
 
@@ -55,18 +56,6 @@ interface ContractDetail {
   testemunha2_nome: string;
   testemunha2_cpf: string;
   created_at: string;
-}
-
-function formatDate(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
 }
 
 export default function ContratoDetailPage() {
@@ -189,7 +178,7 @@ export default function ContratoDetailPage() {
         <CardHeader>
           <CardTitle>Dados do contrato</CardTitle>
           <CardDescription>
-            Gerado em {formatDate(contract.created_at)}
+            Gerado em {formatDateTimeBR(contract.created_at)}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
@@ -208,11 +197,11 @@ export default function ContratoDetailPage() {
           </div>
           <div>
             <p className="font-medium text-muted-foreground">Datas</p>
-            <p>Contrato: {formatDate(contract.data_contrato)}</p>
-            <p>Prova final: {formatDate(contract.prova_final_data)}</p>
+            <p>Contrato: {formatDateOnlyBR(contract.data_contrato)}</p>
+            <p>Prova final: {formatDateOnlyBR(contract.prova_final_data)}</p>
             <p>
-              Revisão: {formatDate(contract.semana_revisao_inicio)} a{" "}
-              {formatDate(contract.semana_revisao_fim)}
+              Revisão: {formatDateOnlyBR(contract.semana_revisao_inicio)} a{" "}
+              {formatDateOnlyBR(contract.semana_revisao_fim)}
             </p>
           </div>
           <div>

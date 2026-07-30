@@ -7,9 +7,21 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.domains.parametros.service import get_or_create_parametros, get_preco_hora_efetivo
+
+from .margem import AvisoPedido, ParametrosCalculo, avaliar_avisos, calcular_margem_real
 from .models import Pedido, TipoPedido
 from .repository import PedidoRepository, TipoPedidoRepository
 from .schemas import PedidoCreate, PedidoUpdate, PedidoListItem, PedidoEntregueItem, TipoPedidoItem
+
+
+class PedidoAtipicoWarning(Exception):
+    """Levantada quando o pedido tem valores atípicos e o cliente não confirmou explicitamente."""
+
+    def __init__(self, avisos: List[AvisoPedido], margem_real: float):
+        self.avisos = avisos
+        self.margem_real = margem_real
+        super().__init__(f"Pedido com valores atípicos: {[a.codigo for a in avisos]}")
 
 
 def _norm_foto_url(url: Optional[str]) -> Optional[str]:
@@ -30,7 +42,25 @@ class PedidoService:
         self.tipo_repo = TipoPedidoRepository(db)
 
     def create(self, data: PedidoCreate) -> Pedido:
-        return self.repo.create(data)
+        db = self.repo.db
+        p = get_or_create_parametros(db)
+        preco_hora = get_preco_hora_efetivo(db)
+        params = ParametrosCalculo(preco_hora, p.impostos, p.cartao_credito)
+        resultado = calcular_margem_real(
+            data.valor_pecas, data.horas_trabalho, data.custo_materiais, data.custos_variaveis, params
+        )
+        avisos = avaliar_avisos(data.valor_pecas, data.quantidade_pecas, data.horas_trabalho, resultado.margem_real)
+        if avisos and not data.confirmado_atipico:
+            raise PedidoAtipicoWarning(avisos, resultado.margem_real)
+        return self.repo.create(
+            data,
+            margem_real=resultado.margem_real,
+            param_preco_hora=preco_hora,
+            param_impostos=p.impostos,
+            param_cartao_credito=p.cartao_credito,
+            param_total_horas_mes=p.total_horas_mes,
+            param_margem_target=p.margem_target,
+        )
 
     def get_by_id(self, pedido_id: int) -> Optional[Pedido]:
         return self.repo.get_by_id(pedido_id)
@@ -66,7 +96,43 @@ class PedidoService:
         )
 
     def update(self, pedido_id: int, data: PedidoUpdate) -> Optional[Pedido]:
-        return self.repo.update(pedido_id, data)
+        db = self.repo.db
+        pedido = self.repo.get_by_id(pedido_id)
+        if not pedido:
+            return None
+
+        fields = data.model_dump(exclude_unset=True)
+        valor_pecas = fields.get("valor_pecas", pedido.valor_pecas)
+        horas_trabalho = fields.get("horas_trabalho", pedido.horas_trabalho)
+        custo_materiais = fields.get("custo_materiais", pedido.custo_materiais)
+        custos_variaveis = fields.get("custos_variaveis", pedido.custos_variaveis)
+        quantidade_pecas = fields.get("quantidade_pecas", pedido.quantidade_pecas)
+
+        # Reaproveita o snapshot histórico do pedido (fidelidade ao orçamento original);
+        # pedidos legados sem snapshot usam os parâmetros atuais e recebem o backfill.
+        snapshot_extra = {}
+        if pedido.param_preco_hora is not None:
+            params = ParametrosCalculo(
+                pedido.param_preco_hora, pedido.param_impostos or 0, pedido.param_cartao_credito or 0
+            )
+        else:
+            p = get_or_create_parametros(db)
+            preco_hora = get_preco_hora_efetivo(db)
+            params = ParametrosCalculo(preco_hora, p.impostos, p.cartao_credito)
+            snapshot_extra = dict(
+                param_preco_hora=preco_hora,
+                param_impostos=p.impostos,
+                param_cartao_credito=p.cartao_credito,
+                param_total_horas_mes=p.total_horas_mes,
+                param_margem_target=p.margem_target,
+            )
+
+        resultado = calcular_margem_real(valor_pecas, horas_trabalho, custo_materiais, custos_variaveis, params)
+        avisos = avaliar_avisos(valor_pecas, quantidade_pecas, horas_trabalho, resultado.margem_real)
+        if avisos and not data.confirmado_atipico:
+            raise PedidoAtipicoWarning(avisos, resultado.margem_real)
+
+        return self.repo.update(pedido_id, data, margem_real=resultado.margem_real, **snapshot_extra)
 
     def update_status(self, pedido_id: int, status: str) -> Optional[Pedido]:
         return self.repo.update_status(pedido_id, status)

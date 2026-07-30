@@ -15,8 +15,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ArrowLeft, Check, Loader2, Plus, Pencil, Trash2, X } from "lucide-react";
+import { getToken } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+
+function authFetch(url: string, init?: RequestInit) {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
 
 interface DespesaItem {
   id: number;
@@ -48,7 +56,7 @@ export default function DespesasPage() {
   const [deleting, setDeleting] = useState(false);
 
   const fetchDespesas = () => {
-    fetch(`${API_URL}/api/v1/despesas`)
+    authFetch(`${API_URL}/api/v1/despesas`)
       .then((res) => res.json())
       .then(setDespesas)
       .catch(() => setDespesas([]))
@@ -73,7 +81,7 @@ export default function DespesasPage() {
     if (isNaN(v) || v < 0) return;
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/despesas`, {
+      const res = await authFetch(`${API_URL}/api/v1/despesas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -103,7 +111,7 @@ export default function DespesasPage() {
     if (isNaN(v) || v < 0) return;
     setSavingId(editingId);
     try {
-      const res = await fetch(`${API_URL}/api/v1/despesas/${editingId}`, {
+      const res = await authFetch(`${API_URL}/api/v1/despesas/${editingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ valor: v }),
@@ -131,7 +139,7 @@ export default function DespesasPage() {
     if (deleteConfirmId === null) return;
     setDeleting(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/despesas/${deleteConfirmId}`, {
+      const res = await authFetch(`${API_URL}/api/v1/despesas/${deleteConfirmId}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Erro");

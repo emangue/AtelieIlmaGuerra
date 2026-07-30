@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.config import settings
+from app.shared.rate_limit import login_limiter
 from .service import AuthService
 from .jwt_utils import extract_user_id_from_token
 from .schemas import LoginRequest, TokenResponse, UserLoginResponse
@@ -19,14 +20,35 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 def _get_token_from_request(request: Request, authorization: Optional[str]) -> Optional[str]:
     if authorization and authorization.startswith("Bearer "):
-        return authorization.replace("Bearer ", "")
+        return authorization[len("Bearer "):]
     return request.cookies.get("auth_token")
+
+
+def _chave_rate_limit(request: Request, email: str) -> str:
+    """Agrupa por IP + email: travar só por IP puniria todo mundo atrás do mesmo NAT."""
+    ip = request.client.host if request.client else "desconhecido"
+    return f"{ip}|{(email or '').strip().lower()}"
 
 
 @router.post("/login")
 def login(request: Request, credentials: LoginRequest, db: Session = Depends(get_db)):
+    chave = _chave_rate_limit(request, credentials.email)
+    faltam = login_limiter.segundos_de_bloqueio(chave)
+    if faltam:
+        minutos = max(1, faltam // 60)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Muitas tentativas de login. Tente novamente em {minutos} min.",
+        )
+
     service = AuthService(db)
-    token_response = service.login(credentials)
+    try:
+        token_response = service.login(credentials)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            login_limiter.registrar_falha(chave)
+        raise
+    login_limiter.registrar_sucesso(chave)
     data = {
         "access_token": token_response.access_token,
         "token_type": token_response.token_type,
