@@ -27,6 +27,8 @@ build/
 *.sqlite3
 database/*.db
 app_dev/backend/database/*.db
+*.db-shm
+*.db-wal
 
 # Uploads e arquivos de usuário
 uploads/
@@ -35,6 +37,7 @@ app_dev/backend/uploads/
 # PIDs e portas do quick_start
 .atelie-*.pid
 .atelie-ports
+.atelie-ports*
 
 # Logs e temporários
 *.log
@@ -64,6 +67,7 @@ logs/
 .DS_Store
 .idea/
 .vscode/
+.cursor/rules/* 2.mdc
 *.swp
 *.swo
 .atelie-env
