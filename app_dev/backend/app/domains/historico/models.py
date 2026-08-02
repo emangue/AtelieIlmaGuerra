@@ -20,4 +20,7 @@ class HistoricoAlteracao(Base):
     acao = Column(String(30), nullable=False)  # criou | editou | mudou_status | apagou
     resumo = Column(Text, nullable=True)
     diff_json = Column(Text, nullable=True)
+    # Qual site originou a alteração: "gestao" ou "atendimento". O site de
+    # atendimento só enxerga as próprias linhas.
+    app = Column(String(20), nullable=False, server_default="gestao", default="gestao", index=True)
     criado_em = Column(DateTime, server_default=func.now(), index=True)

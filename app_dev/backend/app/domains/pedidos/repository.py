@@ -2,6 +2,7 @@
 Repository do domínio Pedidos.
 """
 from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -37,7 +38,7 @@ def _sync_medidas_cliente(db: Session, pedido: Pedido) -> None:
 
 
 # Status que NÃO aparecem em "pedidos ativos"
-STATUS_EXCLUIDOS_ATIVOS = ("Entregue", "Orçamento")
+STATUS_EXCLUIDOS_ATIVOS = ("Entregue", "Orçamento", "Cancelado", "Canelado")
 
 TIPOS_COM_REPASSE_50 = {"ajustes", "ajuste"}
 
@@ -53,15 +54,15 @@ def _percentual_por_tipo(db: Session, tipo_pedido_id) -> float:
 
 
 def _sync_repasse_funcionaria(db: Session, pedido: Pedido) -> None:
-    """Mantém uma despesa pendente de repasse para funcionária ligada ao pedido."""
+    """Mantém a despesa realizada da Andrea alinhada com ajustes entregues."""
     from app.domains.plano.pagamentos_model import Pagamento
+    from app.domains.plano.models import PlanoItem
 
-    pendente = (
+    repasse = (
         db.query(Pagamento)
         .filter(
             Pagamento.origem == "repasse_funcionaria",
             Pagamento.pedido_id == pedido.id,
-            Pagamento.data_pagamento.is_(None),
         )
         .first()
     )
@@ -70,40 +71,149 @@ def _sync_repasse_funcionaria(db: Session, pedido: Pedido) -> None:
     if percentual_dono is None:
         percentual_dono = _percentual_por_tipo(db, pedido.tipo_pedido_id)
 
-    valor_pedido = float(pedido.valor_pecas or 0)
+    valor_pedido = Decimal(str(pedido.valor_pecas or 0))
     percentual_repasse = max(0.0, min(100.0, 100.0 - float(percentual_dono)))
-    valor_repasse = round(valor_pedido * percentual_repasse / 100.0, 2)
+    valor_repasse = (
+        valor_pedido * Decimal(str(percentual_repasse)) / Decimal("100")
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    tipo_nome = (pedido.tipo_pedido.nome if pedido.tipo_pedido else "").lower()
+    deve_ter_repasse = (
+        pedido.status == "Entregue"
+        and tipo_nome in TIPOS_COM_REPASSE_50
+        and valor_repasse > 0
+    )
 
-    deve_ter_repasse = pedido.status == "Entregue" and valor_repasse > 0
     if not deve_ter_repasse:
-        if pendente:
-            db.delete(pendente)
+        if repasse:
+            db.delete(repasse)
         return
 
-    vencimento = pedido.data_entrega or pedido.data_pedido or date.today()
-    descricao = f"Repasse funcionária - Pedido #{pedido.id}"
+    data_repasse = pedido.data_entrega or pedido.data_pedido or date.today()
+    anomes = f"{data_repasse.year}{data_repasse.month:02d}"
+    plano_item = (
+        db.query(PlanoItem)
+        .filter(
+            PlanoItem.anomes == anomes,
+            PlanoItem.tipo == "despesa",
+            PlanoItem.tipo_item == "Colaboradores",
+            PlanoItem.detalhe.in_(("Andrea", "Esli")),
+        )
+        .order_by(PlanoItem.detalhe.asc())
+        .first()
+    )
+    if not plano_item:
+        plano_item = PlanoItem(
+            anomes=anomes,
+            tipo="despesa",
+            categoria="Custo Variável",
+            tipo_item="Colaboradores",
+            detalhe="Andrea",
+            valor_planejado=0,
+            valor_realizado=0,
+        )
+        db.add(plano_item)
+        db.flush()
+    elif plano_item.detalhe == "Esli":
+        plano_item.detalhe = "Andrea"
 
-    if pendente:
-        pendente.valor = valor_repasse
-        pendente.data_vencimento = vencimento
-        pendente.categoria = "Colaboradores"
-        pendente.tipo_item = "Repasse funcionária"
-        pendente.descricao = descricao
+    dados = {
+        "anomes": anomes,
+        "plano_item_id": plano_item.id,
+        "data_vencimento": data_repasse,
+        "data_pagamento": data_repasse,
+        "categoria": plano_item.categoria or "Custo Variável",
+        "tipo_item": "Colaboradores",
+        "valor": float(valor_repasse),
+        "descricao": f"Andrea - Pedido #{pedido.id}",
+    }
+    if repasse:
+        for campo, valor in dados.items():
+            setattr(repasse, campo, valor)
     else:
         db.add(
             Pagamento(
-                anomes=None,
                 tipo="despesa",
                 origem="repasse_funcionaria",
                 pedido_id=pedido.id,
-                data_vencimento=vencimento,
-                data_pagamento=None,
-                categoria="Colaboradores",
-                tipo_item="Repasse funcionária",
-                valor=valor_repasse,
-                descricao=descricao,
+                **dados,
             )
         )
+
+
+def _money_decimal(valor: Optional[float]) -> Decimal:
+    return Decimal(str(valor or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _split_money(total: Decimal, count: int) -> list[float]:
+    total_cents = int((total * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP))
+    base = total_cents // count
+    remainder = total_cents % count
+    return [float(Decimal(base + (1 if i < remainder else 0)) / Decimal("100")) for i in range(count)]
+
+
+def _scale_money(original_values: list[Decimal], total: Decimal) -> list[float]:
+    original_total = sum(original_values, Decimal("0"))
+    if original_total <= 0:
+        return _split_money(total, len(original_values))
+
+    valores: list[Decimal] = []
+    acumulado = Decimal("0")
+    for original in original_values[:-1]:
+        valor = (total * original / original_total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        valores.append(valor)
+        acumulado += valor
+    valores.append((total - acumulado).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return [float(v) for v in valores]
+
+
+def _sync_receitas_pedido(db: Session, pedido: Pedido) -> None:
+    """Mantém parcelas pendentes alinhadas ao valor atual do pedido."""
+    from app.domains.plano.pagamentos_model import Pagamento
+
+    pagamentos = (
+        db.query(Pagamento)
+        .filter(
+            Pagamento.pedido_id == pedido.id,
+            Pagamento.tipo == "receita",
+            Pagamento.origem == "pedido",
+        )
+        .order_by(Pagamento.parcela_numero.asc().nullslast(), Pagamento.data_vencimento.asc().nullslast(), Pagamento.id.asc())
+        .all()
+    )
+    # Parcela de cartão futura nasce com data_pagamento preenchida, mas ainda pode
+    # ser reescalonada — só o dinheiro que já entrou trava o ajuste.
+    if not pagamentos or any(not p.pendente_de_caixa for p in pagamentos):
+        return
+
+    total = _money_decimal(pedido.valor_pecas)
+    if total <= 0:
+        return
+
+    originais = [_money_decimal(p.valor) for p in pagamentos]
+    if len(pagamentos) == 1:
+        novos_valores = [float(total)]
+    elif all(v > 0 for v in originais):
+        novos_valores = _scale_money(originais, total)
+    else:
+        novos_valores = _split_money(total, len(pagamentos))
+
+    tipo_nome = pedido.tipo_pedido.nome if pedido.tipo_pedido else "Pedido"
+    cliente_nome = pedido.cliente.nome if pedido.cliente else ""
+    descricao_base = f"{tipo_nome} · {cliente_nome}" if cliente_nome else tipo_nome
+    total_parcelas = len(pagamentos)
+    tem_entrada = (pagamentos[0].descricao or "").lower().startswith("entrada")
+    for index, pagamento in enumerate(pagamentos, start=1):
+        pagamento.valor = novos_valores[index - 1]
+        pagamento.parcela_numero = index
+        pagamento.parcela_total = total_parcelas
+        # A entrada é identificada pelo prefixo da descrição — reescrever tudo como
+        # "Parcela N" faria o formulário perder a entrada ao recarregar.
+        if index == 1 and tem_entrada:
+            pagamento.descricao = f"Entrada · {descricao_base}"
+        elif total_parcelas > 1:
+            pagamento.descricao = f"Parcela {index - (1 if tem_entrada else 0)} · {descricao_base}"
+        else:
+            pagamento.descricao = descricao_base
 
 
 class PedidoRepository:
@@ -130,6 +240,7 @@ class PedidoRepository:
         extra = {
             "percentual_lucro_dono",
             "forma_pagamento", "valor_entrada", "valor_restante", "pagamento_na_entrega",
+            "canal_cartao", "taxa_cartao_valor", "desconto_pix_valor",
             "detalhes_pagamento", "medidas_disponiveis", "observacao_pedido",
             "fotos_disponiveis", "foto_url", "foto_url_2", "foto_url_3",
             "comentario_foto_1", "comentario_foto_2", "comentario_foto_3",
@@ -144,6 +255,7 @@ class PedidoRepository:
         }
         kwargs = {k: v for k, v in d.items() if k in base or (k in extra and v is not None)}
         kwargs.setdefault("descricao_produto", "")
+        kwargs["criado_como_orcamento"] = kwargs.get("status") == "Orçamento"
         kwargs["margem_real"] = margem_real
         kwargs["param_preco_hora"] = param_preco_hora
         kwargs["param_impostos"] = param_impostos
@@ -211,6 +323,9 @@ class PedidoRepository:
         limit: int = 20,
         mes: Optional[str] = None,
         status: Optional[str] = None,
+        tipo: Optional[str] = None,
+        repasse_funcionaria: bool = False,
+        percentual_lucro_dono: Optional[float] = None,
     ):
         """Busca paginada com eager loading para evitar N+1. Retorna (items, total)."""
         from app.domains.clientes.models import Cliente
@@ -239,6 +354,24 @@ class PedidoRepository:
         if status:
             query = query.filter(Pedido.status == status)
 
+        if tipo:
+            query = query.join(TipoPedido, Pedido.tipo_pedido_id == TipoPedido.id).filter(
+                TipoPedido.nome.ilike(f"%{tipo.strip()}%")
+            )
+
+        if repasse_funcionaria:
+            query = query.join(
+                Pagamento,
+                and_(
+                    Pagamento.pedido_id == Pedido.id,
+                    Pagamento.tipo == "despesa",
+                    Pagamento.origem == "repasse_funcionaria",
+                ),
+            )
+
+        if percentual_lucro_dono is not None:
+            query = query.filter(Pedido.percentual_lucro_dono == percentual_lucro_dono)
+
         if q and q.strip():
             term = f"%{q.strip()}%"
             query = query.join(Cliente, Pedido.cliente_id == Cliente.id).filter(
@@ -249,9 +382,18 @@ class PedidoRepository:
                 )
             )
 
-        total = query.count()
+        resumo_items = query.all()
+        total_valor_pecas = round(sum(float(p.valor_pecas or 0) for p in resumo_items), 2)
+        percentuais_map = {}
+        for p in resumo_items:
+            percentual = float(p.percentual_lucro_dono if p.percentual_lucro_dono is not None else 100)
+            atual = percentuais_map.setdefault(percentual, {"percentual": percentual, "quantidade": 0, "valor": 0.0})
+            atual["quantidade"] = int(atual["quantidade"]) + 1
+            atual["valor"] = round(float(atual["valor"]) + float(p.valor_pecas or 0), 2)
+        percentuais_lucro_dono = sorted(percentuais_map.values(), key=lambda item: float(item["percentual"]))
+        total = len(resumo_items)
         items = query.offset(offset).limit(limit).all()
-        return items, total
+        return items, total, total_valor_pecas, percentuais_lucro_dono
 
     def list_entregues(self, mes: str) -> List[Pedido]:
         """Lista pedidos entregues no mês (status=Entregue, data_entrega no mês)."""
@@ -309,10 +451,15 @@ class PedidoRepository:
         if not pedido:
             return None
         update_data = data.model_dump(exclude_unset=True)
+        # Flags de controle, não colunas — não devem virar atributo do modelo.
         update_data.pop("confirmado_atipico", None)
+        update_data.pop("recalcular_custos", None)
         era_entregue = pedido.status == "Entregue"
+        era_orcamento = pedido.status == "Orçamento"
         for key, value in update_data.items():
             setattr(pedido, key, value)
+        if era_orcamento:
+            pedido.criado_como_orcamento = True
         if "tipo_pedido_id" in update_data and "percentual_lucro_dono" not in update_data:
             pedido.percentual_lucro_dono = _percentual_por_tipo(self.db, update_data["tipo_pedido_id"])
         if "status" in update_data:
@@ -329,6 +476,8 @@ class PedidoRepository:
             pedido.param_total_horas_mes = param_total_horas_mes
             pedido.param_margem_target = param_margem_target
         _sync_medidas_cliente(self.db, pedido)
+        if "valor_pecas" in update_data:
+            _sync_receitas_pedido(self.db, pedido)
         _sync_repasse_funcionaria(self.db, pedido)
         self.db.commit()
         self.db.refresh(pedido)
@@ -339,7 +488,10 @@ class PedidoRepository:
         if not pedido:
             return None
         era_entregue = pedido.status == "Entregue"
+        era_orcamento = pedido.status == "Orçamento"
         pedido.status = status
+        if era_orcamento:
+            pedido.criado_como_orcamento = True
         if status == "Entregue":
             if pedido.data_entrega is None:
                 pedido.data_entrega = pedido.data_pedido or date.today()

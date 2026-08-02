@@ -14,6 +14,24 @@ Sincroniza o código local, roda migrações necessárias, rebuilda o frontend e
 | Banco | SQLite em `/var/www/atelie/app_dev/backend/database/atelie.db` |
 | Domínio | `https://gestao.atelieilmaguerra.com.br` |
 
+### Segundo app: site de atendimento
+
+| Item | Valor |
+|---|---|
+| Local | `/Users/emangue/Documents/ProjetoVSCode/AtelieIlmaGuerra/app_atendimento/` |
+| VPS path | `/var/www/atelie/app_atendimento/` |
+| Backend | systemd `atelie-atendimento-backend` → porta 8002 |
+| Frontend | systemd `atelie-atendimento-frontend` → porta 3005 |
+| Banco | **o mesmo** `atelie.db` do gestão (só users, clientes, pedidos_atendimento, historico) |
+| Domínio | `https://atendimento.atelieilmaguerra.com.br` |
+
+> Os dois apps compartilham o arquivo SQLite, mas **só o backend de gestão cria e
+> altera schema**. Ao deployar mudanças de tabela, suba o gestão primeiro — o
+> `create_all`/migrations do startup dele é que preparam o banco para os dois.
+
+Se o deploy mexe só no gestão, siga os passos 0–7 e ignore a seção
+"Deploy do site de atendimento" no fim deste arquivo.
+
 ---
 
 ## Passo 0 — Limpeza de arquivos duplicados do Finder (SEMPRE antes de qualquer coisa)
@@ -310,6 +328,141 @@ curl -s --connect-timeout 3 -o /dev/null -w '%{http_code}' http://148.230.78.91:
 
 ---
 
+## Deploy do site de atendimento (`app_atendimento/`)
+
+> Rode **depois** do deploy do gestão quando houver mudança de schema: o backend
+> de gestão é o dono do DDL; o de atendimento assume o banco pronto.
+
+### Primeira vez na VM (setup, só uma vez)
+
+```bash
+# 1. DNS: criar registro A "atendimento" -> 148.230.78.91 no painel do domínio.
+#    Confirmar antes de seguir:
+dig +short atendimento.atelieilmaguerra.com.br
+
+# 2. Certificado (certbot do FinUp)
+ssh minha-vps-hostinger "
+cd /opt/finup && docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
+  -d atendimento.atelieilmaguerra.com.br --agree-tos --no-eff-email -m emanuelgleandro@gmail.com
+"
+
+# 3. nginx
+scp /Users/emangue/Documents/ProjetoVSCode/AtelieIlmaGuerra/scripts/atelie-atendimento-nginx.conf \
+  minha-vps-hostinger:/var/www/infra/nginx/conf.d/atendimento.atelieilmaguerra.com.br.conf
+ssh minha-vps-hostinger "docker exec infra_nginx nginx -t && docker exec infra_nginx nginx -s reload"
+
+# 4. systemd
+scp /Users/emangue/Documents/ProjetoVSCode/AtelieIlmaGuerra/scripts/deploy/atelie-atendimento-*.service \
+  minha-vps-hostinger:/tmp/
+ssh minha-vps-hostinger "
+sudo mv /tmp/atelie-atendimento-*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable atelie-atendimento-backend atelie-atendimento-frontend
+"
+
+# 5. .env do backend — JWT_SECRET_KEY OBRIGATORIAMENTE diferente do gestão
+ssh minha-vps-hostinger "
+mkdir -p /var/www/atelie/app_atendimento/backend
+SEGREDO=\$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
+cat > /var/www/atelie/app_atendimento/backend/.env <<EOF
+DEBUG=false
+DATABASE_PATH=/var/www/atelie/app_dev/backend/database/atelie.db
+UPLOADS_DIR=/var/www/atelie/app_dev/backend/uploads
+BACKEND_CORS_ORIGINS=https://atendimento.atelieilmaguerra.com.br
+HOST=0.0.0.0
+PORT=8002
+JWT_SECRET_KEY=\$SEGREDO
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+EOF
+chmod 600 /var/www/atelie/app_atendimento/backend/.env
+# Conferir que o segredo é diferente do gestão:
+diff <(grep JWT_SECRET_KEY /var/www/atelie/app_dev/backend/.env) \
+     <(grep JWT_SECRET_KEY /var/www/atelie/app_atendimento/backend/.env) >/dev/null \
+  && echo 'FALHA: mesmo JWT_SECRET_KEY dos dois lados — trocar!' \
+  || echo 'OK: segredos diferentes'
+"
+
+# 6. .env.local do frontend
+ssh minha-vps-hostinger "
+mkdir -p /var/www/atelie/app_atendimento/frontend
+printf 'NEXT_PUBLIC_BACKEND_URL=\nBACKEND_URL=http://localhost:8002\n' \
+  > /var/www/atelie/app_atendimento/frontend/.env.local
+"
+```
+
+### A cada deploy
+
+```bash
+# Build local primeiro — nunca deployar com build quebrado
+cd /Users/emangue/Documents/ProjetoVSCode/AtelieIlmaGuerra/app_atendimento/frontend && npm run build 2>&1 | tail -15
+```
+
+```bash
+# rsync (mesmas regras do gestão: nunca --delete, sempre excluir venv/ e .next)
+rsync -avz \
+  --exclude='node_modules' --exclude='.next' --exclude='__pycache__' --exclude='*.pyc' \
+  --exclude='venv/' --exclude='.git' --exclude='.env' \
+  /Users/emangue/Documents/ProjetoVSCode/AtelieIlmaGuerra/app_atendimento/ \
+  minha-vps-hostinger:/var/www/atelie/app_atendimento/
+```
+
+```bash
+ssh minha-vps-hostinger "
+set -e
+cd /var/www/atelie/app_atendimento/backend
+[ -d venv ] || python3 -m venv venv
+venv/bin/pip install -q -r requirements.txt
+sudo systemctl restart atelie-atendimento-backend
+sleep 3
+curl -s -o /dev/null -w 'backend :8002 -> %{http_code}\n' http://localhost:8002/api/health
+
+sudo systemctl stop atelie-atendimento-frontend
+rm -rf /var/www/atelie/app_atendimento/frontend/.next
+cd /var/www/atelie/app_atendimento/frontend
+npm ci --omit=dev --no-audit --no-fund || npm install
+npm run build 2>&1 | tail -15
+sudo systemctl start atelie-atendimento-frontend
+sleep 8
+curl -s -o /dev/null -w 'frontend :3005 -> %{http_code}\n' http://localhost:3005
+"
+```
+
+### Validação do isolamento (rodar SEMPRE após deploy do atendimento)
+
+```bash
+ssh minha-vps-hostinger "
+echo '=== A API de atendimento não pode ter rota de dado sensível ==='
+for r in pedidos plano despesas financeiro parametros dashboard contracts logs users; do
+  CODE=\$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8002/api/v1/\$r)
+  [ \"\$CODE\" = '404' ] && echo \"  OK  /\$r -> 404 (rota não existe)\" || echo \"  ATENÇÃO /\$r -> \$CODE\"
+done
+
+echo '=== Login de gestão recusado no atendimento e vice-versa ==='
+curl -s -o /dev/null -w '  gestão:8001 sem token -> %{http_code}\n'      http://localhost:8001/api/v1/auth/me
+curl -s -o /dev/null -w '  atendimento:8002 sem token -> %{http_code}\n' http://localhost:8002/api/v1/auth/me
+
+echo '=== Schema da API fechado em produção (DEBUG=false) ==='
+curl -s -o /dev/null -w '  /openapi.json -> %{http_code} (esperado 404)\n' http://localhost:8002/openapi.json
+"
+
+# Portas internas não expostas — SEMPRE do Mac, nunca por SSH de dentro da VM
+# (curl de dentro da VM para o próprio IP público dá falso positivo)
+for p in 8001 8002 3004 3005; do
+  curl -s --connect-timeout 3 -o /dev/null -w "porta $p: %{http_code}\n" http://148.230.78.91:$p/ \
+    || echo "porta $p: OK (bloqueada)"
+done
+
+curl -sf -o /dev/null -w 'Site de atendimento: %{http_code}\n' https://atendimento.atelieilmaguerra.com.br/
+```
+
+### Criar o login do ajudante
+
+Pela tela **Perfil** do sistema de gestão (a Ilma faz sozinha): novo usuário com
+função **Atendimento**. Esse perfil não entra no gestão — o login lá devolve 403.
+
+---
+
 ## Problemas conhecidos e soluções
 
 | Problema | Causa | Solução |
@@ -322,3 +475,7 @@ curl -s --connect-timeout 3 -o /dev/null -w '%{http_code}' http://148.230.78.91:
 | `502 Bad Gateway` | Frontend ou backend não está rodando | Verificar `systemctl status` e logs com `journalctl -u` |
 | Página velha em produção | Arquivo `page 2.tsx` mascarando o arquivo real | Rodar limpeza de duplicatas (Passo 0) |
 | Foto com `ERR_HTTP2_PROTOCOL_ERROR` | Permissão `-rw-------` no arquivo de upload | `chown deploy:deploy` + `chmod 644` no arquivo específico |
+| `database is locked` em qualquer um dos dois apps | Escrita simultânea gestão/atendimento sem WAL | Confirmar `PRAGMA journal_mode` = `wal` nos dois `core/database.py`; checar com `sqlite3 atelie.db 'PRAGMA journal_mode'` |
+| Atendimento com `no such table: pedidos_atendimento` | Deploy do atendimento antes do gestão criar a tabela | Reiniciar `atelie-backend` (o startup dele roda o `create_all`), depois o de atendimento |
+| Login do atendimento funciona no gestão (ou vice-versa) | Mesmo `JWT_SECRET_KEY` nos dois `.env` | Gerar segredo novo para `app_atendimento/backend/.env` e reiniciar os dois backends |
+| Chamadas de `/api` do atendimento devolvem HTML | `matcher` do middleware do Next capturando `/api` | Conferir `app_atendimento/frontend/src/middleware.ts` — `api` e `uploads` precisam estar na exclusão |

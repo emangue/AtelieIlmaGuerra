@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB
 
-from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem, ParcelaCreate, ParcelasConfig, ParcelaOut, PedidoHistoricoResponse
+from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem, ParcelaCreate, ParcelasConfig, ParcelaOut, CustosReceberOut, PedidoHistoricoResponse
 from .service import PedidoService, PedidoAtipicoWarning, _norm_foto_url
 
 
@@ -59,15 +59,29 @@ def list_pedidos_historico(
     limit: int = Query(20, ge=1, le=100),
     mes: Optional[str] = Query(None, description="YYYYMM - filtra por data_entrega no mês"),
     status: Optional[str] = Query(None, description="Filtra por status exato"),
+    tipo: Optional[str] = Query(None, description="Filtra por tipo de pedido"),
+    repasse_funcionaria: bool = Query(False, description="Filtra pedidos que geraram repasse para funcionária"),
+    percentual_lucro_dono: Optional[float] = Query(None, ge=0, le=100, description="Filtra pelo percentual que fica com Ilma"),
     db: Session = Depends(get_db),
 ):
     """Busca paginada de pedidos com eager loading. Ideal para histórico."""
     service = PedidoService(db)
-    items, total = service.search_historico(q=q, offset=offset, limit=limit, mes=mes, status=status)
+    items, total, total_valor_pecas, percentuais_lucro_dono = service.search_historico(
+        q=q,
+        offset=offset,
+        limit=limit,
+        mes=mes,
+        status=status,
+        tipo=tipo,
+        repasse_funcionaria=repasse_funcionaria,
+        percentual_lucro_dono=percentual_lucro_dono,
+    )
     return PedidoHistoricoResponse(
         items=[service.to_list_item(p) for p in items],
         total=total,
         has_more=(offset + limit) < total,
+        total_valor_pecas=total_valor_pecas,
+        percentuais_lucro_dono=percentuais_lucro_dono,
     )
 
 
@@ -216,6 +230,14 @@ def get_pedido(pedido_id: int, db: Session = Depends(get_db)):
         valor_entrada=pedido.valor_entrada,
         valor_restante=pedido.valor_restante,
         detalhes_pagamento=pedido.detalhes_pagamento,
+        canal_cartao=getattr(pedido, "canal_cartao", None),
+        data_compra_cartao=getattr(pedido, "data_compra_cartao", None),
+        taxa_cartao_valor=getattr(pedido, "taxa_cartao_valor", None),
+        taxa_cartao_percentual=getattr(pedido, "taxa_cartao_percentual", None),
+        taxa_cartao_manual=getattr(pedido, "taxa_cartao_manual", None),
+        desconto_pix_valor=getattr(pedido, "desconto_pix_valor", None),
+        desconto_pix_percentual=getattr(pedido, "desconto_pix_percentual", None),
+        desconto_pix_manual=getattr(pedido, "desconto_pix_manual", None),
         medidas_disponiveis=pedido.medidas_disponiveis,
         fotos_disponiveis=getattr(pedido, "fotos_disponiveis", None),
         medida_ombro=pedido.medida_ombro,
@@ -243,7 +265,6 @@ def get_pedido(pedido_id: int, db: Session = Depends(get_db)):
         param_cartao_credito=getattr(pedido, "param_cartao_credito", None),
         param_total_horas_mes=getattr(pedido, "param_total_horas_mes", None),
         param_margem_target=getattr(pedido, "param_margem_target", None),
-        percentual_lucro_dono=getattr(pedido, "percentual_lucro_dono", None),
         foto_url_2=_norm_foto_url(getattr(pedido, "foto_url_2", None)),
         foto_url_3=_norm_foto_url(getattr(pedido, "foto_url_3", None)),
         comentario_foto_1=getattr(pedido, "comentario_foto_1", None),
@@ -315,25 +336,56 @@ def get_parcelas(pedido_id: int, db: Session = Depends(get_db)):
         .order_by(Pagamento.parcela_numero.asc().nullslast(), Pagamento.data_vencimento.asc())
         .all()
     )
-    hoje = date_type.today()
-    result = []
-    for p in parcelas:
-        if p.data_pagamento:
-            status = "confirmado"
-        elif p.data_vencimento and p.data_vencimento < hoje:
-            status = "em_atraso"
-        else:
-            status = "aguardando"
-        result.append(ParcelaOut(
+    return [
+        ParcelaOut(
             id=p.id,
             parcela_numero=p.parcela_numero,
             parcela_total=p.parcela_total,
             valor=p.valor,
             data_vencimento=p.data_vencimento.isoformat() if p.data_vencimento else None,
             data_pagamento=p.data_pagamento.isoformat() if p.data_pagamento else None,
-            status=status,
-        ))
-    return result
+            descricao=p.descricao,
+            status=p.status,
+            forma_pagamento=p.forma_pagamento,
+            liquidacao_automatica=bool(p.liquidacao_automatica),
+            desconto_adiantamento=p.desconto_adiantamento,
+        )
+        for p in parcelas
+    ]
+
+
+@router.get("/{pedido_id}/custos-receber", response_model=CustosReceberOut)
+def get_custos_receber(pedido_id: int, db: Session = Depends(get_db)):
+    """Quanto do pedido não chega na mão da Ilma (taxa de cartão + desconto Pix)."""
+    from app.domains.plano.pagamentos_model import Pagamento
+    from app.domains.plano.custos_financeiros import calcular_custos
+
+    service = PedidoService(db)
+    pedido = service.get_by_id(pedido_id)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+
+    parcelas = (
+        db.query(Pagamento)
+        .filter(Pagamento.pedido_id == pedido_id, Pagamento.tipo == "receita", Pagamento.origem == "pedido")
+        .all()
+    )
+    custos = calcular_custos(db, pedido, parcelas)
+    total = (custos["taxa_cartao_valor"] or 0) + (custos["desconto_pix_valor"] or 0)
+    return CustosReceberOut(
+        taxa_cartao_valor=custos["taxa_cartao_valor"] or 0,
+        taxa_cartao_percentual=custos["taxa_cartao_percentual"],
+        taxa_cartao_manual=bool(pedido.taxa_cartao_manual),
+        desconto_pix_valor=custos["desconto_pix_valor"] or 0,
+        desconto_pix_percentual=custos["desconto_pix_percentual"],
+        desconto_pix_manual=bool(pedido.desconto_pix_manual),
+        base_cartao=custos["base_cartao"],
+        base_pix=custos["base_pix"],
+        pago_100_pct_pix=custos["pago_100_pct_pix"],
+        canal_cartao=pedido.canal_cartao,
+        data_compra_cartao=pedido.data_compra_cartao.isoformat() if pedido.data_compra_cartao else None,
+        valor_liquido=round((pedido.valor_pecas or 0) - total, 2),
+    )
 
 
 @router.post("/{pedido_id}/pagamento", response_model=list[ParcelaOut], status_code=201)
@@ -345,6 +397,9 @@ def configurar_pagamento(
 ):
     """Cria ou recria as parcelas de um pedido. Apaga as anteriores e insere as novas."""
     from app.domains.plano.pagamentos_model import Pagamento
+    from app.domains.plano.custos_financeiros import (
+        ORIGENS_CUSTO, aplicar_custos, is_cartao, sync_custos_financeiros,
+    )
     from datetime import datetime as dt, date as date_type
 
     service = PedidoService(db)
@@ -352,72 +407,99 @@ def configurar_pagamento(
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
 
-    # Apagar parcelas existentes do pedido
+    # Apagar parcelas existentes e as despesas de custo que elas geraram — senão
+    # sobram lançamentos órfãos de uma configuração que não existe mais.
     db.query(Pagamento).filter(
         Pagamento.pedido_id == pedido_id,
         Pagamento.tipo == "receita",
     ).delete()
+    db.query(Pagamento).filter(
+        Pagamento.pedido_id == pedido_id,
+        Pagamento.origem.in_(ORIGENS_CUSTO),
+    ).delete(synchronize_session=False)
 
     tipo_nome = pedido.tipo_pedido.nome if pedido.tipo_pedido else "Pedido"
     cliente_nome = pedido.cliente.nome if pedido.cliente else ""
     descricao_base = f"{tipo_nome} · {cliente_nome}" if cliente_nome else tipo_nome
+    entrada_valida = data.entrada if data.entrada and data.entrada.valor > 0 else None
+    parcelas_validas = [parc for parc in data.parcelas if parc.valor > 0]
 
     novas: list[Pagamento] = []
-    total_parcelas = len(data.parcelas) + (1 if data.entrada else 0)
+    total_parcelas = len(parcelas_validas) + (1 if entrada_valida else 0)
 
     def _parse(d: str) -> date_type:
         return dt.strptime(d, "%Y-%m-%d").date()
 
-    num = 1
-
-    if data.entrada:
-        e = data.entrada
-        data_venc = _parse(e.data_vencimento)
-        data_pag = _parse(e.data_pagamento) if e.data_pagamento else None
-        anomes = f"{data_pag.year}{data_pag.month:02d}" if data_pag else None
-        novas.append(Pagamento(
-            anomes=anomes,
-            tipo="receita",
-            origem="pedido",
-            pedido_id=pedido_id,
-            parcela_numero=num,
-            parcela_total=total_parcelas,
-            data_vencimento=data_venc,
-            data_pagamento=data_pag,
-            valor=e.valor,
-            descricao=f"Entrada · {descricao_base}",
-        ))
-        num += 1
-
-    for parc in data.parcelas:
+    def _montar(parc, numero: int, descricao: str, forma_padrao: Optional[str]) -> Pagamento:
+        """Parcela de cartão não se confirma: nasce com a data prevista de crédito
+        já preenchida, para cair sozinha no financeiro do mês certo."""
+        forma = parc.forma_pagamento or forma_padrao
+        automatica = is_cartao(forma)
         data_venc = _parse(parc.data_vencimento)
-        data_pag = _parse(parc.data_pagamento) if parc.data_pagamento else None
-        anomes = f"{data_pag.year}{data_pag.month:02d}" if data_pag else None
-        novas.append(Pagamento(
-            anomes=anomes,
+        if automatica:
+            data_pag = data_venc
+        else:
+            data_pag = _parse(parc.data_pagamento) if parc.data_pagamento else None
+        return Pagamento(
+            anomes=f"{data_pag.year}{data_pag.month:02d}" if data_pag else None,
             tipo="receita",
             origem="pedido",
             pedido_id=pedido_id,
-            parcela_numero=num,
+            parcela_numero=numero,
             parcela_total=total_parcelas,
             data_vencimento=data_venc,
             data_pagamento=data_pag,
             valor=parc.valor,
-            descricao=f"Parcela {num - (1 if data.entrada else 0)} · {descricao_base}",
-        ))
+            descricao=descricao,
+            forma_pagamento=forma,
+            liquidacao_automatica=automatica,
+        )
+
+    num = 1
+    if entrada_valida:
+        novas.append(_montar(entrada_valida, num, f"Entrada · {descricao_base}", data.forma_pagamento))
         num += 1
 
-    # Atualizar forma_pagamento no pedido
-    if data.forma_pagamento:
-        pedido.forma_pagamento = data.forma_pagamento
-
-    # Se todas confirmadas, marcar pagamento_na_entrega como resolvido
-    todas_pagas = all(p.data_pagamento for p in novas)
-    if todas_pagas:
-        pedido.pagamento_na_entrega = False
+    for parc in parcelas_validas:
+        numero_exibido = num - (1 if entrada_valida else 0)
+        novas.append(_montar(parc, num, f"Parcela {numero_exibido} · {descricao_base}", data.forma_pagamento))
+        num += 1
 
     for p in novas:
         db.add(p)
+
+    formas_usadas = {p.forma_pagamento for p in novas if p.forma_pagamento}
+    if len(formas_usadas) > 1:
+        pedido.forma_pagamento = "Misto"
+    elif formas_usadas:
+        pedido.forma_pagamento = next(iter(formas_usadas))
+    elif data.forma_pagamento:
+        pedido.forma_pagamento = data.forma_pagamento
+
+    pedido.valor_entrada = entrada_valida.valor if entrada_valida else None
+    pedido.valor_restante = round(sum(parc.valor for parc in parcelas_validas), 2) if parcelas_validas else None
+    pedido.pagamento_na_entrega = False
+
+    if data.canal_cartao is not None:
+        pedido.canal_cartao = data.canal_cartao
+    if data.data_compra_cartao:
+        pedido.data_compra_cartao = _parse(data.data_compra_cartao)
+
+    # Valor informado à mão vence o cálculo automático e fica marcado como manual,
+    # para que uma edição de preço depois não apague o número dela.
+    if data.taxa_cartao_valor is not None:
+        pedido.taxa_cartao_valor = data.taxa_cartao_valor
+        pedido.taxa_cartao_manual = True
+    if data.desconto_pix_valor is not None:
+        pedido.desconto_pix_valor = data.desconto_pix_valor
+        pedido.desconto_pix_manual = True
+
+    db.flush()
+    aplicar_custos(db, pedido, novas)
+    sync_custos_financeiros(db, pedido)
+    # A margem depende do custo de receber, que só é conhecido agora que as formas
+    # de pagamento estão definidas.
+    service.recalcular_margem(pedido)
 
     registrar_alteracao(
         db, user_id=user_id, entidade="pedido", entidade_id=pedido_id, acao="editou",

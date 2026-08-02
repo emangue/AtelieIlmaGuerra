@@ -4,7 +4,15 @@ Schemas Pydantic do domínio Users.
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from .roles import ROLES_VALIDAS
+
+
+def _validar_role(v: Optional[str]) -> Optional[str]:
+    if v is not None and v not in ROLES_VALIDAS:
+        raise ValueError(f"Perfil inválido. Use um destes: {', '.join(ROLES_VALIDAS)}")
+    return v
 
 
 class UserBase(BaseModel):
@@ -16,6 +24,8 @@ class UserCreate(UserBase):
     password: str = Field(..., min_length=6)
     role: str = "user"
 
+    _check_role = field_validator("role")(_validar_role)
+
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
@@ -23,6 +33,8 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     role: Optional[str] = None
     ativo: Optional[int] = None
+
+    _check_role = field_validator("role")(_validar_role)
 
 
 class UserResponse(UserBase):

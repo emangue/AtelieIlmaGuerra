@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Loader2, Plus, Ruler, Search } from "lucide-react";
-import { PagamentoForm, PagamentoConfig } from "@/components/mobile/pagamento-form";
+import { PagamentoForm, PagamentoConfig, pagamentoConfigInicial } from "@/components/mobile/pagamento-form";
 import { PedidoConfirmacaoAtipica } from "@/components/mobile/pedido-confirmacao-atipica";
 import { calcularMargem, avaliarAvisosPedido, AvisoPedido } from "@/lib/margem-pedido";
 import { getToken } from "@/lib/api-client";
@@ -19,6 +19,10 @@ function authFetch(url: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(url, { ...init, headers });
+}
+
+function parseMoneyInput(value: string): number {
+  return parseFloat(value.replace(",", ".")) || 0;
 }
 
 interface ClienteItem {
@@ -102,12 +106,7 @@ function NovoPedidoContent() {
   const [formaPagamento, setFormaPagamento] = useState<string | null>(null);
   const [valorEntrada, setValorEntrada] = useState(0);
   const [detalhesPagamento, setDetalhesPagamento] = useState("");
-  const [pagamentoConfig, setPagamentoConfig] = useState<PagamentoConfig>({
-    pagamento_na_entrega: false,
-    forma_pagamento: null,
-    entrada: null,
-    parcelas: [],
-  });
+  const [pagamentoConfig, setPagamentoConfig] = useState<PagamentoConfig>(pagamentoConfigInicial());
 
   const [observacao, setObservacao] = useState("");
   const [medidasDisponiveis, setMedidasDisponiveis] = useState<boolean | null>(
@@ -248,7 +247,9 @@ function NovoPedidoContent() {
         horasTrabalho,
         custoMateriais,
         custosVariaveis,
-        parametros
+        parametros,
+        // Custo de receber real deste pedido — zero enquanto não há forma definida.
+        pagamentoConfig.taxa_cartao_valor + pagamentoConfig.desconto_pix_valor
       );
       return {
         valorMargem20: r.valorMargem20,
@@ -262,6 +263,8 @@ function NovoPedidoContent() {
       custoMateriais,
       custosVariaveis,
       valorPecas,
+      pagamentoConfig.taxa_cartao_valor,
+      pagamentoConfig.desconto_pix_valor,
     ]);
 
   useEffect(() => {
@@ -350,6 +353,10 @@ function NovoPedidoContent() {
         valor_entrada: valorEntrada || null,
         valor_restante: Math.max(0, (valorPecas || 0) - (valorEntrada || 0)) || null,
         detalhes_pagamento: detalhesPagamento || null,
+        canal_cartao: pagamentoConfig.canal_cartao,
+        // Só manda o valor quando ela digitou; senão o backend calcula pela tabela.
+        taxa_cartao_valor: pagamentoConfig.taxa_cartao_manual ? pagamentoConfig.taxa_cartao_valor : null,
+        desconto_pix_valor: pagamentoConfig.desconto_pix_manual ? pagamentoConfig.desconto_pix_valor : null,
         medidas_disponiveis: medidasDisponiveis,
         comentario_medidas: comentarioMedidas || null,
         observacao_pedido: observacao || null,
@@ -378,29 +385,42 @@ function NovoPedidoContent() {
         setLoading(false);
         return;
       }
-      if (!res.ok) throw new Error("Erro ao salvar");
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        const detail = typeof errBody?.detail === "string" ? errBody.detail : "Erro ao salvar pedido.";
+        throw new Error(detail);
+      }
       const novoPedido = await res.json();
 
       // Salvar parcelas se configuradas
       if (!pagamentoConfig.pagamento_na_entrega && pagamentoConfig.parcelas.length > 0) {
-        const entradaPayload = pagamentoConfig.entrada ? {
+        const entradaPayload = pagamentoConfig.entrada && pagamentoConfig.entrada.valor > 0 ? {
           valor: pagamentoConfig.entrada.valor,
-          data_vencimento: pagamentoConfig.parcelas[0]?.data_vencimento ?? new Date().toISOString().slice(0, 10),
+          // A entrada vence na data-base do pagamento (compra no cartão ou 1º vencimento).
+          data_vencimento: pagamentoConfig.data_compra_cartao
+            ?? pagamentoConfig.parcelas[0]?.data_vencimento
+            ?? new Date().toISOString().slice(0, 10),
           data_pagamento: pagamentoConfig.entrada.data_pagamento,
+          forma_pagamento: pagamentoConfig.entrada.forma_pagamento,
         } : null;
-        await authFetch(`${API_URL}/api/v1/pedidos/${novoPedido.id}/pagamento`, {
+        const parcelasRes = await authFetch(`${API_URL}/api/v1/pedidos/${novoPedido.id}/pagamento`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             forma_pagamento: pagamentoConfig.forma_pagamento,
             entrada: entradaPayload,
-            parcelas: pagamentoConfig.parcelas.map((p) => ({
-              valor: p.valor,
-              data_vencimento: p.data_vencimento,
-              data_pagamento: p.data_pagamento,
-            })),
+            parcelas: pagamentoConfig.parcelas,
+            canal_cartao: pagamentoConfig.canal_cartao,
+            data_compra_cartao: pagamentoConfig.data_compra_cartao,
+            taxa_cartao_valor: pagamentoConfig.taxa_cartao_manual ? pagamentoConfig.taxa_cartao_valor : null,
+            desconto_pix_valor: pagamentoConfig.desconto_pix_manual ? pagamentoConfig.desconto_pix_valor : null,
           }),
         });
+        if (!parcelasRes.ok) {
+          const errBody = await parcelasRes.json().catch(() => null);
+          const detail = typeof errBody?.detail === "string" ? errBody.detail : "Erro ao salvar pagamento.";
+          throw new Error(`Pedido #${novoPedido.id} foi criado, mas o pagamento não foi salvo: ${detail}`);
+        }
       }
 
       if (medidasDisponiveis && Object.keys(medidas).some((k) => medidas[k] > 0)) {
@@ -422,8 +442,10 @@ function NovoPedidoContent() {
       }
 
       router.push("/mobile/pedidos");
-    } catch {
+    } catch (err) {
+      console.error("Erro ao salvar pedido novo", err);
       setLoading(false);
+      setFormError(err instanceof Error ? err.message : "Erro ao salvar pedido. Tente novamente.");
     }
   };
 
@@ -683,11 +705,10 @@ function NovoPedidoContent() {
           <div>
             <Label>Valor Peça(s) *</Label>
             <Input
-              type="number"
-              min={0}
-              step={0.01}
+              type="text"
+              inputMode="decimal"
               value={valorPecas || ""}
-              onChange={(e) => { setValorPecas(parseFloat(e.target.value) || 0); setConfirmadoAtipico(false); setAvisosAtipicos([]); }}
+              onChange={(e) => { setValorPecas(parseMoneyInput(e.target.value)); setConfirmadoAtipico(false); setAvisosAtipicos([]); }}
               className="mt-1"
             />
           </div>
@@ -848,10 +869,12 @@ function NovoPedidoContent() {
           <h3 className="text-sm font-medium text-gray-500 mb-3">Pagamento</h3>
           <PagamentoForm
             valorPecas={valorPecas || 0}
+            apiUrl={API_URL}
             config={pagamentoConfig}
             onChange={(c) => {
               setPagamentoConfig(c);
               setFormaPagamento(c.forma_pagamento);
+              setValorEntrada(c.entrada?.valor ?? 0);
             }}
           />
         </div>

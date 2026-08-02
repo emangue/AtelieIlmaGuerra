@@ -17,6 +17,23 @@
       "autoPort": true,
       "cwd": "app_dev/backend",
       "env": { "PORT": "8001" }
+    },
+    {
+      "name": "frontend-atendimento",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3005,
+      "autoPort": true,
+      "cwd": "app_atendimento/frontend"
+    },
+    {
+      "name": "backend-atendimento",
+      "runtimeExecutable": "../../app_dev/backend/venv/bin/python",
+      "runtimeArgs": ["run.py"],
+      "port": 8002,
+      "autoPort": true,
+      "cwd": "app_atendimento/backend",
+      "env": { "PORT": "8002", "DEBUG": "true" }
     }
   ]
 }

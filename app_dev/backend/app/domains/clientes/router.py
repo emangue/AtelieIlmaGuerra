@@ -151,7 +151,7 @@ def get_valores_por_mes_cliente(
                 Pedido.cliente_id == cliente_id,
                 Pedido.data_entrega >= inicio,
                 Pedido.data_entrega < fim,
-                Pedido.status.notin_(("Orçamento", "Canelado")),
+                Pedido.status.notin_(("Orçamento", "Cancelado", "Canelado")),
             )
             .scalar() or 0
         )

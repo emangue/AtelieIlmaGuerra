@@ -35,6 +35,7 @@ def registrar_alteracao(
     resumo: str = "",
     antes: Optional[dict] = None,
     depois: Optional[dict] = None,
+    app: str = "gestao",
 ) -> None:
     user = db.query(User).filter(User.id == user_id).first()
     user_nome = user.nome if user else f"Usuário #{user_id}"
@@ -49,6 +50,7 @@ def registrar_alteracao(
         acao=acao,
         resumo=resumo,
         diff_json=json.dumps(diff, ensure_ascii=False, default=str) if diff else None,
+        app=app,
     ))
 
 

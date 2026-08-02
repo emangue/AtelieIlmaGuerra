@@ -1,8 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Loader2, Check } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2, Check, RotateCcw } from "lucide-react";
 import { getToken } from "@/lib/api-client";
+import {
+  CANAIS_CARTAO,
+  CANAL_CARTAO_PADRAO,
+  FORMAS_PAGAMENTO,
+  formaSelecionada,
+  isCartao,
+  isParcelado,
+  isPix,
+} from "@/lib/formas-pagamento";
 
 function authFetch(url: string, init?: RequestInit) {
   const token = getToken();
@@ -13,31 +22,53 @@ function authFetch(url: string, init?: RequestInit) {
 
 export interface ParcelaConfig {
   valor: number;
-  data_vencimento: string;   // YYYY-MM-DD
+  data_vencimento: string; // YYYY-MM-DD
   data_pagamento: string | null;
+  forma_pagamento: string | null;
 }
 
 export interface EntradaConfig {
   valor: number;
-  data_pagamento: string | null;   // data em que a entrada foi paga (ou null = ainda não)
+  data_pagamento: string | null; // data em que a entrada foi paga (ou null = ainda não)
+  forma_pagamento: string | null;
 }
 
 export interface PagamentoConfig {
   pagamento_na_entrega: boolean;
-  forma_pagamento: string | null;
-  entrada: EntradaConfig | null;   // null = sem entrada
+  forma_pagamento: string | null; // forma do restante
+  entrada: EntradaConfig | null; // null = sem entrada
   parcelas: ParcelaConfig[];
+  canal_cartao: string | null;
+  data_compra_cartao: string | null;
+  // Valores efetivos (automáticos ou digitados) — usados no preview de margem.
+  // Os flags dizem se foram digitados; só nesse caso vão no payload, senão o
+  // backend recalcula pela tabela de taxas.
+  taxa_cartao_valor: number;
+  taxa_cartao_manual: boolean;
+  desconto_pix_valor: number;
+  desconto_pix_manual: boolean;
 }
 
-interface Props {
-  valorPecas: number;
-  config: PagamentoConfig;
-  onChange: (c: PagamentoConfig) => void;
+export function pagamentoConfigInicial(): PagamentoConfig {
+  return {
+    pagamento_na_entrega: false,
+    forma_pagamento: null,
+    entrada: null,
+    parcelas: [],
+    canal_cartao: null,
+    data_compra_cartao: null,
+    taxa_cartao_valor: 0,
+    taxa_cartao_manual: false,
+    desconto_pix_valor: 0,
+    desconto_pix_manual: false,
+  };
 }
 
-// Pix = sempre 1 parcela; Crediário e Cartão de Crédito = N parcelas
-const FORMAS = ["Pix", "Crediário", "Cartão de Crédito"] as const;
-const FORMAS_PARCELADAS = ["Crediário", "Cartão de Crédito"];
+function addDays(iso: string, n: number): string {
+  const d = new Date(iso + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 
 function addMonths(iso: string, n: number): string {
   const d = new Date(iso + "T12:00:00");
@@ -49,59 +80,208 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function brl(v: number) {
+  return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function ddmm(iso: string) {
+  return new Date(iso + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+/**
+ * Cartão de crédito cai em D+30, D+60… corridos a partir da compra — não no mesmo
+ * dia dos meses seguintes. As outras formas seguem vencimento mensal.
+ */
 function gerarParcelas(
   valorTotal: number,
   valorEntrada: number,
   n: number,
-  primeiroVencimento: string,
+  dataBase: string,
+  forma: string | null,
   pagamentosExistentes: (string | null)[]
 ): ParcelaConfig[] {
-  if (n <= 0 || !primeiroVencimento) return [];
+  if (n <= 0 || !dataBase) return [];
   const base = Math.max(0, valorTotal - valorEntrada);
   const valorParcela = Math.round((base / n) * 100) / 100;
   const resto = Math.round((base - valorParcela * n) * 100) / 100;
+  const cartao = isCartao(forma);
   return Array.from({ length: n }, (_, i) => ({
     valor: i === n - 1 ? Math.round((valorParcela + resto) * 100) / 100 : valorParcela,
-    data_vencimento: addMonths(primeiroVencimento, i),
-    data_pagamento: pagamentosExistentes[i] ?? null,
+    data_vencimento: cartao ? addDays(dataBase, 30 * (i + 1)) : addMonths(dataBase, i),
+    // Parcela de cartão não é confirmada à mão: o backend grava a data prevista.
+    data_pagamento: cartao ? null : pagamentosExistentes[i] ?? null,
+    forma_pagamento: forma,
   }));
 }
 
-// ─── Componente para criação (novo pedido) ───────────────────────────────────
-export function PagamentoForm({ valorPecas, config, onChange }: Props) {
-  const [nParcelasStr, setNParcelasStr] = useState("1");
-  const nParcelas = Math.max(1, parseInt(nParcelasStr) || 1);
-  const [primeiroVenc, setPrimeiroVenc] = useState(todayISO());
+// ─── Estado compartilhado entre criação e edição ─────────────────────────────
+
+interface EstadoPagamento {
+  formaRestante: string | null;
+  setFormaRestante: (f: string | null) => void;
+  formaEntrada: string | null;
+  setFormaEntrada: (f: string | null) => void;
+  temEntrada: boolean;
+  setTemEntrada: (v: boolean) => void;
+  entradaValor: number;
+  setEntradaValor: (v: number) => void;
+  entradaPagoEm: string | null;
+  setEntradaPagoEm: (v: string | null) => void;
+  nParcelasStr: string;
+  setNParcelasStr: (v: string) => void;
+  dataBase: string;
+  setDataBase: (v: string) => void;
+  canalCartao: string;
+  setCanalCartao: (v: string) => void;
+  taxaCartaoManual: number | null;
+  setTaxaCartaoManual: (v: number | null) => void;
+  descontoPixManual: number | null;
+  setDescontoPixManual: (v: number | null) => void;
+}
+
+function usePagamentoState(): EstadoPagamento {
+  const [formaRestante, setFormaRestante] = useState<string | null>(null);
+  const [formaEntrada, setFormaEntrada] = useState<string | null>(null);
   const [temEntrada, setTemEntrada] = useState(false);
+  const [entradaValor, setEntradaValor] = useState(0);
+  const [entradaPagoEm, setEntradaPagoEm] = useState<string | null>(null);
+  const [nParcelasStr, setNParcelasStr] = useState("1");
+  const [dataBase, setDataBase] = useState(todayISO());
+  const [canalCartao, setCanalCartao] = useState<string>(CANAL_CARTAO_PADRAO);
+  const [taxaCartaoManual, setTaxaCartaoManual] = useState<number | null>(null);
+  const [descontoPixManual, setDescontoPixManual] = useState<number | null>(null);
 
-  const isParcelado = FORMAS_PARCELADAS.includes(config.forma_pagamento ?? "");
+  return {
+    formaRestante, setFormaRestante, formaEntrada, setFormaEntrada,
+    temEntrada, setTemEntrada, entradaValor, setEntradaValor,
+    entradaPagoEm, setEntradaPagoEm, nParcelasStr, setNParcelasStr,
+    dataBase, setDataBase, canalCartao, setCanalCartao,
+    taxaCartaoManual, setTaxaCartaoManual, descontoPixManual, setDescontoPixManual,
+  };
+}
 
-  // Regenera parcelas quando muda nº, data ou entrada
+interface Taxas {
+  cartaoPct: number;
+  pixPct: number;
+}
+
+function useTaxas(apiUrl: string): Taxas {
+  const [taxas, setTaxas] = useState<Taxas>({ cartaoPct: 0, pixPct: 0 });
+  useEffect(() => {
+    authFetch(`${apiUrl}/api/v1/parametros/taxas`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((linhas: { forma: string; percentual: number; padrao: boolean; ativo: boolean }[]) => {
+        const ativas = (linhas || []).filter((l) => l.ativo);
+        const cartao = ativas.find((l) => l.forma === "Cartão" && l.padrao) ?? ativas.find((l) => l.forma === "Cartão");
+        const pix = ativas.find((l) => l.forma === "Pix");
+        setTaxas({ cartaoPct: cartao?.percentual ?? 0, pixPct: pix?.percentual ?? 0 });
+      })
+      .catch(() => {});
+  }, [apiUrl]);
+  return taxas;
+}
+
+/**
+ * Quanto do pedido não chega na mão da Ilma. A receita continua sendo o valor
+ * cheio da peça — estes valores viram despesa.
+ */
+function calcularCustos(
+  parcelas: ParcelaConfig[],
+  entrada: EntradaConfig | null,
+  taxas: Taxas,
+  canalDisponivel: boolean,
+  taxaManual: number | null,
+  descontoManual: number | null
+) {
+  const todas = [
+    ...(entrada && entrada.valor > 0 ? [{ valor: entrada.valor, forma_pagamento: entrada.forma_pagamento }] : []),
+    ...parcelas,
+  ];
+  const total = todas.reduce((s, p) => s + p.valor, 0);
+  const baseCartao = todas.filter((p) => isCartao(p.forma_pagamento)).reduce((s, p) => s + p.valor, 0);
+  const basePix = todas.filter((p) => isPix(p.forma_pagamento)).reduce((s, p) => s + p.valor, 0);
+  const pago100PctPix = todas.length > 0 && basePix > 0 && Math.abs(basePix - total) < 0.005;
+
+  const taxaAuto = baseCartao > 0 ? Math.round(baseCartao * taxas.cartaoPct) / 100 : 0;
+  const descontoAuto = pago100PctPix ? Math.round(basePix * taxas.pixPct) / 100 : 0;
+
+  return {
+    total,
+    baseCartao,
+    basePix,
+    pago100PctPix,
+    canalDisponivel,
+    taxaCartao: taxaManual ?? taxaAuto,
+    descontoPix: descontoManual ?? descontoAuto,
+    taxaAuto,
+    descontoAuto,
+  };
+}
+
+// ─── Componente para criação (novo pedido) ───────────────────────────────────
+
+interface Props {
+  valorPecas: number;
+  config: PagamentoConfig;
+  onChange: (c: PagamentoConfig) => void;
+  apiUrl: string;
+}
+
+export function PagamentoForm({ valorPecas, config, onChange, apiUrl }: Props) {
+  const st = usePagamentoState();
+  const taxas = useTaxas(apiUrl);
+
+  const isParceladoRestante = isParcelado(st.formaRestante);
+  const nParcelas = Math.max(1, parseInt(st.nParcelasStr) || 1);
+  const parcelasRestantes = isParceladoRestante ? nParcelas : 1;
+  const cartaoNoRestante = isCartao(st.formaRestante);
+
+  const entrada: EntradaConfig | null = st.temEntrada
+    ? { valor: st.entradaValor, data_pagamento: st.entradaPagoEm, forma_pagamento: st.formaEntrada }
+    : null;
+
+  const parcelas = useMemo(
+    () =>
+      gerarParcelas(
+        valorPecas,
+        st.temEntrada ? st.entradaValor : 0,
+        parcelasRestantes,
+        st.dataBase,
+        st.formaRestante,
+        config.parcelas.map((p) => p.data_pagamento)
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [valorPecas, st.temEntrada, st.entradaValor, parcelasRestantes, st.dataBase, st.formaRestante]
+  );
+
+  const custos = calcularCustos(
+    parcelas, entrada, taxas, cartaoNoRestante, st.taxaCartaoManual, st.descontoPixManual
+  );
+
+  // Propaga para o pai sempre que algo relevante muda.
   useEffect(() => {
     if (config.pagamento_na_entrega) return;
-    const n = isParcelado ? nParcelas : 1;
-    const valorEntrada = temEntrada ? (config.entrada?.valor ?? 0) : 0;
-    const existentes = config.parcelas.map((p) => p.data_pagamento);
-    const novas = gerarParcelas(valorPecas, valorEntrada, n, primeiroVenc, existentes);
-    onChange({ ...config, parcelas: novas });
+    onChange({
+      ...config,
+      forma_pagamento: st.formaRestante,
+      entrada,
+      parcelas,
+      canal_cartao: cartaoNoRestante ? st.canalCartao : null,
+      data_compra_cartao: cartaoNoRestante ? st.dataBase : null,
+      taxa_cartao_valor: custos.taxaCartao,
+      taxa_cartao_manual: st.taxaCartaoManual != null,
+      desconto_pix_valor: custos.descontoPix,
+      desconto_pix_manual: st.descontoPixManual != null,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nParcelas, primeiroVenc, valorPecas, config.pagamento_na_entrega, isParcelado, temEntrada]);
-
-  const setEntradaField = (field: keyof EntradaConfig, val: string | number | null) => {
-    const e: EntradaConfig = { valor: config.entrada?.valor ?? 0, data_pagamento: config.entrada?.data_pagamento ?? null };
-    onChange({ ...config, entrada: { ...e, [field]: val } });
-  };
-
-  const setPago = (i: number, val: string) => {
-    const novas = config.parcelas.map((p, idx) =>
-      idx === i ? { ...p, data_pagamento: val || null } : p
-    );
-    onChange({ ...config, parcelas: novas });
-  };
+  }, [
+    parcelas, st.formaRestante, st.formaEntrada, st.temEntrada, st.entradaValor,
+    st.entradaPagoEm, st.canalCartao, st.taxaCartaoManual, st.descontoPixManual,
+    custos.taxaCartao, custos.descontoPix, config.pagamento_na_entrega,
+  ]);
 
   return (
     <div className="space-y-4">
-      {/* Toggle pagar na entrega */}
       <Toggle
         label="Pagar na entrega"
         sub="Combinou pagar quando buscar a peça"
@@ -111,110 +291,19 @@ export function PagamentoForm({ valorPecas, config, onChange }: Props) {
 
       {!config.pagamento_na_entrega && (
         <>
-          {/* Forma de pagamento */}
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">Forma de pagamento</p>
-            <div className="grid grid-cols-3 gap-2">
-              {FORMAS.map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => {
-                    const nova = config.forma_pagamento === f ? null : f;
-                    // Se mudar para Pix, força 1 parcela
-                    if (nova === "Pix") setNParcelasStr("1");
-                    onChange({ ...config, forma_pagamento: nova });
-                  }}
-                  className={`py-2 px-2 rounded-lg text-sm font-medium border text-center ${
-                    config.forma_pagamento === f
-                      ? "border-blue-500 bg-blue-50 text-blue-700"
-                      : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
-                  }`}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Toggle entrada */}
-          <Toggle
-            label="Tem entrada?"
-            sub="Parte do valor pago antes da entrega"
-            value={temEntrada}
-            onChange={(v) => {
-              setTemEntrada(v);
-              onChange({ ...config, entrada: v ? { valor: 0, data_pagamento: null } : null });
-            }}
+          <BlocoEntrada st={st} />
+          <BlocoRestante st={st} isParceladoRestante={isParceladoRestante} cartao={cartaoNoRestante} />
+          <PreviewParcelas parcelas={parcelas} temEntrada={st.temEntrada} onPago={(i, v) => {
+            const novas = parcelas.map((p, idx) => (idx === i ? { ...p, data_pagamento: v || null } : p));
+            onChange({ ...config, parcelas: novas });
+          }} />
+          <BlocoCustos
+            valorPedido={valorPecas}
+            custos={custos}
+            taxas={taxas}
+            onTaxa={st.setTaxaCartaoManual}
+            onDesconto={st.setDescontoPixManual}
           />
-
-          {temEntrada && (
-            <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col gap-3">
-              <p className="text-xs font-medium text-gray-500">Entrada</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-[10px] text-gray-400 mb-1">Valor (R$)</p>
-                  <input
-                    type="number" min={0} step={0.01}
-                    value={config.entrada?.valor || ""}
-                    onChange={(e) => setEntradaField("valor", parseFloat(e.target.value) || 0)}
-                    placeholder="0,00"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <p className="text-[10px] text-gray-400 mb-1">Pago em (opcional)</p>
-                  <input
-                    type="date"
-                    value={config.entrada?.data_pagamento || ""}
-                    onChange={(e) => setEntradaField("data_pagamento", e.target.value || null)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Config parcelas */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Nº de parcelas</p>
-              <input
-                type="number" min={1} max={24}
-                value={nParcelasStr}
-                disabled={!isParcelado}
-                onChange={(e) => setNParcelasStr(e.target.value)}
-                onBlur={() => setNParcelasStr(String(nParcelas))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm disabled:bg-gray-100 disabled:text-gray-400"
-              />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">
-                {nParcelas === 1 ? "Data de vencimento" : "Data do 1º vencimento"}
-              </p>
-              <input
-                type="date" value={primeiroVenc}
-                onChange={(e) => setPrimeiroVenc(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-              />
-            </div>
-          </div>
-
-          {/* Preview das parcelas geradas */}
-          {config.parcelas.length > 0 && (
-            <div className="flex flex-col gap-2">
-              {config.parcelas.map((p, i) => (
-                <ParcelaRow
-                  key={i}
-                  label={config.parcelas.length === 1 ? "Pagamento" : `${i + 1}ª parcela`}
-                  valor={p.valor}
-                  vencimento={p.data_vencimento}
-                  pago={p.data_pagamento}
-                  onPago={(v) => setPago(i, v)}
-                />
-              ))}
-            </div>
-          )}
         </>
       )}
     </div>
@@ -222,6 +311,7 @@ export function PagamentoForm({ valorPecas, config, onChange }: Props) {
 }
 
 // ─── Componente para edição (pedido existente) ───────────────────────────────
+
 interface PagamentoFormEditProps {
   pedidoId: number;
   valorPecas: number;
@@ -229,6 +319,7 @@ interface PagamentoFormEditProps {
   formaPagamento: string | null;
   pagamentoNaEntrega: boolean | null;
   onFormaPagamentoChange: (f: string | null) => void;
+  onSaved?: () => void;
 }
 
 interface ParcelaOut {
@@ -238,99 +329,150 @@ interface ParcelaOut {
   valor: number;
   data_vencimento: string | null;
   data_pagamento: string | null;
+  descricao: string | null;
   status: string;
-}
-
-interface ParcelaRowState {
-  id?: number;
-  valor: number;
-  data_vencimento: string;
-  data_pagamento: string | null;
-  status?: string;
+  forma_pagamento: string | null;
+  liquidacao_automatica: boolean;
+  desconto_adiantamento: number | null;
 }
 
 const PAG_STATUS_CLS: Record<string, string> = {
   confirmado: "text-green-600 bg-green-50 border-green-200",
   aguardando: "text-amber-600 bg-amber-50 border-amber-200",
   em_atraso: "text-red-600 bg-red-50 border-red-200",
+  previsto: "text-blue-600 bg-blue-50 border-blue-200",
 };
 const PAG_STATUS_LABEL: Record<string, string> = {
   confirmado: "Pago",
   aguardando: "Aguardando",
   em_atraso: "Em atraso",
+  previsto: "Previsto",
 };
 
 export function PagamentoFormEdit({
-  pedidoId, valorPecas, apiUrl, formaPagamento, pagamentoNaEntrega, onFormaPagamentoChange,
+  pedidoId, valorPecas, apiUrl, formaPagamento, pagamentoNaEntrega, onFormaPagamentoChange, onSaved,
 }: PagamentoFormEditProps) {
+  const st = usePagamentoState();
+  const taxas = useTaxas(apiUrl);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [parcelasExist, setParcelasExist] = useState<ParcelaRowState[]>([]);
-  const [nParcelasStr, setNParcelasStr] = useState("1");
-  const nParcelas = Math.max(1, parseInt(nParcelasStr) || 1);
-  const [primeiroVenc, setPrimeiroVenc] = useState(todayISO());
+  const [erro, setErro] = useState<string | null>(null);
+  const [pagamentosExistentes, setPagamentosExistentes] = useState<(string | null)[]>([]);
+  const [statusExistentes, setStatusExistentes] = useState<(string | undefined)[]>([]);
   const [pnEntrega, setPnEntrega] = useState(pagamentoNaEntrega ?? false);
-  const [temEntrada, setTemEntrada] = useState(false);
-  const [entrada, setEntrada] = useState<EntradaConfig>({ valor: 0, data_pagamento: null });
 
-  const isParcelado = FORMAS_PARCELADAS.includes(formaPagamento ?? "");
+  const isParceladoRestante = isParcelado(st.formaRestante);
+  const nParcelas = Math.max(1, parseInt(st.nParcelasStr) || 1);
+  const parcelasRestantes = isParceladoRestante ? nParcelas : 1;
+  const cartaoNoRestante = isCartao(st.formaRestante);
 
-  const loadParcelas = () => {
+  const { setFormaRestante, setFormaEntrada, setTemEntrada, setEntradaValor,
+    setEntradaPagoEm, setNParcelasStr, setDataBase, setCanalCartao,
+    setTaxaCartaoManual, setDescontoPixManual } = st;
+
+  const loadParcelas = useCallback(() => {
     if (!pedidoId || isNaN(pedidoId)) { setLoaded(true); return; }
     setLoaded(false);
-    authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}/parcelas`)
-      .then((r) => r.json())
-      .then((data: ParcelaOut[]) => {
-        const rows = data.map((p) => ({
-          id: p.id,
-          valor: p.valor,
-          data_vencimento: p.data_vencimento || todayISO(),
-          data_pagamento: p.data_pagamento,
-          status: p.status,
-        }));
-        setParcelasExist(rows);
-        if (rows.length > 0) setNParcelasStr(String(rows.length));
+    Promise.all([
+      authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}/parcelas`).then((r) => (r.ok ? r.json() : [])),
+      authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}/custos-receber`).then((r) => (r.ok ? r.json() : null)),
+    ])
+      .then(([data, custos]: [ParcelaOut[], any]) => {
+        const rows = data || [];
+        const entradaRow = rows.find((p) => (p.descricao || "").toLowerCase().startsWith("entrada"));
+        const parcelaRows = rows.filter((p) => !(p.descricao || "").toLowerCase().startsWith("entrada"));
+
+        setTemEntrada(Boolean(entradaRow));
+        setEntradaValor(entradaRow?.valor ?? 0);
+        setEntradaPagoEm(entradaRow?.data_pagamento ?? null);
+        setFormaEntrada(entradaRow?.forma_pagamento ?? null);
+        setFormaRestante(parcelaRows[0]?.forma_pagamento ?? formaPagamento ?? null);
+        setPagamentosExistentes(parcelaRows.map((p) => p.data_pagamento));
+        setStatusExistentes(parcelaRows.map((p) => p.status));
+
+        if (parcelaRows.length > 0) setNParcelasStr(String(parcelaRows.length));
+
+        if (custos) {
+          if (custos.canal_cartao) setCanalCartao(custos.canal_cartao);
+          if (custos.taxa_cartao_manual) setTaxaCartaoManual(custos.taxa_cartao_valor);
+          if (custos.desconto_pix_manual) setDescontoPixManual(custos.desconto_pix_valor);
+          // Cartão: a data-base é a da compra. Sem cartão: o 1º vencimento.
+          if (custos.data_compra_cartao) setDataBase(custos.data_compra_cartao);
+          else if (parcelaRows[0]?.data_vencimento) setDataBase(parcelaRows[0].data_vencimento);
+          else if (entradaRow?.data_vencimento) setDataBase(entradaRow.data_vencimento);
+        }
         setLoaded(true);
       })
-      .catch(() => { setParcelasExist([]); setLoaded(true); });
-  };
+      .catch(() => { setLoaded(true); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoId, apiUrl]);
 
-  useEffect(() => { loadParcelas(); }, [pedidoId]);
+  useEffect(() => { loadParcelas(); }, [loadParcelas]);
 
-  // Regenera preview
-  const valorEntrada = temEntrada ? entrada.valor : 0;
-  const preview: ParcelaRowState[] = gerarParcelas(
+  // Mantém o pai em sincronia com o seletor interno (o pedido guarda a forma).
+  useEffect(() => {
+    if (loaded) onFormaPagamentoChange(st.formaRestante);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [st.formaRestante, loaded]);
+
+  const entrada: EntradaConfig | null = st.temEntrada
+    ? { valor: st.entradaValor, data_pagamento: st.entradaPagoEm, forma_pagamento: st.formaEntrada }
+    : null;
+
+  const parcelas = gerarParcelas(
     valorPecas,
-    valorEntrada,
-    isParcelado ? nParcelas : 1,
-    primeiroVenc,
-    parcelasExist.map((p) => p.data_pagamento)
-  ).map((g, i) => ({ ...g, id: parcelasExist[i]?.id, status: parcelasExist[i]?.status }));
+    st.temEntrada ? st.entradaValor : 0,
+    parcelasRestantes,
+    st.dataBase,
+    st.formaRestante,
+    pagamentosExistentes
+  );
+
+  const custos = calcularCustos(
+    parcelas, entrada, taxas, cartaoNoRestante, st.taxaCartaoManual, st.descontoPixManual
+  );
 
   const handleSave = async () => {
     setSaving(true);
+    setErro(null);
     try {
-      await authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}`, {
+      const res = await authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ forma_pagamento: formaPagamento, pagamento_na_entrega: pnEntrega }),
+        body: JSON.stringify({ forma_pagamento: st.formaRestante, pagamento_na_entrega: pnEntrega }),
       });
+      if (!res.ok) throw new Error("Não foi possível salvar a forma de pagamento.");
+
       if (!pnEntrega) {
-        await authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}/pagamento`, {
+        const res2 = await authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}/pagamento`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            forma_pagamento: formaPagamento,
-            entrada: temEntrada ? { valor: entrada.valor, data_vencimento: primeiroVenc, data_pagamento: entrada.data_pagamento } : null,
-            parcelas: preview.map((p) => ({
-              valor: p.valor,
-              data_vencimento: p.data_vencimento,
-              data_pagamento: p.data_pagamento,
-            })),
+            forma_pagamento: st.formaRestante,
+            entrada: entrada && entrada.valor > 0
+              ? {
+                  valor: entrada.valor,
+                  data_vencimento: st.dataBase,
+                  data_pagamento: entrada.data_pagamento,
+                  forma_pagamento: entrada.forma_pagamento,
+                }
+              : null,
+            parcelas,
+            canal_cartao: cartaoNoRestante ? st.canalCartao : null,
+            data_compra_cartao: cartaoNoRestante ? st.dataBase : null,
+            taxa_cartao_valor: st.taxaCartaoManual,
+            desconto_pix_valor: st.descontoPixManual,
           }),
         });
+        if (!res2.ok) {
+          const body = await res2.json().catch(() => null);
+          throw new Error(typeof body?.detail === "string" ? body.detail : "Não foi possível salvar as parcelas.");
+        }
       }
       loadParcelas();
+      onSaved?.();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro ao salvar pagamento.");
     } finally { setSaving(false); }
   };
 
@@ -347,144 +489,355 @@ export function PagamentoFormEdit({
 
       {!pnEntrega && (
         <>
-          {/* Forma */}
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">Forma de pagamento</p>
-            <div className="grid grid-cols-3 gap-2">
-              {FORMAS.map((f) => (
-                <button key={f} type="button"
-                  onClick={() => {
-                    const nova = formaPagamento === f ? null : f;
-                    if (nova === "Pix") setNParcelasStr("1");
-                    onFormaPagamentoChange(nova);
-                  }}
-                  className={`py-2 px-2 rounded-lg text-sm font-medium border text-center ${
-                    formaPagamento === f
-                      ? "border-blue-500 bg-blue-50 text-blue-700"
-                      : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
-                  }`}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Toggle entrada */}
-          <Toggle
-            label="Tem entrada?"
-            sub="Parte do valor pago antes da entrega"
-            value={temEntrada}
-            onChange={setTemEntrada}
+          <BlocoEntrada st={st} />
+          <BlocoRestante st={st} isParceladoRestante={isParceladoRestante} cartao={cartaoNoRestante} />
+          <PreviewParcelas
+            parcelas={parcelas}
+            temEntrada={st.temEntrada}
+            statusPorIndice={statusExistentes}
+            onPago={(i, v) => setPagamentosExistentes((prev) => {
+              const clone = [...prev];
+              clone[i] = v || null;
+              return clone;
+            })}
           />
-
-          {temEntrada && (
-            <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col gap-3">
-              <p className="text-xs font-medium text-gray-500">Entrada</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-[10px] text-gray-400 mb-1">Valor (R$)</p>
-                  <input
-                    type="number" min={0} step={0.01}
-                    value={entrada.valor || ""}
-                    onChange={(e) => setEntrada((x) => ({ ...x, valor: parseFloat(e.target.value) || 0 }))}
-                    placeholder="0,00"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <p className="text-[10px] text-gray-400 mb-1">Pago em (opcional)</p>
-                  <input
-                    type="date"
-                    value={entrada.data_pagamento || ""}
-                    onChange={(e) => setEntrada((x) => ({ ...x, data_pagamento: e.target.value || null }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Config parcelas */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Nº de parcelas</p>
-              <input
-                type="number" min={1} max={24}
-                value={nParcelasStr}
-                disabled={!isParcelado}
-                onChange={(e) => setNParcelasStr(e.target.value)}
-                onBlur={() => setNParcelasStr(String(nParcelas))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm disabled:bg-gray-100 disabled:text-gray-400"
-              />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">
-                {(isParcelado ? nParcelas : 1) === 1 ? "Data de vencimento" : "Data do 1º vencimento"}
-              </p>
-              <input
-                type="date" value={primeiroVenc}
-                onChange={(e) => setPrimeiroVenc(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-              />
-            </div>
-          </div>
-
-          {/* Preview parcelas */}
-          {preview.length > 0 && (
-            <div className="flex flex-col gap-2">
-              {preview.map((p, i) => (
-                <ParcelaRow
-                  key={i}
-                  label={preview.length === 1 ? "Pagamento" : `${i + 1}ª parcela`}
-                  valor={p.valor}
-                  vencimento={p.data_vencimento}
-                  pago={p.data_pagamento}
-                  status={p.status}
-                  onPago={(v) => setParcelasExist((prev) => {
-                    const clone = [...prev];
-                    if (clone[i]) clone[i] = { ...clone[i], data_pagamento: v || null };
-                    return clone;
-                  })}
-                />
-              ))}
-            </div>
-          )}
-
-          <button
-            type="button" disabled={saving} onClick={handleSave}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            Salvar pagamento
-          </button>
+          <BlocoCustos
+            valorPedido={valorPecas}
+            custos={custos}
+            taxas={taxas}
+            onTaxa={st.setTaxaCartaoManual}
+            onDesconto={st.setDescontoPixManual}
+          />
         </>
       )}
 
-      {pnEntrega && (
-        <button
-          type="button" disabled={saving}
-          onClick={async () => {
-            setSaving(true);
-            try {
-              await authFetch(`${apiUrl}/api/v1/pedidos/${pedidoId}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ pagamento_na_entrega: true }),
-              });
-            } finally { setSaving(false); }
-          }}
-          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 disabled:opacity-50"
-        >
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-          Salvar configuração
-        </button>
+      {erro && (
+        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>
       )}
+
+      <button
+        type="button" disabled={saving} onClick={handleSave}
+        className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 disabled:opacity-50"
+      >
+        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+        {pnEntrega ? "Salvar configuração" : "Salvar pagamento"}
+      </button>
     </div>
   );
 }
 
-// ─── Sub-componentes ─────────────────────────────────────────────────────────
+// ─── Blocos compartilhados ───────────────────────────────────────────────────
+
+function SeletorForma({ valor, onChange, label }: {
+  valor: string | null;
+  onChange: (f: string | null) => void;
+  label: string;
+}) {
+  return (
+    <div>
+      <p className="text-sm font-medium text-gray-700 mb-2">{label}</p>
+      <div className="grid grid-cols-4 gap-1.5">
+        {FORMAS_PAGAMENTO.map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => onChange(formaSelecionada(valor, f) ? null : f)}
+            className={`py-2 px-1 rounded-lg text-xs font-medium border text-center ${
+              formaSelecionada(valor, f)
+                ? "border-blue-500 bg-blue-50 text-blue-700"
+                : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BlocoEntrada({ st }: { st: EstadoPagamento }) {
+  return (
+    <>
+      <Toggle
+        label="Tem entrada?"
+        sub="Parte do valor pago antes da entrega"
+        value={st.temEntrada}
+        onChange={(v) => {
+          st.setTemEntrada(v);
+          if (!v) { st.setEntradaValor(0); st.setEntradaPagoEm(null); st.setFormaEntrada(null); }
+        }}
+      />
+
+      {st.temEntrada && (
+        <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col gap-3">
+          <SeletorForma valor={st.formaEntrada} onChange={st.setFormaEntrada} label="Forma da entrada" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] text-gray-400 mb-1">Valor (R$)</p>
+              <input
+                type="number" min={0} step={0.01}
+                value={st.entradaValor || ""}
+                onChange={(e) => st.setEntradaValor(parseFloat(e.target.value) || 0)}
+                placeholder="0,00"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+              />
+            </div>
+            {!isCartao(st.formaEntrada) && (
+              <div>
+                <p className="text-[10px] text-gray-400 mb-1">Pago em (opcional)</p>
+                <input
+                  type="date"
+                  value={st.entradaPagoEm || ""}
+                  onChange={(e) => st.setEntradaPagoEm(e.target.value || null)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function BlocoRestante({ st, isParceladoRestante, cartao }: {
+  st: EstadoPagamento;
+  isParceladoRestante: boolean;
+  cartao: boolean;
+}) {
+  return (
+    <>
+      <SeletorForma
+        valor={st.formaRestante}
+        onChange={(f) => {
+          if (f && !isParcelado(f)) st.setNParcelasStr("1");
+          st.setFormaRestante(f);
+        }}
+        label={st.temEntrada ? "Forma do restante" : "Forma de pagamento"}
+      />
+
+      {cartao && (
+        <div>
+          <p className="text-xs text-gray-500 mb-1">Onde passou o cartão</p>
+          <div className="grid grid-cols-2 gap-2">
+            {CANAIS_CARTAO.map((c) => (
+              <button
+                key={c} type="button"
+                onClick={() => st.setCanalCartao(c)}
+                className={`py-2 px-2 rounded-lg text-xs font-medium border text-center ${
+                  st.canalCartao === c
+                    ? "border-blue-500 bg-blue-50 text-blue-700"
+                    : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1">Define qual taxa da tabela será aplicada.</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-xs text-gray-500 mb-1">
+            {isParceladoRestante ? "Nº de parcelas do restante" : "Pagamentos no total"}
+          </p>
+          {isParceladoRestante ? (
+            <input
+              type="number" min={1} max={24}
+              value={st.nParcelasStr}
+              onChange={(e) => st.setNParcelasStr(e.target.value)}
+              onBlur={() => st.setNParcelasStr(String(Math.max(1, parseInt(st.nParcelasStr) || 1)))}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+            />
+          ) : (
+            <input
+              type="text"
+              value={String(1 + (st.temEntrada ? 1 : 0))}
+              disabled
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-100 text-gray-400"
+            />
+          )}
+        </div>
+        <div>
+          <p className="text-xs text-gray-500 mb-1">
+            {cartao ? "Data da compra no cartão" : isParceladoRestante ? "Data do 1º vencimento" : "Data de vencimento"}
+          </p>
+          <input
+            type="date" value={st.dataBase}
+            onChange={(e) => st.setDataBase(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+          />
+        </div>
+      </div>
+
+      {cartao && (
+        <p className="text-[11px] text-gray-500 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+          Parcela de cartão cai sozinha em D+30, D+60… Não precisa confirmar recebimento.
+        </p>
+      )}
+    </>
+  );
+}
+
+function PreviewParcelas({ parcelas, temEntrada, statusPorIndice, onPago }: {
+  parcelas: ParcelaConfig[];
+  temEntrada: boolean;
+  statusPorIndice?: (string | undefined)[];
+  onPago: (i: number, v: string) => void;
+}) {
+  if (parcelas.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-2">
+      {parcelas.map((p, i) => {
+        const cartao = isCartao(p.forma_pagamento);
+        const label = parcelas.length === 1
+          ? (temEntrada ? "Pagamento restante" : "Pagamento")
+          : `${i + 1}ª parcela`;
+        return (
+          <div key={i} className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-medium text-gray-500">{label}</span>
+              {cartao ? (
+                <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${PAG_STATUS_CLS.previsto}`}>
+                  Previsto — cai em {ddmm(p.data_vencimento)}
+                </span>
+              ) : (
+                statusPorIndice?.[i] && PAG_STATUS_LABEL[statusPorIndice[i]!] && (
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${PAG_STATUS_CLS[statusPorIndice[i]!]}`}>
+                    {PAG_STATUS_LABEL[statusPorIndice[i]!]}
+                  </span>
+                )
+              )}
+            </div>
+            <div className={`grid gap-2 ${cartao ? "grid-cols-2" : "grid-cols-3"}`}>
+              <div>
+                <p className="text-[10px] text-gray-400 mb-1">Valor</p>
+                <p className="text-xs font-semibold text-gray-800">R$ {brl(p.valor)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-400 mb-1">{cartao ? "Cai em" : "Vencimento"}</p>
+                <p className="text-xs text-gray-700">{ddmm(p.data_vencimento)}</p>
+              </div>
+              {/* Cartão não tem "Pago em": a data de crédito é o próprio vencimento. */}
+              {!cartao && (
+                <div>
+                  <p className="text-[10px] text-gray-400 mb-1">Pago em</p>
+                  <input
+                    type="date"
+                    value={p.data_pagamento || ""}
+                    onChange={(e) => onPago(i, e.target.value)}
+                    className="w-full px-1.5 py-1 border border-gray-200 rounded-lg text-[10px]"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BlocoCustos({ valorPedido, custos, taxas, onTaxa, onDesconto }: {
+  valorPedido: number;
+  custos: ReturnType<typeof calcularCustos>;
+  taxas: Taxas;
+  onTaxa: (v: number | null) => void;
+  onDesconto: (v: number | null) => void;
+}) {
+  const [mostrarPix, setMostrarPix] = useState(false);
+  const temCartao = custos.baseCartao > 0;
+  const pixVisivel = custos.pago100PctPix || mostrarPix || custos.descontoPix > 0;
+
+  if (!temCartao && !custos.basePix) return null;
+
+  const liquido = valorPedido - custos.taxaCartao - custos.descontoPix;
+
+  return (
+    <div className="bg-white rounded-xl p-3 border border-gray-200 flex flex-col gap-3">
+      <p className="text-sm font-medium text-gray-700">Quanto você vai receber</p>
+
+      {temCartao && (
+        <CampoCusto
+          label="Taxa de cartão (R$)"
+          hint={`${taxas.cartaoPct.toLocaleString("pt-BR")}% sobre R$ ${brl(custos.baseCartao)}`}
+          valor={custos.taxaCartao}
+          automatico={custos.taxaAuto}
+          onChange={onTaxa}
+        />
+      )}
+
+      {pixVisivel && (
+        <CampoCusto
+          label="Desconto Pix (R$)"
+          hint={
+            custos.pago100PctPix
+              ? `${taxas.pixPct.toLocaleString("pt-BR")}% sobre R$ ${brl(custos.basePix)}`
+              : "Aplicado manualmente — o automático vale só para pagamento inteiro em Pix"
+          }
+          valor={custos.descontoPix}
+          automatico={custos.descontoAuto}
+          onChange={onDesconto}
+        />
+      )}
+
+      {!pixVisivel && custos.basePix > 0 && (
+        <button
+          type="button"
+          onClick={() => setMostrarPix(true)}
+          className="text-xs text-blue-600 hover:underline text-left"
+        >
+          Aplicar desconto de Pix mesmo assim
+        </button>
+      )}
+
+      <div className="flex items-baseline justify-between border-t border-gray-100 pt-2">
+        <span className="text-xs text-gray-500">Valor do pedido R$ {brl(valorPedido)}</span>
+        <span className="text-sm font-semibold text-gray-800">você recebe R$ {brl(liquido)}</span>
+      </div>
+    </div>
+  );
+}
+
+function CampoCusto({ label, hint, valor, automatico, onChange }: {
+  label: string;
+  hint: string;
+  valor: number;
+  automatico: number;
+  onChange: (v: number | null) => void;
+}) {
+  const editado = Math.abs(valor - automatico) > 0.005;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs text-gray-600">{label}</p>
+        {editado && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="flex items-center gap-1 text-[10px] text-blue-600 hover:underline"
+          >
+            <RotateCcw className="w-3 h-3" /> recalcular
+          </button>
+        )}
+      </div>
+      <input
+        type="number" min={0} step={0.01}
+        value={valor ? valor.toFixed(2) : ""}
+        onChange={(e) => {
+          const v = e.target.value;
+          onChange(v === "" ? null : parseFloat(v) || 0);
+        }}
+        placeholder="0,00"
+        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+      />
+      <p className="text-[10px] text-gray-400 mt-1">{hint}</p>
+    </div>
+  );
+}
 
 function Toggle({ label, sub, value, onChange }: { label: string; sub: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -503,51 +856,6 @@ function Toggle({ label, sub, value, onChange }: { label: string; sub: string; v
           style={{ left: value ? "calc(100% - 20px)" : "4px" }}
         />
       </button>
-    </div>
-  );
-}
-
-function ParcelaRow({ label, valor, vencimento, pago, status, onPago }: {
-  label: string;
-  valor: number;
-  vencimento: string;
-  pago: string | null;
-  status?: string;
-  onPago: (v: string) => void;
-}) {
-  return (
-    <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs font-medium text-gray-500">{label}</span>
-        {status && PAG_STATUS_LABEL[status] && (
-          <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${PAG_STATUS_CLS[status]}`}>
-            {PAG_STATUS_LABEL[status]}
-          </span>
-        )}
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        <div>
-          <p className="text-[10px] text-gray-400 mb-1">Valor</p>
-          <p className="text-xs font-semibold text-gray-800">
-            R$ {valor.toFixed(2).replace(".", ",")}
-          </p>
-        </div>
-        <div>
-          <p className="text-[10px] text-gray-400 mb-1">Vencimento</p>
-          <p className="text-xs text-gray-700">
-            {new Date(vencimento + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
-          </p>
-        </div>
-        <div>
-          <p className="text-[10px] text-gray-400 mb-1">Pago em</p>
-          <input
-            type="date"
-            value={pago || ""}
-            onChange={(e) => onPago(e.target.value)}
-            className="w-full px-1.5 py-1 border border-gray-200 rounded-lg text-[10px]"
-          />
-        </div>
-      </div>
     </div>
   );
 }

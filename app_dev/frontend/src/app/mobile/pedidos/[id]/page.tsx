@@ -1,11 +1,22 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   ArrowLeft,
   Loader2,
@@ -19,6 +30,7 @@ import {
   Ruler,
   FileText,
   ImageIcon,
+  XCircle,
 } from "lucide-react";
 import { PagamentoFormEdit } from "@/components/mobile/pagamento-form";
 import { PedidoConfirmacaoAtipica } from "@/components/mobile/pedido-confirmacao-atipica";
@@ -34,6 +46,10 @@ function authFetch(url: string, init?: RequestInit) {
   return fetch(url, { ...init, headers });
 }
 
+function parseMoneyInput(value: string): number {
+  return parseFloat(value.replace(",", ".")) || 0;
+}
+
 const STATUS_OPCOES = [
   "Orçamento",
   "Encomenda",
@@ -41,9 +57,9 @@ const STATUS_OPCOES = [
   "Provado",
   "Pronto",
   "Entregue",
+  "Cancelado",
 ];
 
-const FORMAS_PAGAMENTO = ["Pix", "À Vista", "Crediário", "Cartão Parcelado"];
 
 interface ParcelaForm {
   id?: number;        // existe se já salva no banco
@@ -61,6 +77,7 @@ const PAG_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   confirmado: { label: "Pago", cls: "text-green-600 bg-green-50 border-green-200" },
   aguardando: { label: "Aguardando", cls: "text-amber-600 bg-amber-50 border-amber-200" },
   em_atraso:  { label: "Em atraso",  cls: "text-red-600 bg-red-50 border-red-200" },
+  previsto:   { label: "Previsto",   cls: "text-blue-600 bg-blue-50 border-blue-200" },
 };
 
 interface PedidoDetail {
@@ -73,6 +90,7 @@ interface PedidoDetail {
   forma_peca_nome: string | null;
   descricao_produto: string;
   status: string;
+  criado_como_orcamento: boolean;
   data_pedido: string;
   data_entrega: string | null;
   valor_pecas: number | null;
@@ -120,6 +138,13 @@ interface PedidoDetail {
   param_total_horas_mes?: number | null;
   param_margem_target?: number | null;
   pagamento_na_entrega?: boolean | null;
+  canal_cartao?: string | null;
+  taxa_cartao_valor?: number | null;
+  taxa_cartao_percentual?: number | null;
+  taxa_cartao_manual?: boolean | null;
+  desconto_pix_valor?: number | null;
+  desconto_pix_percentual?: number | null;
+  desconto_pix_manual?: boolean | null;
 }
 
 const MEDIDAS_CAMPOS: { key: keyof PedidoDetail; label: string }[] = [
@@ -165,6 +190,18 @@ function formatMoney(val: number) {
   }).format(val);
 }
 
+function formatDateBR(iso: string | null): string {
+  if (!iso) return "-";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y.slice(2)}`;
+}
+
+function parcelaTitulo(index: number, total: number): string {
+  const numero = index + 1;
+  if (total <= 1) return "Pagamento";
+  return `Parcela ${numero} de ${total}`;
+}
+
 function Field({
   label,
   value,
@@ -195,10 +232,13 @@ export default function PedidoDetailPage() {
   const id = Number(params.id);
   const fromPage = searchParams.get("from");
   const fromMes = searchParams.get("mes");
+  const aba = searchParams.get("aba");
   const backUrl = fromPage === "financeiro"
     ? "/mobile/financeiro"
     : fromPage === "historico"
     ? `/mobile/pedidos/todos${fromMes ? `?mes=${fromMes}` : ""}`
+    : fromPage === "orcamentos"
+    ? "/mobile/pedidos/orcamentos"
     : fromPage === "pagamentos"
     ? "/mobile/pagamentos"
     : "/mobile/pedidos";
@@ -206,6 +246,7 @@ export default function PedidoDetailPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [fotoUploading, setFotoUploading] = useState(false);
 
   // Form state
@@ -241,6 +282,7 @@ export default function PedidoDetailPage() {
   const [parametros, setParametros] = useState<ParametrosCalculo | null>(null);
   const [avisosAtipicos, setAvisosAtipicos] = useState<AvisoPedido[]>([]);
   const [confirmadoAtipico, setConfirmadoAtipico] = useState(false);
+  const pagamentoSectionRef = useRef<HTMLElement | null>(null);
 
   const loadPedido = () => {
     authFetch(`${API_URL}/api/v1/pedidos/${id}`)
@@ -316,6 +358,13 @@ export default function PedidoDetailPage() {
       )
       .catch(() => setParametros(null));
   }, [id]);
+
+  useEffect(() => {
+    if (aba !== "pagamento" || loading || !parcelasLoaded) return;
+    window.setTimeout(() => {
+      pagamentoSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+  }, [aba, loading, parcelasLoaded]);
 
   useEffect(() => {
     if (!pedido?.tipo_pedido_id || !editing) {
@@ -454,12 +503,31 @@ export default function PedidoDetailPage() {
 
   const handleDelete = async () => {
     if (!pedido) return;
-    if (!confirm(`Excluir pedido de ${pedido.cliente_nome}? Esta ação não pode ser desfeita.`)) return;
+    setDeleting(true);
     try {
-      await authFetch(`${API_URL}/api/v1/pedidos/${pedido.id}`, { method: "DELETE" });
+      const res = await authFetch(`${API_URL}/api/v1/pedidos/${pedido.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Erro ao excluir");
       router.push(backUrl);
     } catch {
       alert("Erro ao excluir pedido. Tente novamente.");
+      setDeleting(false);
+    }
+  };
+
+  const handleCancelOrcamento = async () => {
+    if (!pedido) return;
+    setDeleting(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/v1/pedidos/${pedido.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Cancelado" }),
+      });
+      if (!res.ok) throw new Error("Erro ao cancelar");
+      router.push(backUrl);
+    } catch {
+      alert("Erro ao cancelar orçamento. Tente novamente.");
+      setDeleting(false);
     }
   };
 
@@ -528,7 +596,8 @@ export default function PedidoDetailPage() {
     pedido.forma_pagamento ||
     pedido.valor_entrada != null ||
     pedido.valor_restante != null ||
-    pedido.detalhes_pagamento;
+    pedido.detalhes_pagamento ||
+    parcelas.length > 0;
 
   // Modo edição: formulário completo
   if (editing) {
@@ -591,6 +660,32 @@ export default function PedidoDetailPage() {
                 </button>
               ))}
             </div>
+          </section>
+
+          {/* Divisão do valor */}
+          <section className="rounded-xl border border-gray-200 bg-white p-4">
+            <Label>% para Ilma</Label>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={percentualLucroDono}
+              onChange={(e) =>
+                setPercentualLucroDono(
+                  e.target.value === ""
+                    ? ""
+                    : Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))
+                )
+              }
+              className="mt-2"
+            />
+            {percentualLucroDono !== "" && (
+              <p className="mt-2 text-xs text-gray-500">
+                {Number(percentualLucroDono).toFixed(0)}% fica para Ilma e{" "}
+                {(100 - Number(percentualLucroDono)).toFixed(0)}% fica como repasse para Andrea.
+              </p>
+            )}
           </section>
 
           {/* Forma da peça (quando tipo de pedido permite) */}
@@ -705,13 +800,12 @@ export default function PedidoDetailPage() {
               <div>
                 <Label>Valor peça(s)</Label>
                 <Input
-                  type="number"
-                  min={0}
-                  step={0.01}
+                  type="text"
+                  inputMode="decimal"
                   value={valorPecas}
                   onChange={(e) => {
                     setValorPecas(
-                      e.target.value === "" ? "" : parseFloat(e.target.value) || 0
+                      e.target.value === "" ? "" : parseMoneyInput(e.target.value)
                     );
                     setConfirmadoAtipico(false);
                     setAvisosAtipicos([]);
@@ -725,30 +819,6 @@ export default function PedidoDetailPage() {
                   <p className="font-medium">{margemPreview.margemReal.toFixed(1)}%</p>
                 </div>
               )}
-              <div>
-                <Label>% para Ilma</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={percentualLucroDono}
-                  onChange={(e) =>
-                    setPercentualLucroDono(
-                      e.target.value === ""
-                        ? ""
-                        : Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))
-                    )
-                  }
-                  className="mt-1"
-                />
-                {percentualLucroDono !== "" && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    {Number(percentualLucroDono).toFixed(0)}% fica para Ilma e{" "}
-                    {(100 - Number(percentualLucroDono)).toFixed(0)}% fica como repasse para funcionária.
-                  </p>
-                )}
-              </div>
             </div>
           </section>
 
@@ -1095,11 +1165,18 @@ export default function PedidoDetailPage() {
                     ? "bg-green-100 text-green-800"
                     : pedido.status === "Orçamento"
                       ? "bg-amber-100 text-amber-800"
+                      : pedido.status === "Cancelado"
+                        ? "bg-red-100 text-red-700"
                       : "bg-gray-100 text-gray-700"
                 }`}
               >
                 {pedido.status}
               </span>
+              {pedido.criado_como_orcamento && (
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                  Nasceu como orçamento
+                </span>
+              )}
             </div>
           </div>
           <Link
@@ -1281,6 +1358,13 @@ export default function PedidoDetailPage() {
           </section>
         )}
 
+        {/* Custo de receber */}
+        <CustoReceberSection
+          pedido={pedido}
+          apiUrl={API_URL}
+          onSaved={(atualizado) => setPedido((p) => (p ? { ...p, ...atualizado } : p))}
+        />
+
         {/* Parâmetros usados no cálculo */}
         {(pedido.param_preco_hora != null ||
           pedido.param_impostos != null ||
@@ -1328,10 +1412,14 @@ export default function PedidoDetailPage() {
 
         {/* Pagamento */}
         {temPagamento && (
-          <section className="rounded-xl border border-gray-200 bg-white p-4">
+          <section
+            id="pagamento"
+            ref={pagamentoSectionRef}
+            className="scroll-mt-20 rounded-xl border border-gray-200 bg-white p-4"
+          >
             <h2 className="text-sm font-medium text-gray-500 mb-3 flex items-center gap-2">
               <CreditCard className="w-4 h-4" />
-              Forma de pagamento
+              Pagamento
             </h2>
             <div className="space-y-3">
               {pedido.forma_pagamento && (
@@ -1364,6 +1452,43 @@ export default function PedidoDetailPage() {
                 <p className="text-sm text-gray-600 pt-1">
                   {pedido.detalhes_pagamento}
                 </p>
+              )}
+              {parcelas.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  {parcelas.map((parcela, index) => {
+                    const statusInfo = parcela.status ? PAG_STATUS_LABEL[parcela.status] : null;
+                    return (
+                      <div key={parcela.id ?? index} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">
+                              {parcelaTitulo(index, parcelas.length)}
+                            </p>
+                            {/* Parcela de cartão futura tem data de pagamento gravada (a data
+                                prevista de crédito) — chamar isso de "pago em" seria mentira. */}
+                            <p className="text-xs text-gray-500">
+                              {parcela.status === "previsto"
+                                ? `Cai em ${formatDateBR(parcela.data_vencimento)}`
+                                : `Vence ${formatDateBR(parcela.data_vencimento)}${
+                                    parcela.data_pagamento ? ` · pago em ${formatDateBR(parcela.data_pagamento)}` : ""
+                                  }`}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-sm font-semibold text-gray-900">
+                              {formatMoney(parseMoneyInput(parcela.valor))}
+                            </p>
+                            {statusInfo && (
+                              <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] ${statusInfo.cls}`}>
+                                {statusInfo.label}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </section>
@@ -1418,6 +1543,115 @@ export default function PedidoDetailPage() {
             <p className="text-sm text-gray-700">{pedido.observacao_pedido}</p>
           </section>
         )}
+
+        {pedido.status === "Orçamento" ? (
+          <section className="rounded-xl border border-amber-100 bg-amber-50 p-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-amber-600">
+                <XCircle className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-semibold text-amber-900">Cancelar orçamento</h2>
+                <p className="mt-1 text-sm text-amber-700">
+                  O orçamento sai da lista de ativos, mas continua no histórico para acompanhar conversão.
+                </p>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      type="button"
+                      className="mt-3 w-full bg-amber-600 text-white hover:bg-amber-700 sm:w-auto"
+                      disabled={deleting}
+                    >
+                      {deleting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <XCircle className="h-4 w-4" />
+                      )}
+                      Cancelar orçamento
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="max-w-[calc(100vw-2rem)] rounded-lg">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Cancelar este orçamento?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        O orçamento de {pedido.cliente_nome} será marcado como Cancelado e continuará
+                        disponível no histórico. Nenhum registro será apagado.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={deleting}>Voltar</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleCancelOrcamento();
+                        }}
+                        disabled={deleting}
+                        className="bg-amber-600 text-white hover:bg-amber-700"
+                      >
+                        {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
+                        Confirmar cancelamento
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </div>
+          </section>
+        ) : (
+        <section className="rounded-xl border border-red-100 bg-red-50 p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-red-500">
+              <Trash2 className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold text-red-900">Excluir pedido</h2>
+              <p className="mt-1 text-sm text-red-700">
+                Use quando o pedido foi lançado duplicado ou não deve existir no histórico.
+              </p>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    className="mt-3 w-full bg-red-600 hover:bg-red-700 sm:w-auto"
+                    disabled={deleting}
+                  >
+                    {deleting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    Excluir pedido
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="max-w-[calc(100vw-2rem)] rounded-lg">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Excluir este pedido?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      O pedido de {pedido.cliente_nome} será removido junto com os pagamentos vinculados.
+                      Esta ação não pode ser desfeita.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleDelete();
+                      }}
+                      disabled={deleting}
+                      className="bg-red-600 text-white hover:bg-red-700"
+                    >
+                      {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Excluir definitivamente
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
+        </section>
+        )}
       </div>
 
       {/* FAB Editar */}
@@ -1429,14 +1663,169 @@ export default function PedidoDetailPage() {
         <Pencil className="h-6 w-6" />
       </button>
 
-      {/* Botão Excluir */}
-      <button
-        onClick={handleDelete}
-        className="fixed bottom-24 right-20 z-40 w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 flex items-center justify-center shadow hover:text-red-500 hover:border-red-200"
-        aria-label="Excluir pedido"
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
     </div>
+  );
+}
+
+/**
+ * Custo de receber do pedido: taxa de cartão e desconto Pix, em reais.
+ *
+ * O faturamento continua sendo o valor cheio da peça — estes valores viram
+ * despesa e entram como custo na margem. São editáveis porque o número real vem
+ * do extrato da adquirente, que nem sempre bate com a taxa da tabela.
+ */
+function CustoReceberSection({
+  pedido, apiUrl, onSaved,
+}: {
+  pedido: PedidoDetail;
+  apiUrl: string;
+  onSaved: (p: Partial<PedidoDetail>) => void;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [taxa, setTaxa] = useState("");
+  const [desconto, setDesconto] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const taxaAtual = pedido.taxa_cartao_valor ?? 0;
+  const descontoAtual = pedido.desconto_pix_valor ?? 0;
+  const total = taxaAtual + descontoAtual;
+  const liquido = (pedido.valor_pecas ?? 0) - total;
+
+  // Pedidos antigos, anteriores à mudança, não têm nada a mostrar aqui.
+  if (pedido.taxa_cartao_valor == null && pedido.desconto_pix_valor == null) return null;
+
+  const abrir = () => {
+    setTaxa(taxaAtual ? taxaAtual.toFixed(2) : "");
+    setDesconto(descontoAtual ? descontoAtual.toFixed(2) : "");
+    setErro(null);
+    setEditando(true);
+  };
+
+  const salvar = async (recalcular = false) => {
+    setSalvando(true);
+    setErro(null);
+    try {
+      const body: Record<string, unknown> = { confirmado_atipico: true };
+      if (recalcular) {
+        body.recalcular_custos = true;
+      } else {
+        body.taxa_cartao_valor = parseMoneyInput(taxa);
+        body.desconto_pix_valor = parseMoneyInput(desconto);
+      }
+      const res = await authFetch(`${apiUrl}/api/v1/pedidos/${pedido.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Não foi possível salvar o custo de receber.");
+      const detalhe = await authFetch(`${apiUrl}/api/v1/pedidos/${pedido.id}`).then((r) => r.json());
+      onSaved(detalhe);
+      setEditando(false);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro ao salvar.");
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-medium text-gray-500">Custo de receber</h2>
+        {!editando && (
+          <button type="button" onClick={abrir} className="text-xs text-blue-600 hover:underline">
+            Editar
+          </button>
+        )}
+      </div>
+
+      {editando ? (
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Taxa de cartão (R$)</p>
+              <input
+                type="text" inputMode="decimal" value={taxa}
+                onChange={(e) => setTaxa(e.target.value)}
+                placeholder="0,00"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+              />
+              {pedido.taxa_cartao_percentual != null && (
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Automático: {pedido.taxa_cartao_percentual.toLocaleString("pt-BR")}%
+                </p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Desconto Pix (R$)</p>
+              <input
+                type="text" inputMode="decimal" value={desconto}
+                onChange={(e) => setDesconto(e.target.value)}
+                placeholder="0,00"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+              />
+              {pedido.desconto_pix_percentual != null && (
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Automático: {pedido.desconto_pix_percentual.toLocaleString("pt-BR")}%
+                </p>
+              )}
+            </div>
+          </div>
+          {erro && <p className="text-xs text-red-600">{erro}</p>}
+          <div className="flex gap-2">
+            <button
+              type="button" disabled={salvando} onClick={() => salvar(false)}
+              className="flex-1 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm font-medium disabled:opacity-50"
+            >
+              {salvando ? "Salvando..." : "Salvar"}
+            </button>
+            <button
+              type="button" disabled={salvando} onClick={() => salvar(true)}
+              className="py-2 px-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 text-sm disabled:opacity-50"
+              title="Volta a calcular pela tabela de taxas"
+            >
+              Recalcular
+            </button>
+            <button
+              type="button" disabled={salvando} onClick={() => setEditando(false)}
+              className="py-2 px-3 rounded-lg border border-gray-200 text-gray-600 text-sm disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="py-2 px-3 rounded-lg bg-gray-50">
+              <p className="text-xs text-gray-500">
+                Taxa de cartão
+                {pedido.taxa_cartao_percentual != null && ` (${pedido.taxa_cartao_percentual.toLocaleString("pt-BR")}%)`}
+                {pedido.taxa_cartao_manual ? " · manual" : ""}
+              </p>
+              <p className="font-medium">{formatMoney(taxaAtual)}</p>
+            </div>
+            <div className="py-2 px-3 rounded-lg bg-gray-50">
+              <p className="text-xs text-gray-500">
+                Desconto Pix
+                {pedido.desconto_pix_percentual != null && ` (${pedido.desconto_pix_percentual.toLocaleString("pt-BR")}%)`}
+                {pedido.desconto_pix_manual ? " · manual" : ""}
+              </p>
+              <p className="font-medium">{formatMoney(descontoAtual)}</p>
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between mt-3 pt-2 border-t border-gray-100">
+            <span className="text-xs text-gray-500">
+              Pedido {formatMoney(pedido.valor_pecas ?? 0)}
+              {pedido.canal_cartao ? ` · ${pedido.canal_cartao}` : ""}
+            </span>
+            <span className="text-sm font-semibold text-gray-800">
+              você recebe {formatMoney(liquido)}
+            </span>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

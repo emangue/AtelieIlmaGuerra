@@ -2,17 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { Receipt, Loader2, CheckCircle, Trash2 } from "lucide-react";
-import { getToken } from "@/lib/api-client";
-
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
-
-function authFetch(url: string, init?: RequestInit) {
-  const token = getToken();
-  const headers = new Headers(init?.headers);
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(url, { ...init, headers });
-}
+import { Receipt, Loader2, CheckCircle, XCircle } from "lucide-react";
+import { api } from "@/lib/api-client";
 
 interface PedidoItem {
   id: number;
@@ -23,6 +14,7 @@ interface PedidoItem {
   data_entrega: string | null;
   valor_pecas: number | null;
   tipo_pedido_nome: string | null;
+  criado_como_orcamento: boolean;
 }
 
 function formatDate(iso: string) {
@@ -48,9 +40,9 @@ export default function PedidosOrcamentosPage() {
   const [actionId, setActionId] = useState<number | null>(null);
 
   useEffect(() => {
-    authFetch(`${API_URL}/api/v1/pedidos/todos?status=${encodeURIComponent("Orçamento")}`)
-      .then((res) => res.json())
-      .then((data: PedidoItem[]) => setOrcamentos(data))
+    api
+      .get<PedidoItem[]>(`/api/v1/pedidos/todos?status=${encodeURIComponent("Orçamento")}`)
+      .then((data) => setOrcamentos(Array.isArray(data) ? data : []))
       .catch(() => setOrcamentos([]))
       .finally(() => setLoading(false));
   }, []);
@@ -60,11 +52,7 @@ export default function PedidosOrcamentosPage() {
     if (!confirm("Aprovar este orçamento e transformar em pedido ativo (Encomenda)?")) return;
     setActionId(id);
     try {
-      await authFetch(`${API_URL}/api/v1/pedidos/${id}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "Encomenda" }),
-      });
+      await api.patch(`/api/v1/pedidos/${id}/status`, { status: "Encomenda" });
       setOrcamentos((prev) => prev.filter((p) => p.id !== id));
     } catch {
       alert("Erro ao aprovar. Tente novamente.");
@@ -73,15 +61,15 @@ export default function PedidosOrcamentosPage() {
     }
   };
 
-  const handleExcluir = async (e: React.MouseEvent, id: number, nome: string) => {
+  const handleCancelar = async (e: React.MouseEvent, id: number, nome: string) => {
     e.preventDefault();
-    if (!confirm(`Excluir orçamento de ${nome}? Esta ação não pode ser desfeita.`)) return;
+    if (!confirm(`Cancelar orçamento de ${nome}? Ele sairá dos ativos, mas continuará no histórico.`)) return;
     setActionId(id);
     try {
-      await authFetch(`${API_URL}/api/v1/pedidos/${id}`, { method: "DELETE" });
+      await api.patch(`/api/v1/pedidos/${id}/status`, { status: "Cancelado" });
       setOrcamentos((prev) => prev.filter((p) => p.id !== id));
     } catch {
-      alert("Erro ao excluir. Tente novamente.");
+      alert("Erro ao cancelar. Tente novamente.");
     } finally {
       setActionId(null);
     }
@@ -154,12 +142,12 @@ export default function PedidosOrcamentosPage() {
                 </button>
                 <div className="w-px bg-gray-100" />
                 <button
-                  onClick={(e) => handleExcluir(e, p.id, p.cliente_nome)}
+                  onClick={(e) => handleCancelar(e, p.id, p.cliente_nome)}
                   disabled={actionId === p.id}
                   className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-red-400 hover:bg-red-50 transition-colors disabled:opacity-50"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Excluir
+                  <XCircle className="h-3.5 w-3.5" />
+                  Cancelar
                 </button>
               </div>
             </div>

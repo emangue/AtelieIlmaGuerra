@@ -22,7 +22,11 @@ from .schemas import (
     DashboardResponse,
     PagamentosResponse,
 )
-from .service import get_plano_vs_realizado, get_evolucao_bulk, get_meta_mes
+from .service import (
+    get_plano_vs_realizado,
+    get_evolucao_bulk,
+    get_meta_mes,
+)
 from .schemas import MetaMes
 
 router = APIRouter(prefix="/plano", tags=["Plano"], dependencies=[Depends(get_user_id_from_token)])
@@ -56,7 +60,11 @@ def list_plano(
                 func.coalesce(func.sum(Pagamento.valor), 0).label("total"),
                 func.count(Pagamento.id).label("count"),
             )
-            .filter(Pagamento.anomes.in_(meses), Pagamento.tipo == "despesa", Pagamento.plano_item_id.isnot(None))
+            .filter(
+                Pagamento.anomes.in_(meses),
+                Pagamento.tipo == "despesa",
+                Pagamento.plano_item_id.isnot(None),
+            )
             .group_by(Pagamento.plano_item_id)
         )
         pag_map = {r.plano_item_id: (float(r.total), int(r.count)) for r in pag_q}

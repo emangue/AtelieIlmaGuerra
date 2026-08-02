@@ -4,6 +4,8 @@ Service do domínio Auth.
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.domains.users.roles import ROLES_GESTAO
+
 from .repository import AuthRepository
 from .schemas import LoginRequest, TokenResponse, UserLoginResponse
 from .password_utils import verify_password
@@ -23,6 +25,11 @@ class AuthService:
             raise HTTPException(status_code=401, detail="Usuário desativado")
         if not verify_password(credentials.password, user.password_hash):
             raise HTTPException(status_code=401, detail="Email ou senha incorretos")
+        if user.role not in ROLES_GESTAO:
+            raise HTTPException(
+                status_code=403,
+                detail="Este login é apenas para o site de atendimento: atendimento.atelieilmaguerra.com.br",
+            )
 
         access_token = create_access_token(
             data={"user_id": user.id, "email": user.email, "role": user.role}

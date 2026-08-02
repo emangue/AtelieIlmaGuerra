@@ -43,14 +43,14 @@ def get_kpis(db: Session, mes: str) -> Dict[str, Any]:
         .scalar() or 0
     )
 
-    # Faturamento potencial (todos com data_entrega no mês, exc. Orçamento/Canelado)
+    # Faturamento potencial (todos com data_entrega no mês, exc. Orçamento/Cancelado)
     fat_potencial = (
         db.query(func.coalesce(func.sum(Pedido.valor_pecas), 0))
         .filter(
             Pedido.data_entrega >= inicio,
             Pedido.data_entrega < fim,
             Pedido.data_entrega.isnot(None),
-            Pedido.status.notin_(("Orçamento", "Canelado")),
+            Pedido.status.notin_(("Orçamento", "Cancelado", "Canelado")),
         )
         .scalar() or 0
     )
@@ -68,14 +68,14 @@ def get_kpis(db: Session, mes: str) -> Dict[str, Any]:
         .scalar() or 0
     )
 
-    # Horas potencial (todos com data_entrega no mês, exc. Orçamento/Canelado)
+    # Horas potencial (todos com data_entrega no mês, exc. Orçamento/Cancelado)
     horas_potencial = (
         db.query(func.coalesce(func.sum(Pedido.horas_trabalho), 0))
         .filter(
             Pedido.data_entrega >= inicio,
             Pedido.data_entrega < fim,
             Pedido.data_entrega.isnot(None),
-            Pedido.status.notin_(("Orçamento", "Canelado")),
+            Pedido.status.notin_(("Orçamento", "Cancelado", "Canelado")),
         )
         .scalar() or 0
     )
@@ -144,7 +144,7 @@ def get_mix_status(db: Session, mes: str) -> List[Dict[str, Any]]:
             Pedido.data_entrega >= inicio,
             Pedido.data_entrega < fim,
             Pedido.data_entrega.isnot(None),
-            Pedido.status.notin_(("Orçamento", "Canelado")),
+            Pedido.status.notin_(("Orçamento", "Cancelado", "Canelado")),
         )
         .group_by(Pedido.status)
         .all()
@@ -261,7 +261,7 @@ def get_kpis_year(db: Session, ano: int) -> Dict[str, Any]:
             Pedido.data_entrega >= inicio,
             Pedido.data_entrega < fim,
             Pedido.data_entrega.isnot(None),
-            Pedido.status.notin_(("Orçamento", "Canelado")),
+            Pedido.status.notin_(("Orçamento", "Cancelado", "Canelado")),
         )
         .scalar() or 0
     )
@@ -281,7 +281,7 @@ def get_kpis_year(db: Session, ano: int) -> Dict[str, Any]:
             Pedido.data_entrega >= inicio,
             Pedido.data_entrega < fim,
             Pedido.data_entrega.isnot(None),
-            Pedido.status.notin_(("Orçamento", "Canelado")),
+            Pedido.status.notin_(("Orçamento", "Cancelado", "Canelado")),
         )
         .scalar() or 0
     )
@@ -339,7 +339,7 @@ def get_mix_status_year(db: Session, ano: int) -> List[Dict[str, Any]]:
             Pedido.data_entrega >= inicio,
             Pedido.data_entrega < fim,
             Pedido.data_entrega.isnot(None),
-            Pedido.status.notin_(("Orçamento", "Canelado")),
+            Pedido.status.notin_(("Orçamento", "Cancelado", "Canelado")),
         )
         .group_by(Pedido.status)
         .all()

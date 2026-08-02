@@ -17,6 +17,7 @@ class HistoricoItem(BaseModel):
     acao: str
     resumo: Optional[str]
     diff_json: Optional[str]
+    app: str = "gestao"  # gestao | atendimento — de qual site veio a alteração
 
     class Config:
         from_attributes = True

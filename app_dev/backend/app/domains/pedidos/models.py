@@ -69,6 +69,7 @@ class Pedido(Base):
     data_entrega = Column(Date, nullable=True)
     descricao_produto = Column(Text, nullable=False, default="")
     status = Column(String(50), nullable=False, default="Encomenda")
+    criado_como_orcamento = Column(Boolean, nullable=False, default=False)
 
     valor_pecas = Column(Float, nullable=True)
     quantidade_pecas = Column(Integer, nullable=True)
@@ -89,6 +90,17 @@ class Pedido(Base):
     valor_restante = Column(Float, nullable=True)
     detalhes_pagamento = Column(Text, nullable=True)
     percentual_lucro_dono = Column(Float, nullable=True, default=100.0)
+
+    # Custo de receber: quanto do valor do pedido não chega na mão da Ilma.
+    # O faturamento continua bruto — estes valores viram despesa e entram na margem.
+    canal_cartao = Column(String(20), nullable=True)          # "Maquininha" | "Link de pagamento"
+    data_compra_cartao = Column(Date, nullable=True)          # data em que passou no cartão (base do D+30)
+    taxa_cartao_valor = Column(Float, nullable=True)          # R$ — editável pela Ilma
+    taxa_cartao_percentual = Column(Float, nullable=True)     # % que gerou o valor
+    taxa_cartao_manual = Column(Boolean, nullable=True)       # editado à mão: não sobrescrever no recálculo
+    desconto_pix_valor = Column(Float, nullable=True)         # R$ — editável pela Ilma
+    desconto_pix_percentual = Column(Float, nullable=True)
+    desconto_pix_manual = Column(Boolean, nullable=True)
 
     medidas_disponiveis = Column(Boolean, default=False)
     medida_ombro = Column(Float, nullable=True)

@@ -26,13 +26,19 @@ export function calcularMargem(
   horasTrabalho: number,
   custoMateriais: number,
   custosVariaveis: number,
-  params: ParametrosCalculo
+  params: ParametrosCalculo,
+  // Taxa de cartão + desconto Pix DESTE pedido, em reais — zero num pedido em
+  // dinheiro. Quando não informado, cai no comportamento antigo (taxa de cartão
+  // sobre o valor cheio), para não mudar a margem de pedidos legados.
+  custoReceber?: number | null
 ): ResultadoMargem {
   const custoTotal = params.preco_hora * horasTrabalho + custoMateriais + custosVariaveis;
+  const fracaoReceber =
+    custoReceber != null && valorPecas > 0 ? custoReceber / valorPecas : params.cartao_credito;
   const margemReal =
     valorPecas > 0
       ? Math.round(
-          ((valorPecas - custoTotal) / valorPecas - params.impostos - params.cartao_credito) * 1000
+          ((valorPecas - custoTotal) / valorPecas - params.impostos - fracaoReceber) * 1000
         ) / 10
       : -100;
 

@@ -3,11 +3,16 @@ Service do domínio Pedidos.
 """
 import re
 from datetime import date
+from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
 from app.domains.parametros.service import get_or_create_parametros, get_preco_hora_efetivo
+from app.domains.parametros.taxas import resolver_percentual_padrao
+from app.domains.plano.custos_financeiros import (
+    aplicar_custos, custo_receber_total, sync_custos_financeiros,
+)
 
 from .margem import AvisoPedido, ParametrosCalculo, avaliar_avisos, calcular_margem_real
 from .models import Pedido, TipoPedido
@@ -36,6 +41,16 @@ def _norm_foto_url(url: Optional[str]) -> Optional[str]:
     return url if url.startswith("/") else url
 
 
+def _normalizar_valor_pedido(valor: Optional[float]) -> Optional[float]:
+    if valor is None:
+        return None
+    decimal = Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    centavos = decimal - decimal.to_integral_value(rounding=ROUND_CEILING) + Decimal("1")
+    if centavos == Decimal("0.99"):
+        return float(decimal.to_integral_value(rounding=ROUND_CEILING))
+    return float(decimal)
+
+
 class PedidoService:
     def __init__(self, db: Session):
         self.repo = PedidoRepository(db)
@@ -43,11 +58,17 @@ class PedidoService:
 
     def create(self, data: PedidoCreate) -> Pedido:
         db = self.repo.db
+        data.valor_pecas = _normalizar_valor_pedido(data.valor_pecas)
         p = get_or_create_parametros(db)
         preco_hora = get_preco_hora_efetivo(db)
-        params = ParametrosCalculo(preco_hora, p.impostos, p.cartao_credito)
+        taxa_padrao = resolver_percentual_padrao(db)
+        params = ParametrosCalculo(preco_hora, p.impostos, taxa_padrao)
+        # No create ainda não há parcelas, então o custo de receber é só o que veio no
+        # payload. A margem é recalculada quando o pagamento é configurado.
+        custo_receber = (data.taxa_cartao_valor or 0) + (data.desconto_pix_valor or 0)
         resultado = calcular_margem_real(
-            data.valor_pecas, data.horas_trabalho, data.custo_materiais, data.custos_variaveis, params
+            data.valor_pecas, data.horas_trabalho, data.custo_materiais, data.custos_variaveis, params,
+            custo_receber=custo_receber,
         )
         avisos = avaliar_avisos(data.valor_pecas, data.quantidade_pecas, data.horas_trabalho, resultado.margem_real)
         if avisos and not data.confirmado_atipico:
@@ -57,7 +78,7 @@ class PedidoService:
             margem_real=resultado.margem_real,
             param_preco_hora=preco_hora,
             param_impostos=p.impostos,
-            param_cartao_credito=p.cartao_credito,
+            param_cartao_credito=taxa_padrao,
             param_total_horas_mes=p.total_horas_mes,
             param_margem_target=p.margem_target,
         )
@@ -76,8 +97,20 @@ class PedidoService:
         limit: int = 20,
         mes: Optional[str] = None,
         status: Optional[str] = None,
+        tipo: Optional[str] = None,
+        repasse_funcionaria: bool = False,
+        percentual_lucro_dono: Optional[float] = None,
     ):
-        return self.repo.search_historico(q=q, offset=offset, limit=limit, mes=mes, status=status)
+        return self.repo.search_historico(
+            q=q,
+            offset=offset,
+            limit=limit,
+            mes=mes,
+            status=status,
+            tipo=tipo,
+            repasse_funcionaria=repasse_funcionaria,
+            percentual_lucro_dono=percentual_lucro_dono,
+        )
 
     def list_entregues(self, mes: str) -> List[Pedido]:
         """Lista pedidos entregues no mês (para transações do financeiro)."""
@@ -102,6 +135,9 @@ class PedidoService:
             return None
 
         fields = data.model_dump(exclude_unset=True)
+        if "valor_pecas" in fields:
+            data.valor_pecas = _normalizar_valor_pedido(data.valor_pecas)
+            fields["valor_pecas"] = data.valor_pecas
         valor_pecas = fields.get("valor_pecas", pedido.valor_pecas)
         horas_trabalho = fields.get("horas_trabalho", pedido.horas_trabalho)
         custo_materiais = fields.get("custo_materiais", pedido.custo_materiais)
@@ -127,12 +163,66 @@ class PedidoService:
                 param_margem_target=p.margem_target,
             )
 
-        resultado = calcular_margem_real(valor_pecas, horas_trabalho, custo_materiais, custos_variaveis, params)
+        # Override manual da taxa/desconto: aplicar antes de calcular a margem, e
+        # marcar como manual para que uma edição de preço depois não apague o número.
+        if data.recalcular_custos:
+            pedido.taxa_cartao_manual = False
+            pedido.desconto_pix_manual = False
+        if fields.get("taxa_cartao_valor") is not None:
+            pedido.taxa_cartao_valor = data.taxa_cartao_valor
+            pedido.taxa_cartao_manual = True
+        if fields.get("desconto_pix_valor") is not None:
+            pedido.desconto_pix_valor = data.desconto_pix_valor
+            pedido.desconto_pix_manual = True
+        if fields.get("canal_cartao") is not None:
+            pedido.canal_cartao = data.canal_cartao
+
+        custos_mudaram = bool(
+            {"taxa_cartao_valor", "desconto_pix_valor", "canal_cartao", "valor_pecas"} & fields.keys()
+        ) or data.recalcular_custos
+        if custos_mudaram:
+            aplicar_custos(db, pedido, [p for p in (pedido.pagamentos or []) if p.tipo == "receita"])
+
+        resultado = calcular_margem_real(
+            valor_pecas, horas_trabalho, custo_materiais, custos_variaveis, params,
+            custo_receber=custo_receber_total(pedido),
+        )
         avisos = avaliar_avisos(valor_pecas, quantidade_pecas, horas_trabalho, resultado.margem_real)
         if avisos and not data.confirmado_atipico:
             raise PedidoAtipicoWarning(avisos, resultado.margem_real)
 
-        return self.repo.update(pedido_id, data, margem_real=resultado.margem_real, **snapshot_extra)
+        atualizado = self.repo.update(pedido_id, data, margem_real=resultado.margem_real, **snapshot_extra)
+        if custos_mudaram and atualizado:
+            # Recalcular DEPOIS do update: mudar o valor do pedido reescalona as
+            # parcelas, e é sobre os valores novos que a taxa incide.
+            aplicar_custos(db, atualizado, [p for p in (atualizado.pagamentos or []) if p.tipo == "receita"])
+            self.recalcular_margem(atualizado)
+            sync_custos_financeiros(db, atualizado)
+            db.commit()
+            db.refresh(atualizado)
+        return atualizado
+
+    def recalcular_margem(self, pedido: Pedido) -> float:
+        """Recalcula margem_real do pedido com o custo de receber atual.
+
+        Usado depois de configurar o pagamento, quando as formas por parcela — e
+        portanto a taxa de cartão e o desconto Pix — só então são conhecidas.
+        """
+        db = self.repo.db
+        if pedido.param_preco_hora is not None:
+            params = ParametrosCalculo(
+                pedido.param_preco_hora, pedido.param_impostos or 0, pedido.param_cartao_credito or 0
+            )
+        else:
+            p = get_or_create_parametros(db)
+            params = ParametrosCalculo(get_preco_hora_efetivo(db), p.impostos, resolver_percentual_padrao(db))
+
+        resultado = calcular_margem_real(
+            pedido.valor_pecas, pedido.horas_trabalho, pedido.custo_materiais, pedido.custos_variaveis,
+            params, custo_receber=custo_receber_total(pedido),
+        )
+        pedido.margem_real = resultado.margem_real
+        return resultado.margem_real
 
     def update_status(self, pedido_id: int, status: str) -> Optional[Pedido]:
         return self.repo.update_status(pedido_id, status)
@@ -142,9 +232,13 @@ class PedidoService:
 
     @staticmethod
     def to_list_item(p: Pedido) -> PedidoListItem:
-        parcelas = p.pagamentos or []
-        pagas = [x for x in parcelas if x.data_pagamento is not None]
-        pendentes = [x for x in parcelas if x.data_pagamento is None]
+        # Só receitas: as despesas de taxa/repasse também vivem em p.pagamentos.
+        parcelas = [x for x in (p.pagamentos or []) if x.tipo == "receita"]
+        # Parcela de cartão futura já tem data_pagamento (a data prevista de crédito),
+        # mas o dinheiro não entrou — contá-la como paga marcaria o pedido como
+        # quitado no dia da venda.
+        pagas = [x for x in parcelas if not x.pendente_de_caixa]
+        pendentes = [x for x in parcelas if x.pendente_de_caixa]
 
         if not parcelas:
             status_pag = None
@@ -166,11 +260,13 @@ class PedidoService:
             tipo_pedido_nome=p.tipo_pedido.nome if p.tipo_pedido else None,
             descricao_produto=p.descricao_produto or "",
             status=p.status,
+            criado_como_orcamento=bool(getattr(p, "criado_como_orcamento", False)),
             data_pedido=p.data_pedido,
             data_entrega=p.data_entrega,
             foto_url=_norm_foto_url(p.foto_url),
             valor_pecas=p.valor_pecas,
             quantidade_pecas=p.quantidade_pecas,
+            percentual_lucro_dono=p.percentual_lucro_dono,
             forma_pagamento=p.forma_pagamento,
             pagamento_na_entrega=p.pagamento_na_entrega,
             status_pagamento=status_pag,

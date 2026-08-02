@@ -13,6 +13,7 @@ import {
   Calendar,
   Loader2,
   ImageIcon,
+  Search,
   FileText,
   CreditCard,
   X,
@@ -20,6 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { getToken } from "@/lib/api-client";
+import { FORMAS_PAGAMENTO } from "@/lib/formas-pagamento";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -84,7 +86,6 @@ const PAG_BADGE: Record<string, { label: string; cls: string }> = {
   em_atraso:  { label: "Em atraso",  cls: "bg-red-50 text-red-700" },
 };
 
-const FORMAS = ["Pix", "À Vista", "Crediário", "Cartão Parcelado"];
 
 // ── Modal de pagamento ao marcar Entregue ──────────────────────────────────
 type ModalStep = "choose" | "parcelar";
@@ -235,7 +236,7 @@ function EntregueModal({ pedido, onClose, onConfirm }: EntregueModalProps) {
             <div>
               <label className="text-xs uppercase tracking-wide text-gray-400 mb-1 block">Forma de pagamento</label>
               <div className="grid grid-cols-2 gap-2">
-                {FORMAS.map((f) => (
+                {FORMAS_PAGAMENTO.map((f) => (
                   <button
                     key={f}
                     onClick={() => setForma(f)}
@@ -365,6 +366,7 @@ function EntregueModal({ pedido, onClose, onConfirm }: EntregueModalProps) {
 
 export default function PedidosPage() {
   const [pedidos, setPedidos] = useState<PedidoItem[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [entregueModal, setEntregueModal] = useState<PedidoItem | null>(null);
@@ -436,7 +438,24 @@ export default function PedidosPage() {
     }
   };
 
-  const grouped = pedidos.reduce<Record<string, PedidoItem[]>>((acc, p) => {
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const pedidosFiltrados = normalizedSearch
+    ? pedidos.filter((p) => {
+        const texto = [
+          p.cliente_nome,
+          p.descricao_produto,
+          p.tipo_pedido_nome,
+          p.status,
+          p.valor_pecas != null ? String(p.valor_pecas) : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return texto.includes(normalizedSearch);
+      })
+    : pedidos;
+
+  const grouped = pedidosFiltrados.reduce<Record<string, PedidoItem[]>>((acc, p) => {
     const key = p.data_entrega || "__sem_data__";
     if (!acc[key]) acc[key] = [];
     acc[key].push(p);
@@ -460,6 +479,28 @@ export default function PedidosPage() {
         <Button className="w-full" size="lg">Novo Pedido</Button>
       </Link>
 
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input
+          type="search"
+          placeholder="Buscar por cliente ou pedido..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+          aria-label="Buscar pedidos ativos"
+        />
+        {searchTerm && (
+          <button
+            type="button"
+            onClick={() => setSearchTerm("")}
+            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"
+            aria-label="Limpar busca"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
@@ -469,6 +510,12 @@ export default function PedidosPage() {
           <Package className="w-12 h-12 text-gray-300 mb-4" />
           <p className="text-gray-500 text-center">Nenhum pedido ativo no momento</p>
           <p className="text-sm text-gray-400 mt-1">Clique em &quot;Novo Pedido&quot; para começar</p>
+        </div>
+      ) : pedidosFiltrados.length === 0 ? (
+        <div className="rounded-xl border border-gray-200 bg-gray-50 p-8 flex flex-col items-center justify-center min-h-[200px]">
+          <Search className="w-12 h-12 text-gray-300 mb-4" />
+          <p className="text-gray-500 text-center">Nenhum pedido encontrado</p>
+          <p className="text-sm text-gray-400 mt-1">Tente buscar por outro nome ou descrição</p>
         </div>
       ) : (
         <div className="space-y-6">

@@ -17,6 +17,10 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.domains.auth.router import get_user_id_from_token
+from .custos_financeiros import (
+    ORIGENS_CUSTO, TIPO_ITEM_DESCONTO_PIX, TIPO_ITEM_TAXA_CARTAO,
+    is_pix, sync_custo_adiantamento, sync_custos_financeiros,
+)
 from .pagamentos_model import Pagamento
 from .models import PlanoItem
 from .schemas import (
@@ -25,6 +29,9 @@ from .schemas import (
 )
 
 router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"], dependencies=[Depends(get_user_id_from_token)])
+
+# Lançamentos gerados pelo sistema — só mudam junto com o pedido que os originou.
+_ORIGENS_NAO_EDITAVEIS = ("pedido", "repasse_funcionaria", *ORIGENS_CUSTO)
 
 _ICON_KEY_MAP = {
     "Colaboradores": "colab",
@@ -93,50 +100,57 @@ def get_cobrancas(
     hoje = date_type.today()
 
     rows = (
-        db.query(
-            Pagamento.id,
-            Pagamento.pedido_id,
-            Pagamento.parcela_numero,
-            Pagamento.parcela_total,
-            Pagamento.valor,
-            Pagamento.data_vencimento,
-            Pagamento.data_pagamento,
-            Pagamento.anomes,
-            Cliente.nome.label("cliente_nome"),
-            TipoPedido.nome.label("tipo_pedido"),
-            Pedido.forma_pagamento,
-        )
+        db.query(Pagamento, Cliente.nome.label("cliente_nome"), TipoPedido.nome.label("tipo_pedido"))
         .join(Pedido, Pedido.id == Pagamento.pedido_id)
         .outerjoin(Cliente, Cliente.id == Pedido.cliente_id)
         .outerjoin(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
-        .filter(Pagamento.tipo == "receita", Pagamento.pedido_id.isnot(None))
+        .filter(Pagamento.tipo == "receita", Pagamento.pedido_id.isnot(None), Pagamento.valor > 0)
         .order_by(Pagamento.data_vencimento.asc().nullslast())
         .all()
     )
 
-    em_atraso, vence_hoje, a_vencer, pagas = [], [], [], []
+    em_atraso, vence_hoje, a_vencer, pagas, previstas_cartao = [], [], [], [], []
 
-    for r in rows:
-        venc = r.data_vencimento
-        pago = r.data_pagamento
+    for pag, cliente_nome, tipo_pedido in rows:
+        venc = pag.data_vencimento
+        pago = pag.data_pagamento
+        automatica = bool(pag.liquidacao_automatica)
+        # Parcela de cartão futura tem data de pagamento gravada, mas o dinheiro
+        # ainda não entrou — usar `pendente_de_caixa`, não `data_pagamento`.
+        pendente = pag.pendente_de_caixa
 
         item = CobrancaItem(
-            id=r.id,
-            pedido_id=r.pedido_id,
-            cliente_nome=r.cliente_nome or "—",
-            tipo_pedido=r.tipo_pedido or "Pedido",
-            forma_pagamento=r.forma_pagamento,
-            parcela_numero=r.parcela_numero,
-            parcela_total=r.parcela_total,
-            valor=r.valor,
+            id=pag.id,
+            pedido_id=pag.pedido_id,
+            cliente_nome=cliente_nome or "—",
+            tipo_pedido=tipo_pedido or "Pedido",
+            forma_pagamento=pag.forma_pagamento or (pag.pedido.forma_pagamento if pag.pedido else None),
+            parcela_numero=pag.parcela_numero,
+            parcela_total=pag.parcela_total,
+            valor=pag.valor,
             data_vencimento=venc.isoformat() if venc else None,
             data_pagamento=pago.isoformat() if pago else None,
-            status="pago" if pago else ("em_atraso" if venc and venc < hoje else ("vence_hoje" if venc == hoje else "a_vencer")),
-            dias_atraso=(hoje - venc).days if (not pago and venc and venc < hoje) else 0,
+            status=(
+                "previsto" if (automatica and pendente)
+                else "pago" if not pendente
+                else "em_atraso" if venc and venc < hoje
+                else "vence_hoje" if venc == hoje
+                else "a_vencer"
+            ),
+            dias_atraso=(hoje - venc).days if (pendente and not automatica and venc and venc < hoje) else 0,
+            liquidacao_automatica=automatica,
+            desconto_adiantamento=pag.desconto_adiantamento,
         )
 
-        if pago:
-            if r.anomes == mes:
+        if automatica:
+            # Cartão nunca é cobrança: ou já caiu, ou está previsto para cair.
+            if pendente:
+                if pag.anomes == mes:
+                    previstas_cartao.append(item)
+            elif pag.anomes == mes:
+                pagas.append(item)
+        elif not pendente:
+            if pag.anomes == mes:
                 pagas.append(item)
         elif venc and venc < hoje:
             em_atraso.append(item)
@@ -146,15 +160,31 @@ def get_cobrancas(
             a_vencer.append(item)
 
     sete_dias = hoje + timedelta(days=7)
+    vence_7dias = vence_hoje + [
+        x for x in a_vencer if x.data_vencimento and x.data_vencimento <= sete_dias.isoformat()
+    ]
+
+    custos = (
+        db.query(Pagamento.tipo_item, sqlfunc.sum(Pagamento.valor))
+        .filter(Pagamento.origem.in_(ORIGENS_CUSTO), Pagamento.anomes == mes)
+        .group_by(Pagamento.tipo_item)
+        .all()
+    )
+    custos_por_item = {item: float(total or 0) for item, total in custos}
+
     resumo = CobrancasResumo(
         total_em_atraso=round(sum(i.valor for i in em_atraso), 2),
         count_em_atraso=len(em_atraso),
-        total_vence_7dias=round(sum(i.valor for i in vence_hoje + [x for x in a_vencer if x.data_vencimento and x.data_vencimento <= sete_dias.isoformat()]), 2),
-        count_vence_7dias=len(vence_hoje) + len([x for x in a_vencer if x.data_vencimento and x.data_vencimento <= sete_dias.isoformat()]),
+        total_vence_7dias=round(sum(i.valor for i in vence_7dias), 2),
+        count_vence_7dias=len(vence_7dias),
         total_a_vencer=round(sum(i.valor for i in a_vencer), 2),
         count_a_vencer=len(a_vencer),
         total_pago=round(sum(i.valor for i in pagas), 2),
         count_pago=len(pagas),
+        total_previsto_cartao=round(sum(i.valor for i in previstas_cartao), 2),
+        count_previsto_cartao=len(previstas_cartao),
+        total_taxa_cartao=round(custos_por_item.get(TIPO_ITEM_TAXA_CARTAO, 0.0), 2),
+        total_desconto_pix=round(custos_por_item.get(TIPO_ITEM_DESCONTO_PIX, 0.0), 2),
     )
 
     return CobrancasResponse(
@@ -162,6 +192,7 @@ def get_cobrancas(
         vence_hoje=vence_hoje,
         a_vencer=a_vencer,
         pagas=pagas,
+        previstas_cartao=previstas_cartao,
         resumo=resumo,
     )
 
@@ -320,6 +351,98 @@ def confirmar_pagamento(
 
     pag.data_pagamento = data_pag
     pag.anomes = f"{data_pag.year}{data_pag.month:02d}"
+
+    # A despesa do desconto Pix só pode ser lançada agora, que a data existe.
+    if is_pix(pag.forma_pagamento) and pag.pedido_id:
+        db.flush()
+        sync_custos_financeiros(db, pag.pedido)
+
+    db.commit()
+    db.refresh(pag)
+    return _to_item(pag)
+
+
+@router.patch("/{pagamento_id}/adiantar", response_model=PagamentoItem)
+def adiantar_pagamento(
+    pagamento_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+):
+    """Antecipa o recebimento de uma parcela de cartão.
+
+    O desconto informado é o que a adquirente cobrou para adiantar. Ele vira despesa
+    e é adicional à taxa flat da compra.
+    """
+    pag = db.query(Pagamento).filter(Pagamento.id == pagamento_id).first()
+    if not pag:
+        raise HTTPException(status_code=404, detail="Pagamento não encontrado")
+    if not pag.liquidacao_automatica:
+        raise HTTPException(status_code=400, detail="Só parcelas de cartão podem ser adiantadas")
+    if pag.data_vencimento and pag.data_vencimento <= date_type.today():
+        raise HTTPException(status_code=400, detail="Esta parcela já venceu — não há o que adiantar")
+
+    data_str = data.get("data_recebimento")
+    if not data_str:
+        raise HTTPException(status_code=400, detail="Informe a data em que você recebeu")
+    try:
+        data_receb = datetime.strptime(data_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="data_recebimento deve ser YYYY-MM-DD")
+
+    try:
+        desconto = float(data.get("desconto") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Desconto inválido")
+    if desconto < 0:
+        raise HTTPException(status_code=400, detail="O desconto não pode ser negativo")
+    if desconto >= pag.valor:
+        raise HTTPException(status_code=400, detail="O desconto não pode ser maior ou igual ao valor da parcela")
+
+    pag.data_pagamento = data_receb
+    pag.anomes = f"{data_receb.year}{data_receb.month:02d}"
+    pag.desconto_adiantamento = round(desconto, 2)
+
+    if pag.pedido_id:
+        db.flush()
+        sync_custo_adiantamento(db, pag.pedido, pag)
+
+    db.commit()
+    db.refresh(pag)
+    return _to_item(pag)
+
+
+@router.patch("/{pagamento_id}/estornar", response_model=PagamentoItem)
+def estornar_pagamento(pagamento_id: int, db: Session = Depends(get_db)):
+    """Desfaz a confirmação ou o adiantamento de uma parcela.
+
+    Sem isso, uma data digitada errada ficaria presa — não havia caminho de volta.
+    Parcela de cartão volta para a data prevista de crédito, não para "não paga".
+    """
+    pag = db.query(Pagamento).filter(Pagamento.id == pagamento_id).first()
+    if not pag:
+        raise HTTPException(status_code=404, detail="Pagamento não encontrado")
+    if pag.origem not in ("pedido", "repasse_funcionaria"):
+        raise HTTPException(status_code=400, detail="Só parcelas de pedido e acertos podem ser estornados")
+
+    pedido = pag.pedido
+    pag.desconto_adiantamento = None
+    if pag.liquidacao_automatica:
+        pag.data_pagamento = pag.data_vencimento
+        pag.anomes = (
+            f"{pag.data_vencimento.year}{pag.data_vencimento.month:02d}" if pag.data_vencimento else None
+        )
+    else:
+        pag.data_pagamento = None
+        pag.anomes = None
+
+    filhas = db.query(Pagamento).filter(Pagamento.pagamento_pai_id == pag.id).all()
+    for filha in filhas:
+        db.delete(filha)
+
+    if pedido:
+        db.flush()
+        sync_custos_financeiros(db, pedido)
+
     db.commit()
     db.refresh(pag)
     return _to_item(pag)
@@ -335,8 +458,8 @@ def update_pagamento(
     pag = db.query(Pagamento).filter(Pagamento.id == pagamento_id).first()
     if not pag:
         raise HTTPException(status_code=404, detail="Pagamento não encontrado")
-    if pag.origem == "pedido":
-        raise HTTPException(status_code=400, detail="Receitas de pedido não são editáveis aqui")
+    if pag.origem in _ORIGENS_NAO_EDITAVEIS:
+        raise HTTPException(status_code=400, detail="Lançamentos gerados por pedido não são editáveis aqui")
 
     if data.valor is not None:
         if data.valor <= 0:
@@ -366,7 +489,7 @@ def delete_pagamento(
     pag = db.query(Pagamento).filter(Pagamento.id == pagamento_id).first()
     if not pag:
         raise HTTPException(status_code=404, detail="Pagamento não encontrado")
-    if pag.origem == "pedido":
-        raise HTTPException(status_code=400, detail="Receitas de pedido não podem ser removidas aqui")
+    if pag.origem in _ORIGENS_NAO_EDITAVEIS:
+        raise HTTPException(status_code=400, detail="Lançamentos gerados por pedido não podem ser removidos aqui")
     db.delete(pag)
     db.commit()

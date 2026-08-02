@@ -42,31 +42,35 @@ export interface PlanoMensalItem {
 
 interface ChartRow {
   label: string;
-  custo_plan: number;
-  lucro_plan_pos: number;
-  prejuizo_plan: number;
+  custo_plan: number | null;
+  lucro_plan_pos: number | null;
+  prejuizo_plan: number | null;
   custo_real: number;
   lucro_real_pos: number;
   prejuizo_real: number;
   fat_plan: number;
   fat_real: number;
+  despesa_plan_total: number;
+  despesa_real_total: number;
 }
 
 function toChartRow(d: PlanoMensalItem): ChartRow {
   const temPlano = d.receita_planejada > 0 || d.despesas_planejadas > 0;
-  // Prejuízo vem PRIMEIRO no stack (valor negativo vai abaixo do zero).
-  // Custo empilha a partir do prejuízo, subindo até fat_real.
-  // Lucro empilha em cima do custo até fat_real + lucro.
+  const custoRealConsumido = Math.min(d.despesas_realizadas, d.receita_realizada);
+  const custoPlanConsumido = Math.min(d.despesas_planejadas, d.receita_planejada);
+  // A despesa consome a barra de faturamento. Só o excedente de despesa aparece abaixo do zero.
   return {
     label: d.label,
-    prejuizo_real: Math.min(0, d.lucro_realizado),   // negativo ou 0 — renderiza abaixo do zero
-    custo_real: d.despesas_realizadas,                // sobe a partir do prejuízo até fat_real
-    lucro_real_pos: Math.max(0, d.lucro_realizado),  // sobe em cima do custo
+    prejuizo_real: -Math.max(0, d.despesas_realizadas - d.receita_realizada),
+    custo_real: custoRealConsumido,
+    lucro_real_pos: Math.max(0, d.receita_realizada - d.despesas_realizadas),
     fat_real: d.receita_realizada,
-    prejuizo_plan: temPlano ? Math.min(0, d.lucro_planejado) : null as unknown as number,
-    custo_plan: temPlano ? d.despesas_planejadas : null as unknown as number,
-    lucro_plan_pos: temPlano ? Math.max(0, d.lucro_planejado) : null as unknown as number,
+    despesa_real_total: d.despesas_realizadas,
+    prejuizo_plan: temPlano ? -Math.max(0, d.despesas_planejadas - d.receita_planejada) : null,
+    custo_plan: temPlano ? custoPlanConsumido : null,
+    lucro_plan_pos: temPlano ? Math.max(0, d.receita_planejada - d.despesas_planejadas) : null,
     fat_plan: temPlano ? d.receita_planejada : 0,
+    despesa_plan_total: temPlano ? d.despesas_planejadas : 0,
   };
 }
 
@@ -78,8 +82,8 @@ const CustomTooltip = ({ active, payload, label }: {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
   if (!row) return null;
-  const lucroReal = row.lucro_real_pos + row.prejuizo_real;
-  const lucroPlano = row.lucro_plan_pos + row.prejuizo_plan;
+  const sobraReal = row.lucro_real_pos + row.prejuizo_real;
+  const sobraPlano = (row.lucro_plan_pos ?? 0) + (row.prejuizo_plan ?? 0);
   return (
     <div style={{ background: "white", border: "0.5px solid #e5e7eb", borderRadius: 8, padding: "10px 12px", fontSize: 12, minWidth: 180, boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
       <p style={{ fontWeight: 500, marginBottom: 8, color: "#111" }}>{label}</p>
@@ -89,12 +93,12 @@ const CustomTooltip = ({ active, payload, label }: {
           <span style={{ fontWeight: 500, color: "#111" }}>{fmt(row.fat_real)}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <span style={{ color: "#6b7280" }}>Custo real</span>
-          <span style={{ color: "#D85A30" }}>{fmt(row.custo_real)}</span>
+          <span style={{ color: "#6b7280" }}>Despesa real</span>
+          <span style={{ color: "#D85A30" }}>{fmt(row.despesa_real_total)}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <span style={{ color: "#6b7280" }}>{lucroReal < 0 ? "Prejuízo real" : "Lucro real"}</span>
-          <span style={{ color: lucroReal < 0 ? "#E24B4A" : "#1D9E75" }}>{lucroReal < 0 ? "-" : ""}{fmt(lucroReal)}</span>
+          <span style={{ color: "#6b7280" }}>{sobraReal < 0 ? "Despesa acima" : "Sobra real"}</span>
+          <span style={{ color: sobraReal < 0 ? "#E24B4A" : "#1D9E75" }}>{sobraReal < 0 ? "-" : ""}{fmt(sobraReal)}</span>
         </div>
         <div style={{ borderTop: "0.5px solid #e5e7eb", margin: "4px 0" }} />
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
@@ -102,12 +106,12 @@ const CustomTooltip = ({ active, payload, label }: {
           <span style={{ color: "#9ca3af" }}>{fmt(row.fat_plan)}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <span style={{ color: "#6b7280" }}>Custo plano</span>
-          <span style={{ color: "#F0997B" }}>{fmt(row.custo_plan)}</span>
+          <span style={{ color: "#6b7280" }}>Despesa plano</span>
+          <span style={{ color: "#F0997B" }}>{fmt(row.despesa_plan_total)}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <span style={{ color: "#6b7280" }}>{lucroPlano < 0 ? "Prejuízo plano" : "Lucro plano"}</span>
-          <span style={{ color: lucroPlano < 0 ? "#F09595" : "#9FE1CB", fontWeight: 500 }}>{lucroPlano < 0 ? "-" : ""}{fmt(lucroPlano)}</span>
+          <span style={{ color: "#6b7280" }}>{sobraPlano < 0 ? "Despesa acima plano" : "Sobra plano"}</span>
+          <span style={{ color: sobraPlano < 0 ? "#F09595" : "#9FE1CB", fontWeight: 500 }}>{sobraPlano < 0 ? "-" : ""}{fmt(sobraPlano)}</span>
         </div>
       </div>
     </div>
@@ -137,7 +141,7 @@ function makeBarLabel(
     const row = rows[index];
     if (!row) return null;
 
-    const segVal = row[segKey] as number;
+    const segVal = row[segKey] as number | null;
     const absH = Math.abs(height);
 
     const elems: React.ReactNode[] = [];
@@ -158,7 +162,7 @@ function makeBarLabel(
     // Label de faturamento no topo do stack
     if (fatKey && lucroKey) {
       const fat = row[fatKey] as number;
-      const lucro = row[lucroKey] as number;
+      const lucro = (row[lucroKey] as number | null) ?? 0;
       const shouldShow = isTopWhenNoLucro ? lucro <= 0 : lucro > 0;
       if (fat > 0 && shouldShow) {
         elems.push(
@@ -183,8 +187,8 @@ export function ChartPlanoMensal({ data }: { data: PlanoMensalItem[] }) {
 
   const rows = data.map(toChartRow);
 
-  // Etiquetas — lê rows[index] diretamente, nunca p.value
-  // Nota: custo mostra fat no topo QUANDO lucro <= 0 (custo é o topo do stack positivo)
+  // Etiquetas — lê rows[index] diretamente, nunca p.value.
+  // A despesa consumida mostra fat no topo quando não há sobra positiva.
   const LabelPrejuizoReal = makeBarLabel(rows, "prejuizo_real", "rgba(255,255,255,0.9)");
   const LabelCustoReal    = makeBarLabel(rows, "custo_real",    "rgba(255,255,255,0.9)", "fat_real",  "lucro_real_pos", true);
   const LabelLucroReal    = makeBarLabel(rows, "lucro_real_pos","rgba(255,255,255,0.9)", "fat_real",  "lucro_real_pos", false);
@@ -196,11 +200,11 @@ export function ChartPlanoMensal({ data }: { data: PlanoMensalItem[] }) {
     <div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 10 }}>
         {[
-          { label: "Lucro real", color: "#1D9E75" },
-          { label: "Custo real", color: "#D85A30" },
-          { label: "Lucro plano", color: "#9FE1CB" },
-          { label: "Custo plano", color: "#F5C4B3" },
-          { label: "Prejuízo", color: "#B91C1C" },
+          { label: "Sobra real", color: "#1D9E75" },
+          { label: "Despesa real", color: "#D85A30" },
+          { label: "Sobra plano", color: "#9FE1CB" },
+          { label: "Despesa plano", color: "#F5C4B3" },
+          { label: "Despesa acima", color: "#B91C1C" },
         ].map((l) => (
           <span key={l.label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#6b7280" }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: l.color, flexShrink: 0 }} />
@@ -246,7 +250,7 @@ export function ChartPlanoMensal({ data }: { data: PlanoMensalItem[] }) {
       </div>
       </div>
       <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
-        Coluna escura = realizado · Coluna clara = plano · Abaixo do zero = prejuízo
+        Coluna escura = realizado · Coluna clara = plano · Vermelho consome o faturamento; abaixo de zero é despesa acima.
       </p>
     </div>
   );

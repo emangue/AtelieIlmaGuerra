@@ -40,12 +40,28 @@ interface PedidoItem {
   data_pedido: string;
   data_entrega: string | null;
   foto_url: string | null;
+  valor_pecas: number | null;
+  percentual_lucro_dono: number | null;
 }
 
 interface PecasPorTipo {
   tipo: string;
   quantidade: number;
   valor: number;
+}
+
+interface PercentualResumo {
+  percentual: number;
+  quantidade: number;
+  valor: number;
+}
+
+interface HistoricoResponse {
+  items?: PedidoItem[];
+  total?: number;
+  has_more?: boolean;
+  total_valor_pecas?: number;
+  percentuais_lucro_dono?: PercentualResumo[];
 }
 
 function formatMoney(val: number) {
@@ -72,14 +88,18 @@ function formatDate(iso: string) {
 function PedidoCard({
   p,
   mesFilter,
+  destacarPercentual,
   updatingId,
   onStatusClick,
 }: {
   p: PedidoItem;
   mesFilter: string | null;
+  destacarPercentual: boolean;
   updatingId: number | null;
   onStatusClick: (p: PedidoItem, status: string) => void;
 }) {
+  const percentualIlma =
+    p.percentual_lucro_dono == null ? null : Math.round(p.percentual_lucro_dono);
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="flex gap-2">
@@ -104,12 +124,37 @@ function PedidoCard({
             {p.data_entrega && (
               <p className="text-xs text-gray-400 mt-1">{formatDate(p.data_entrega)}</p>
             )}
+            {(p.valor_pecas != null || p.percentual_lucro_dono != null) && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {p.valor_pecas != null && (
+                  <span className="rounded-full bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-700">
+                    {formatMoney(p.valor_pecas)}
+                  </span>
+                )}
+                {p.percentual_lucro_dono != null && (
+                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                    {Math.round(p.percentual_lucro_dono)}% Ilma
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </Link>
         <div className="flex flex-col items-end justify-between gap-2" onClick={(e) => e.stopPropagation()}>
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-            {p.status}
-          </span>
+          <div className="flex flex-col items-end gap-1">
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+              {p.status}
+            </span>
+            {destacarPercentual && percentualIlma != null && (
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                percentualIlma === 50
+                  ? "bg-emerald-50 text-emerald-700"
+                  : "bg-amber-50 text-amber-700"
+              }`}>
+                {percentualIlma}% Ilma
+              </span>
+            )}
+          </div>
           <Link
             href={`/mobile/contratos/novo?cliente_id=${p.cliente_id}`}
             className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
@@ -166,13 +211,18 @@ function PedidosTodosContent() {
   const searchParams = useSearchParams();
   const mesFilter = searchParams.get("mes");
   const statusFilter = searchParams.get("status");
+  const tipoFilter = searchParams.get("tipo");
+  const repasseFilter = searchParams.get("repasse_funcionaria") === "1";
 
   const [pedidos, setPedidos] = useState<PedidoItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [totalValorPecas, setTotalValorPecas] = useState(0);
+  const [percentuaisResumo, setPercentuaisResumo] = useState<PercentualResumo[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState("");
+  const [percentualFiltro, setPercentualFiltro] = useState<number | null>(null);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [resumo, setResumo] = useState<PecasPorTipo[] | null>(null);
   const [resumoExpanded, setResumoExpanded] = useState(false);
@@ -187,18 +237,25 @@ function PedidosTodosContent() {
     if (q.trim()) params.set("q", q.trim());
     if (mesFilter) params.set("mes", mesFilter);
     if (statusFilter) params.set("status", statusFilter);
+    if (tipoFilter) params.set("tipo", tipoFilter);
+    if (repasseFilter) params.set("repasse_funcionaria", "true");
+    if (percentualFiltro != null) params.set("percentual_lucro_dono", String(percentualFiltro));
     return `${API_URL}/api/v1/pedidos/historico?${params.toString()}`;
-  }, [mesFilter, statusFilter]);
+  }, [mesFilter, statusFilter, tipoFilter, repasseFilter, percentualFiltro]);
 
   const fetchPage = useCallback(async (q: string, offset: number, append: boolean) => {
     if (!append) setLoading(true);
     else setLoadingMore(true);
     try {
       const res = await authFetch(buildUrl(q, offset));
-      const data = await res.json();
+      const data: HistoricoResponse = await res.json();
       const items: PedidoItem[] = data.items ?? [];
       setPedidos((prev) => append ? [...prev, ...items] : items);
       setTotal(data.total ?? 0);
+      if (!append) {
+        setTotalValorPecas(Number(data.total_valor_pecas ?? 0));
+        setPercentuaisResumo(data.percentuais_lucro_dono ?? []);
+      }
       setHasMore(data.has_more ?? false);
       offsetRef.current = offset + items.length;
     } catch {
@@ -213,7 +270,7 @@ function PedidosTodosContent() {
   useEffect(() => {
     offsetRef.current = 0;
     fetchPage("", 0, false);
-  }, [mesFilter, statusFilter]);
+  }, [mesFilter, statusFilter, tipoFilter, repasseFilter, percentualFiltro]);
 
   // Resumo por mês (quando vem do dashboard)
   useEffect(() => {
@@ -238,6 +295,12 @@ function PedidosTodosContent() {
     fetchPage(search, offsetRef.current, true);
   };
 
+  const handlePercentualFiltro = (percentual: number) => {
+    const novoFiltro = percentualFiltro === percentual ? null : percentual;
+    setSearch("");
+    setPercentualFiltro(novoFiltro);
+  };
+
   const handleStatusClick = async (pedido: PedidoItem, newStatus: string) => {
     setUpdatingId(pedido.id);
     try {
@@ -254,7 +317,12 @@ function PedidosTodosContent() {
     }
   };
 
-  const titulo = mesFilter
+  const totalResumoTela = repasseFilter ? totalValorPecas : (resumo ? resumo.reduce((s, r) => s + r.valor, 0) : totalValorPecas);
+  const temResumoExpandivel = repasseFilter ? percentuaisResumo.length > 0 : Boolean(resumo && resumo.length > 0);
+
+  const titulo = repasseFilter && tipoFilter?.toLowerCase().includes("ajuste") && mesFilter
+    ? `Repasses Andrea - ${mesFilter.slice(4, 6)}/${mesFilter.slice(0, 4)}`
+    : mesFilter
     ? `Pedidos de ${mesFilter.slice(4, 6)}/${mesFilter.slice(0, 4)}`
     : "Todos os Pedidos";
 
@@ -292,16 +360,36 @@ function PedidosTodosContent() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-base font-semibold text-gray-900">
-                {resumo ? formatMoney(resumo.reduce((s, r) => s + r.valor, 0)) : "—"}
+                {loading ? "—" : formatMoney(totalResumoTela)}
               </span>
-              {resumo && resumo.length > 0 && (
+              {temResumoExpandivel && (
                 resumoExpanded
                   ? <ChevronUp className="w-5 h-5 text-gray-500" />
                   : <ChevronDown className="w-5 h-5 text-gray-500" />
               )}
             </div>
           </button>
-          {resumoExpanded && resumo && resumo.length > 0 && (
+          {resumoExpanded && repasseFilter && percentuaisResumo.length > 0 && (
+            <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50 space-y-2">
+              {percentuaisResumo.map((r) => (
+                <button
+                  key={r.percentual}
+                  type="button"
+                  onClick={() => handlePercentualFiltro(r.percentual)}
+                  className={`flex w-full justify-between items-center rounded-lg px-2 py-1 text-sm transition ${
+                    percentualFiltro === r.percentual ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-white"
+                  }`}
+                >
+                  <span className="font-medium">{Math.round(r.percentual)}% Ilma</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-gray-500">{r.quantidade} ped.</span>
+                    <span className="font-medium text-gray-900">{formatMoney(r.valor)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {resumoExpanded && !repasseFilter && resumo && resumo.length > 0 && (
             <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50 space-y-2">
               {resumo.map((r) => (
                 <div key={r.tipo} className="flex justify-between items-center text-sm">
@@ -314,6 +402,21 @@ function PedidosTodosContent() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {repasseFilter && percentualFiltro != null && (
+        <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
+          <span className="text-sm font-medium text-blue-800">
+            Filtrando {Math.round(percentualFiltro)}% Ilma
+          </span>
+          <button
+            type="button"
+            onClick={() => setPercentualFiltro(null)}
+            className="text-sm font-medium text-blue-700"
+          >
+            Limpar
+          </button>
         </div>
       )}
 
@@ -356,6 +459,7 @@ function PedidosTodosContent() {
               key={p.id}
               p={p}
               mesFilter={mesFilter}
+              destacarPercentual={repasseFilter}
               updatingId={updatingId}
               onStatusClick={handleStatusClick}
             />

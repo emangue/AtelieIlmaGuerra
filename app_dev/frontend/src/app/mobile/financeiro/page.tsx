@@ -1,18 +1,10 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { ChevronLeft, ChevronRight, Loader2, Check, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Check, X, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
-import { getToken } from "@/lib/api-client";
-
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
-
-function authFetch(url: string, init?: RequestInit) {
-  const token = getToken();
-  const headers = new Headers(init?.headers);
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(url, { ...init, headers });
-}
+import { api } from "@/lib/api-client";
 
 function formatMoney(val: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -63,6 +55,8 @@ interface CobrancaItem {
   data_pagamento: string | null;
   status: string;
   dias_atraso: number;
+  liquidacao_automatica: boolean;
+  desconto_adiantamento: number | null;
 }
 
 interface CobrancasResumo {
@@ -74,6 +68,10 @@ interface CobrancasResumo {
   count_a_vencer: number;
   total_pago: number;
   count_pago: number;
+  total_previsto_cartao: number;
+  count_previsto_cartao: number;
+  total_taxa_cartao: number;
+  total_desconto_pix: number;
 }
 
 interface CobrancasResponse {
@@ -81,6 +79,7 @@ interface CobrancasResponse {
   vence_hoje: CobrancaItem[];
   a_vencer: CobrancaItem[];
   pagas: CobrancaItem[];
+  previstas_cartao: CobrancaItem[];
   resumo: CobrancasResumo;
 }
 
@@ -109,11 +108,10 @@ interface RepassesResponse {
   };
 }
 
-type Filtro = "todas" | "em_atraso" | "a_vencer" | "pagas";
+type Filtro = "todas" | "em_atraso" | "a_vencer" | "pagas" | "cartao";
 
 function parcelaLabel(item: CobrancaItem): string {
   if (item.parcela_numero && item.parcela_total) {
-    if (item.parcela_numero === 1 && item.parcela_total > 1) return `Entrada (1 de ${item.parcela_total})`;
     return `Parcela ${item.parcela_numero} de ${item.parcela_total}`;
   }
   if (item.parcela_numero) return `Parcela ${item.parcela_numero}`;
@@ -124,36 +122,59 @@ function CardCobranca({
   item,
   confirmandoId,
   confirmandoData,
+  descontoAdiantar,
   salvando,
   onIniciarConfirmar,
   onCancelarConfirmar,
   onChangeData,
+  onChangeDesconto,
   onConfirmar,
+  onAdiantar,
 }: {
   item: CobrancaItem;
   confirmandoId: number | null;
   confirmandoData: string;
+  descontoAdiantar: string;
   salvando: boolean;
   onIniciarConfirmar: (id: number) => void;
   onCancelarConfirmar: () => void;
   onChangeData: (v: string) => void;
+  onChangeDesconto: (v: string) => void;
   onConfirmar: () => void;
+  onAdiantar: () => void;
 }) {
+  const router = useRouter();
   const isConfirmando = confirmandoId === item.id;
+  // Parcela de cartão não se confirma: cai sozinha. A única ação é adiantar.
+  const automatica = item.liquidacao_automatica;
+  const previsto = item.status === "previsto";
 
   const borderColor =
     item.status === "em_atraso" ? "#F7C1C1"
     : item.status === "vence_hoje" ? "#FAC775"
+    : previsto ? "#BBD5F2"
     : "var(--color-border-tertiary, #e5e7eb)";
 
   const accentColor =
     item.status === "em_atraso" ? "#A32D2D"
     : item.status === "vence_hoje" ? "#854F0B"
     : item.status === "pago" ? "#3B6D11"
+    : previsto ? "#1B4F86"
     : "var(--color-text-primary)";
 
   return (
-    <div style={{ border: `0.5px solid ${borderColor}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8 }}>
+    <div
+      onClick={() => router.push(`/mobile/pedidos/${item.pedido_id}?from=financeiro&aba=pagamento`)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          router.push(`/mobile/pedidos/${item.pedido_id}?from=financeiro&aba=pagamento`);
+        }
+      }}
+      style={{ border: `0.5px solid ${borderColor}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, cursor: "pointer" }}
+    >
       {/* Linha 1: nome + valor */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 2 }}>
         <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: "var(--color-text-primary)", flex: 1, paddingRight: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -180,8 +201,13 @@ function CardCobranca({
           </span>
         )}
         {item.status === "pago" && (
-          <span style={{ fontSize: 11, background: "#C0DD97", color: "#27500A", padding: "2px 8px", borderRadius: 20, flexShrink: 0 }}>
-            pago
+          <span style={{ fontSize: 11, background: item.desconto_adiantamento ? "#DDD0F0" : "#C0DD97", color: item.desconto_adiantamento ? "#452A70" : "#27500A", padding: "2px 8px", borderRadius: 20, flexShrink: 0 }}>
+            {item.desconto_adiantamento ? "adiantado" : automatica ? "quitado" : "pago"}
+          </span>
+        )}
+        {previsto && (
+          <span style={{ fontSize: 11, background: "#D6E6F7", color: "#1B4F86", padding: "2px 8px", borderRadius: 20, flexShrink: 0 }}>
+            previsto
           </span>
         )}
       </div>
@@ -191,12 +217,26 @@ function CardCobranca({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderTop: "0.5px solid var(--color-border-tertiary, #f0f0f0)", paddingTop: 10 }}>
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0, minWidth: 0 }}>
             {parcelaLabel(item)}
-            {item.status !== "pago" && item.data_vencimento ? ` · vence ${formatDataBR(item.data_vencimento)}` : ""}
+            {previsto && item.data_vencimento ? ` · cai em ${formatDataBR(item.data_vencimento)}` : ""}
+            {!previsto && item.status !== "pago" && item.data_vencimento ? ` · vence ${formatDataBR(item.data_vencimento)}` : ""}
             {item.status === "pago" && item.data_pagamento ? ` · ${formatDataBR(item.data_pagamento)}` : ""}
           </p>
-          {item.status !== "pago" && (
+          {previsto ? (
             <button
-              onClick={() => onIniciarConfirmar(item.id)}
+              onClick={(e) => { e.stopPropagation(); onIniciarConfirmar(item.id); }}
+              style={{
+                fontSize: 12, padding: "6px 14px", borderRadius: 20, flexShrink: 0, whiteSpace: "nowrap",
+                border: `0.5px solid ${accentColor}`, background: "transparent", color: accentColor, cursor: "pointer",
+              }}
+            >
+              Adiantar
+            </button>
+          ) : item.status !== "pago" ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onIniciarConfirmar(item.id);
+              }}
               style={{
                 fontSize: 12, padding: "6px 14px", borderRadius: 20, flexShrink: 0, whiteSpace: "nowrap",
                 border: `0.5px solid ${accentColor}`,
@@ -207,30 +247,52 @@ function CardCobranca({
             >
               Confirmar
             </button>
-          )}
+          ) : null}
         </div>
       ) : (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "0.5px solid var(--color-border-tertiary, #f0f0f0)", paddingTop: 10 }}>
-          <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0, flexShrink: 0 }}>Recebido em</p>
-          <Input
-            type="date"
-            value={confirmandoData}
-            onChange={(e) => onChangeData(e.target.value)}
-            className="h-8 text-sm flex-1"
-          />
-          <button
-            onClick={onConfirmar}
-            disabled={salvando}
-            style={{ width: 32, height: 32, borderRadius: 8, background: "#639922", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-          >
-            {salvando ? <Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} /> : <Check style={{ width: 14, height: 14 }} />}
-          </button>
-          <button
-            onClick={onCancelarConfirmar}
-            style={{ width: 32, height: 32, borderRadius: 8, background: "transparent", border: "0.5px solid var(--color-border-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-          >
-            <X style={{ width: 14, height: 14 }} />
-          </button>
+        <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, #f0f0f0)", paddingTop: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0, flexShrink: 0 }}>Recebido em</p>
+            <Input
+              type="date"
+              value={confirmandoData}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => onChangeData(e.target.value)}
+              className="h-8 text-sm flex-1"
+            />
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                previsto ? onAdiantar() : onConfirmar();
+              }}
+              disabled={salvando}
+              style={{ width: 32, height: 32, borderRadius: 8, background: "#639922", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+            >
+              {salvando ? <Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} /> : <Check style={{ width: 14, height: 14 }} />}
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onCancelarConfirmar();
+              }}
+              style={{ width: 32, height: 32, borderRadius: 8, background: "transparent", border: "0.5px solid var(--color-border-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+            >
+              <X style={{ width: 14, height: 14 }} />
+            </button>
+          </div>
+          {/* Adiantar cobra um desconto da adquirente — o valor real vem do extrato. */}
+          {previsto && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+              <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0, flexShrink: 0 }}>Desconto (R$)</p>
+              <Input
+                type="number" min={0} step="0.01" placeholder="0,00"
+                value={descontoAdiantar}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onChangeDesconto(e.target.value)}
+                className="h-8 text-sm flex-1"
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -341,24 +403,30 @@ export default function FinanceiroPage() {
   const [repasses, setRepasses] = useState<RepassesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState<Filtro>("todas");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const [confirmandoId, setConfirmandoId] = useState<number | null>(null);
   const [confirmandoData, setConfirmandoData] = useState(hojeIso);
+  const [descontoAdiantar, setDescontoAdiantar] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [erroAcao, setErroAcao] = useState<string | null>(null);
 
   const [pagasExpandido, setPagasExpandido] = useState(false);
 
   const fetchCobrancas = useCallback(() => {
     setLoading(true);
-    authFetch(`${API_URL}/api/v1/pagamentos/cobrancas?mes=${mes}`)
-      .then((r) => r.json())
-      .then((d) => setCobrancas(d))
-      .catch(() => setCobrancas(null));
-
-    authFetch(`${API_URL}/api/v1/pagamentos/repasses?mes=${mes}`)
-      .then((r) => r.json())
-      .then((d) => setRepasses(d))
-      .catch(() => setRepasses(null))
+    Promise.all([
+      api.get<CobrancasResponse>(`/api/v1/pagamentos/cobrancas?mes=${mes}`),
+      api.get<RepassesResponse>(`/api/v1/pagamentos/repasses?mes=${mes}`),
+    ])
+      .then(([cobrancasData, repassesData]) => {
+        setCobrancas(cobrancasData);
+        setRepasses(repassesData);
+      })
+      .catch(() => {
+        setCobrancas(null);
+        setRepasses(null);
+      })
       .finally(() => setLoading(false));
   }, [mes]);
 
@@ -367,16 +435,34 @@ export default function FinanceiroPage() {
   const handleConfirmar = async () => {
     if (!confirmandoId || !confirmandoData) return;
     setSalvando(true);
+    setErroAcao(null);
     try {
-      const res = await authFetch(`${API_URL}/api/v1/pagamentos/${confirmandoId}/confirmar`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data_pagamento: confirmandoData }),
+      await api.patch(`/api/v1/pagamentos/${confirmandoId}/confirmar`, {
+        data_pagamento: confirmandoData,
       });
-      if (res.ok) {
-        setConfirmandoId(null);
-        fetchCobrancas();
-      }
+      setConfirmandoId(null);
+      fetchCobrancas();
+    } catch (e) {
+      setErroAcao(e instanceof Error ? e.message : "Não foi possível confirmar.");
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const handleAdiantar = async () => {
+    if (!confirmandoId || !confirmandoData) return;
+    setSalvando(true);
+    setErroAcao(null);
+    try {
+      await api.patch(`/api/v1/pagamentos/${confirmandoId}/adiantar`, {
+        data_recebimento: confirmandoData,
+        desconto: parseFloat(descontoAdiantar.replace(",", ".")) || 0,
+      });
+      setConfirmandoId(null);
+      setDescontoAdiantar("");
+      fetchCobrancas();
+    } catch (e) {
+      setErroAcao(e instanceof Error ? e.message : "Não foi possível adiantar.");
     } finally {
       setSalvando(false);
     }
@@ -385,11 +471,19 @@ export default function FinanceiroPage() {
   const cardProps = {
     confirmandoId,
     confirmandoData,
+    descontoAdiantar,
     salvando,
-    onIniciarConfirmar: (id: number) => { setConfirmandoId(id); setConfirmandoData(hojeIso()); },
+    onIniciarConfirmar: (id: number) => {
+      setConfirmandoId(id);
+      setConfirmandoData(hojeIso());
+      setDescontoAdiantar("");
+      setErroAcao(null);
+    },
     onCancelarConfirmar: () => setConfirmandoId(null),
     onChangeData: setConfirmandoData,
+    onChangeDesconto: setDescontoAdiantar,
     onConfirmar: handleConfirmar,
+    onAdiantar: handleAdiantar,
   };
 
   const r = cobrancas?.resumo;
@@ -397,6 +491,65 @@ export default function FinanceiroPage() {
   const mostrarEmAtraso = filtro === "todas" || filtro === "em_atraso";
   const mostrarAVencer = filtro === "todas" || filtro === "a_vencer";
   const mostrarPagas = filtro === "todas" || filtro === "pagas";
+  const mostrarCartao = filtro === "todas" || filtro === "cartao";
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const cobrancaMatchesSearch = (item: CobrancaItem) => {
+    if (!normalizedSearch) return true;
+    const texto = [
+      item.cliente_nome,
+      item.tipo_pedido,
+      item.forma_pagamento,
+      item.status,
+      item.pedido_id ? `pedido ${item.pedido_id}` : "",
+      item.pedido_id ? `#${item.pedido_id}` : "",
+      parcelaLabel(item),
+      item.valor != null ? String(item.valor) : "",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return texto.includes(normalizedSearch);
+  };
+  const repasseMatchesSearch = (item: RepasseItem) => {
+    if (!normalizedSearch) return true;
+    const texto = [
+      item.cliente_nome,
+      item.tipo_pedido,
+      item.status,
+      item.pedido_id ? `pedido ${item.pedido_id}` : "",
+      item.pedido_id ? `#${item.pedido_id}` : "",
+      `${item.percentual_repasse.toFixed(0)}%`,
+      item.valor != null ? String(item.valor) : "",
+      item.valor_pedido != null ? String(item.valor_pedido) : "",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return texto.includes(normalizedSearch);
+  };
+  const emAtrasoFiltradas = cobrancas?.em_atraso.filter(cobrancaMatchesSearch) ?? [];
+  const venceHojeFiltradas = cobrancas?.vence_hoje.filter(cobrancaMatchesSearch) ?? [];
+  const aVencerFiltradas = cobrancas?.a_vencer.filter(cobrancaMatchesSearch) ?? [];
+  const pagasFiltradas = cobrancas?.pagas.filter(cobrancaMatchesSearch) ?? [];
+  const previstasCartaoFiltradas = cobrancas?.previstas_cartao?.filter(cobrancaMatchesSearch) ?? [];
+  const repassesPendentesFiltrados = repasses
+    ? repasses.pendentes.filter((item) => {
+        if (filtro === "pagas") return false;
+        if (filtro === "em_atraso") return item.status === "em_atraso";
+        if (filtro === "a_vencer") return item.status !== "em_atraso";
+        return true;
+      }).filter(repasseMatchesSearch)
+    : [];
+  const repassesPagosFiltrados = repasses && mostrarPagas ? repasses.pagos.filter(repasseMatchesSearch) : [];
+  const repassesFiltradosTotal = repassesPendentesFiltrados.reduce((sum, item) => sum + item.valor, 0);
+  const temRepassesFiltrados = repassesPendentesFiltrados.length > 0 || repassesPagosFiltrados.length > 0;
+  const temCobrancasFiltradas = Boolean(
+    (mostrarEmAtraso && emAtrasoFiltradas.length) ||
+    (mostrarAVencer && venceHojeFiltradas.length) ||
+    (mostrarAVencer && aVencerFiltradas.length) ||
+    (mostrarCartao && previstasCartaoFiltradas.length) ||
+    (mostrarPagas && pagasFiltradas.length)
+  );
 
   return (
     <div className="pb-24">
@@ -423,8 +576,8 @@ export default function FinanceiroPage() {
 
         {/* Filtros */}
         <div className="flex gap-2">
-          {(["todas", "em_atraso", "a_vencer", "pagas"] as Filtro[]).map((f) => {
-            const labels: Record<Filtro, string> = { todas: "Todas", em_atraso: "Em atraso", a_vencer: "A vencer", pagas: "Pagas" };
+          {(["todas", "em_atraso", "a_vencer", "cartao", "pagas"] as Filtro[]).map((f) => {
+            const labels: Record<Filtro, string> = { todas: "Todas", em_atraso: "Em atraso", a_vencer: "A vencer", cartao: "Cartão", pagas: "Pagas" };
             const active = filtro === f;
             const isRed = f === "em_atraso" && active;
             return (
@@ -443,6 +596,28 @@ export default function FinanceiroPage() {
               </button>
             );
           })}
+        </div>
+
+        <div className="relative mt-3">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="search"
+            placeholder="Buscar cliente, pedido, valor..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+            aria-label="Buscar cobranças"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm("")}
+              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"
+              aria-label="Limpar busca"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -507,22 +682,72 @@ export default function FinanceiroPage() {
               </div>
             </div>
 
+            {/* Cartão a receber + custo de receber do mês */}
+            <div className="grid grid-cols-2 gap-3 mb-2">
+              <div
+                className="rounded-xl p-3 cursor-pointer"
+                style={{ background: r && r.count_previsto_cartao > 0 ? "#E8F0F9" : "var(--color-background-secondary)" }}
+                onClick={() => setFiltro(filtro === "cartao" ? "todas" : "cartao")}
+              >
+                <p className="text-xs mb-1" style={{ color: r && r.count_previsto_cartao > 0 ? "#1B4F86" : "var(--color-text-secondary)" }}>
+                  Cartão a receber
+                </p>
+                <p className="text-lg font-medium m-0" style={{ color: r && r.count_previsto_cartao > 0 ? "#123A5E" : "var(--color-text-primary)" }}>
+                  {r ? formatMoney(r.total_previsto_cartao) : "—"}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: r && r.count_previsto_cartao > 0 ? "#1B4F86" : "var(--color-text-secondary)" }}>
+                  {r?.count_previsto_cartao ?? 0} parcelas
+                </p>
+              </div>
+              {/* Responde "quanto estou pagando de taxa por mês" sem mexer no faturamento. */}
+              <div className="rounded-xl p-3" style={{ background: "var(--color-background-secondary)" }}>
+                <p className="text-xs text-gray-500 mb-1">Custo de receber</p>
+                <p className="text-lg font-medium text-gray-900 m-0">
+                  {r ? formatMoney((r.total_taxa_cartao ?? 0) + (r.total_desconto_pix ?? 0)) : "—"}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  cartão {formatMoney(r?.total_taxa_cartao ?? 0)} · pix {formatMoney(r?.total_desconto_pix ?? 0)}
+                </p>
+              </div>
+            </div>
+
+            {erroAcao && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-2">
+                {erroAcao}
+              </p>
+            )}
+
+            {/* CARTÃO A RECEBER */}
+            {mostrarCartao && previstasCartaoFiltradas.length > 0 && (
+              <div>
+                <SectionHeader
+                  cor="#3B82F6"
+                  label="CARTÃO A RECEBER"
+                  count={previstasCartaoFiltradas.length}
+                  total={previstasCartaoFiltradas.reduce((s, i) => s + i.valor, 0)}
+                />
+                {previstasCartaoFiltradas.map((item) => (
+                  <CardCobranca key={item.id} item={item} {...cardProps} />
+                ))}
+              </div>
+            )}
+
             {/* EM ATRASO */}
-            {repasses && (repasses.pendentes.length > 0 || repasses.pagos.length > 0) && (
+            {temRepassesFiltrados && (
               <div className="mb-5">
                 <SectionHeader
                   cor="#7C3AED"
                   label="ACERTOS FUNCIONÁRIA"
-                  count={repasses.resumo.count_pendente}
-                  total={repasses.resumo.total_pendente}
+                  count={repassesPendentesFiltrados.length}
+                  total={repassesFiltradosTotal}
                 />
-                {repasses.pendentes.map((item) => (
+                {repassesPendentesFiltrados.map((item) => (
                   <CardRepasse key={item.id} item={item} {...cardProps} />
                 ))}
-                {repasses.pagos.length > 0 && (
+                {repassesPagosFiltrados.length > 0 && (
                   <div className="mt-2 rounded-xl bg-green-50 px-4 py-3">
                     <p className="text-xs font-medium text-green-800">
-                      Pago em {labelMes(mes)}: {formatMoney(repasses.resumo.total_pago)}
+                      Pago em {labelMes(mes)}: {formatMoney(repassesPagosFiltrados.reduce((sum, item) => sum + item.valor, 0))}
                     </p>
                   </div>
                 )}
@@ -530,47 +755,50 @@ export default function FinanceiroPage() {
             )}
 
             {/* EM ATRASO */}
-            {mostrarEmAtraso && cobrancas.em_atraso.length > 0 && (
+            {mostrarEmAtraso && emAtrasoFiltradas.length > 0 && (
               <div>
-                <SectionHeader cor="#E24B4A" label="EM ATRASO" count={cobrancas.em_atraso.length} total={r?.total_em_atraso} />
-                {cobrancas.em_atraso.map((item) => (
+                <SectionHeader cor="#E24B4A" label="EM ATRASO" count={emAtrasoFiltradas.length} total={emAtrasoFiltradas.reduce((s, i) => s + i.valor, 0)} />
+                {emAtrasoFiltradas.map((item) => (
                   <CardCobranca key={item.id} item={item} {...cardProps} />
                 ))}
               </div>
             )}
 
             {/* VENCE HOJE */}
-            {mostrarAVencer && cobrancas.vence_hoje.length > 0 && (
+            {mostrarAVencer && venceHojeFiltradas.length > 0 && (
               <div>
-                <SectionHeader cor="#EF9F27" label="VENCE HOJE" count={cobrancas.vence_hoje.length} total={cobrancas.vence_hoje.reduce((s, i) => s + i.valor, 0)} />
-                {cobrancas.vence_hoje.map((item) => (
+                <SectionHeader cor="#EF9F27" label="VENCE HOJE" count={venceHojeFiltradas.length} total={venceHojeFiltradas.reduce((s, i) => s + i.valor, 0)} />
+                {venceHojeFiltradas.map((item) => (
                   <CardCobranca key={item.id} item={item} {...cardProps} />
                 ))}
               </div>
             )}
 
             {/* A VENCER */}
-            {mostrarAVencer && cobrancas.a_vencer.length > 0 && (
+            {mostrarAVencer && aVencerFiltradas.length > 0 && (
               <div>
-                <SectionHeader cor="#B4B2A9" label="A VENCER" count={cobrancas.a_vencer.length} total={r?.total_a_vencer} />
-                {cobrancas.a_vencer.map((item) => (
+                <SectionHeader cor="#B4B2A9" label="A VENCER" count={aVencerFiltradas.length} total={aVencerFiltradas.reduce((s, i) => s + i.valor, 0)} />
+                {aVencerFiltradas.map((item) => (
                   <CardCobranca key={item.id} item={item} {...cardProps} />
                 ))}
               </div>
             )}
 
             {/* Nenhuma pendência */}
-            {mostrarEmAtraso && mostrarAVencer &&
-              cobrancas.em_atraso.length === 0 &&
-              cobrancas.vence_hoje.length === 0 &&
-              cobrancas.a_vencer.length === 0 && (
+            {!temRepassesFiltrados && !temCobrancasFiltradas && filtro !== "pagas" && (
               <div className="rounded-xl border border-gray-100 bg-gray-50 p-6 text-center mt-4">
-                <p className="text-sm text-gray-500">Nenhuma cobrança pendente</p>
+                <p className="text-sm text-gray-500">
+                  {filtro === "em_atraso"
+                    ? normalizedSearch ? "Nenhuma cobrança em atraso encontrada" : "Nenhuma cobrança em atraso"
+                    : filtro === "a_vencer"
+                      ? normalizedSearch ? "Nenhuma cobrança a vencer encontrada" : "Nenhuma cobrança a vencer"
+                      : normalizedSearch ? "Nenhuma cobrança encontrada" : "Nenhuma cobrança pendente"}
+                </p>
               </div>
             )}
 
             {/* PAGAS */}
-            {mostrarPagas && cobrancas.pagas.length > 0 && (
+            {mostrarPagas && pagasFiltradas.length > 0 && (
               <div className="mt-4">
                 <button
                   onClick={() => setPagasExpandido((v) => !v)}
@@ -582,14 +810,14 @@ export default function FinanceiroPage() {
                       PAGAS EM {labelMes(mes).toUpperCase()}
                     </span>
                     <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#EAF3DE", color: "#3B6D11" }}>
-                      {cobrancas.pagas.length} · {formatMoney(r?.total_pago ?? 0)}
+                      {pagasFiltradas.length} · {formatMoney(pagasFiltradas.reduce((s, i) => s + i.valor, 0))}
                     </span>
                   </div>
                   <span className="text-xs text-gray-400">{pagasExpandido ? "▲" : "▼"}</span>
                 </button>
                 {pagasExpandido && (
                   <div className="mt-1">
-                    {cobrancas.pagas.map((item) => (
+                    {pagasFiltradas.map((item) => (
                       <CardCobranca key={item.id} item={item} {...cardProps} />
                     ))}
                   </div>
@@ -597,9 +825,11 @@ export default function FinanceiroPage() {
               </div>
             )}
 
-            {mostrarPagas && cobrancas.pagas.length === 0 && filtro === "pagas" && (
+            {mostrarPagas && pagasFiltradas.length === 0 && filtro === "pagas" && (
               <div className="rounded-xl border border-gray-100 bg-gray-50 p-6 text-center mt-4">
-                <p className="text-sm text-gray-500">Nenhuma parcela paga em {labelMes(mes)}</p>
+                <p className="text-sm text-gray-500">
+                  {normalizedSearch ? "Nenhuma parcela paga encontrada" : `Nenhuma parcela paga em ${labelMes(mes)}`}
+                </p>
               </div>
             )}
           </>

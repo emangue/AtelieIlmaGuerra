@@ -1,19 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { api } from "@/lib/api-client";
 import {
   Menu,
   X,
   Users,
+  UserCog,
+  User,
   FileText,
   Settings,
+  ClipboardList,
   LogOut,
 } from "lucide-react";
 
 const MENU_ITEMS = [
+  {
+    href: "/mobile/atendimento",
+    label: "Atendimento",
+    sub: "Pedidos aguardando aprovação",
+    Icon: ClipboardList,
+    iconBg: "bg-amber-50",
+    iconColor: "text-amber-700",
+    badge: "pendentes" as const,
+  },
   {
     href: "/mobile/clientes",
     label: "Clientes",
@@ -31,19 +44,47 @@ const MENU_ITEMS = [
     iconColor: "text-indigo-700",
   },
   {
+    href: "/mobile/usuarios",
+    label: "Usuários",
+    sub: "Acessos da gestão e do atendimento",
+    Icon: UserCog,
+    iconBg: "bg-emerald-50",
+    iconColor: "text-emerald-700",
+    adminOnly: true,
+  },
+  {
     href: "/mobile/parametros",
     label: "Parâmetros",
-    sub: "Preço/hora, impostos",
+    sub: "Preço/hora, impostos e taxas",
     Icon: Settings,
     iconBg: "bg-gray-100",
     iconColor: "text-gray-500",
+  },
+  {
+    href: "/mobile/perfil",
+    label: "Minha conta",
+    sub: "Trocar a senha",
+    Icon: User,
+    iconBg: "bg-blue-50",
+    iconColor: "text-blue-700",
   },
 ];
 
 export function MobileMenu() {
   const [open, setOpen] = useState(false);
+  const [pendentes, setPendentes] = useState(0);
   const router = useRouter();
   const { user, logout } = useAuth();
+
+  // Contador da fila do atendimento. Só admin tem acesso ao endpoint, então
+  // para os demais o badge simplesmente não aparece.
+  useEffect(() => {
+    if (!open || user?.role !== "admin") return;
+    api
+      .get<{ pendentes: number }>("/api/v1/atendimentos/contagem-pendentes")
+      .then((r) => setPendentes(r.pendentes))
+      .catch(() => setPendentes(0));
+  }, [open, user?.role]);
 
   const handleLogout = async () => {
     setOpen(false);
@@ -101,7 +142,7 @@ export function MobileMenu() {
 
         {/* Links */}
         <nav className="flex flex-col divide-y divide-gray-100">
-          {MENU_ITEMS.map(({ href, label, sub, Icon, iconBg, iconColor }) => (
+          {MENU_ITEMS.filter((i) => !i.adminOnly || user?.role === "admin").map(({ href, label, sub, Icon, iconBg, iconColor, badge }) => (
             <Link
               key={href}
               href={href}
@@ -115,6 +156,11 @@ export function MobileMenu() {
                 <p className="text-sm font-medium text-gray-900">{label}</p>
                 <p className="text-xs text-gray-500 mt-0.5">{sub}</p>
               </div>
+              {badge === "pendentes" && pendentes > 0 && (
+                <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white">
+                  {pendentes}
+                </span>
+              )}
             </Link>
           ))}
 

@@ -15,10 +15,18 @@ class TipoPedidoItem(BaseModel):
         from_attributes = True
 
 
+class PedidoHistoricoPercentualResumo(BaseModel):
+    percentual: float
+    quantidade: int
+    valor: float
+
+
 class PedidoHistoricoResponse(BaseModel):
     items: List["PedidoListItem"]
     total: int
     has_more: bool
+    total_valor_pecas: float = 0
+    percentuais_lucro_dono: List[PedidoHistoricoPercentualResumo] = []
 
 
 class PedidoListItem(BaseModel):
@@ -29,11 +37,13 @@ class PedidoListItem(BaseModel):
     tipo_pedido_nome: Optional[str] = None
     descricao_produto: str
     status: str
+    criado_como_orcamento: bool = False
     data_pedido: date
     data_entrega: Optional[date] = None
     foto_url: Optional[str] = None
     valor_pecas: Optional[float] = None
     quantidade_pecas: Optional[int] = None
+    percentual_lucro_dono: Optional[float] = None
     forma_pagamento: Optional[str] = None
     pagamento_na_entrega: Optional[bool] = None
     status_pagamento: Optional[str] = None   # confirmado | aguardando | em_atraso | None
@@ -57,7 +67,7 @@ class PedidoEntregueItem(BaseModel):
 
 
 class PedidoStatusUpdate(BaseModel):
-    status: str = Field(..., description="Orçamento, Encomenda, Cortado, Provado, Pronto, Entregue, Canelado")
+    status: str = Field(..., description="Orçamento, Encomenda, Cortado, Provado, Pronto, Entregue, Cancelado")
 
 
 class PedidoCreate(BaseModel):
@@ -79,6 +89,9 @@ class PedidoCreate(BaseModel):
     valor_entrada: Optional[float] = None
     valor_restante: Optional[float] = None
     detalhes_pagamento: Optional[str] = None
+    canal_cartao: Optional[str] = None
+    taxa_cartao_valor: Optional[float] = Field(default=None, ge=0)
+    desconto_pix_valor: Optional[float] = Field(default=None, ge=0)
     medidas_disponiveis: Optional[bool] = None
     observacao_pedido: Optional[str] = None
     fotos_disponiveis: Optional[bool] = None
@@ -126,6 +139,13 @@ class PedidoUpdate(BaseModel):
     valor_entrada: Optional[float] = None
     valor_restante: Optional[float] = None
     detalhes_pagamento: Optional[str] = None
+    canal_cartao: Optional[str] = None
+    taxa_cartao_valor: Optional[float] = Field(default=None, ge=0)
+    desconto_pix_valor: Optional[float] = Field(default=None, ge=0)
+    recalcular_custos: bool = Field(
+        default=False,
+        description="Desliga o override manual e volta a calcular taxa e desconto pela tabela",
+    )
     medidas_disponiveis: Optional[bool] = None
     fotos_disponiveis: Optional[bool] = None
     observacao_pedido: Optional[str] = None
@@ -175,6 +195,14 @@ class PedidoDetail(PedidoListItem):
     valor_entrada: Optional[float] = None
     valor_restante: Optional[float] = None
     detalhes_pagamento: Optional[str] = None
+    canal_cartao: Optional[str] = None
+    data_compra_cartao: Optional[date] = None
+    taxa_cartao_valor: Optional[float] = None
+    taxa_cartao_percentual: Optional[float] = None
+    taxa_cartao_manual: Optional[bool] = None
+    desconto_pix_valor: Optional[float] = None
+    desconto_pix_percentual: Optional[float] = None
+    desconto_pix_manual: Optional[bool] = None
     medidas_disponiveis: Optional[bool] = None
     fotos_disponiveis: Optional[bool] = None
     medida_ombro: Optional[float] = None
@@ -216,12 +244,17 @@ class ParcelaCreate(BaseModel):
     valor: float
     data_vencimento: str  # YYYY-MM-DD
     data_pagamento: Optional[str] = None  # YYYY-MM-DD, None = não pago
+    forma_pagamento: Optional[str] = None  # forma DESTA parcela (entrada Pix + resto no cartão)
 
 
 class ParcelasConfig(BaseModel):
-    forma_pagamento: Optional[str] = None
+    forma_pagamento: Optional[str] = None       # forma do restante (legado: forma do pedido inteiro)
     entrada: Optional[ParcelaCreate] = None
     parcelas: List[ParcelaCreate] = []
+    canal_cartao: Optional[str] = None          # "Maquininha" | "Link de pagamento"
+    data_compra_cartao: Optional[str] = None    # YYYY-MM-DD — base do D+30
+    taxa_cartao_valor: Optional[float] = None   # R$ informado à mão; None = calcular
+    desconto_pix_valor: Optional[float] = None
 
 
 class ParcelaOut(BaseModel):
@@ -231,4 +264,24 @@ class ParcelaOut(BaseModel):
     valor: float
     data_vencimento: Optional[str] = None
     data_pagamento: Optional[str] = None
-    status: str  # confirmado | aguardando | em_atraso
+    descricao: Optional[str] = None
+    status: str  # confirmado | aguardando | em_atraso | previsto
+    forma_pagamento: Optional[str] = None
+    liquidacao_automatica: bool = False
+    desconto_adiantamento: Optional[float] = None
+
+
+class CustosReceberOut(BaseModel):
+    """Quanto do pedido não chega na mão da Ilma."""
+    taxa_cartao_valor: float = 0
+    taxa_cartao_percentual: Optional[float] = None
+    taxa_cartao_manual: bool = False
+    desconto_pix_valor: float = 0
+    desconto_pix_percentual: Optional[float] = None
+    desconto_pix_manual: bool = False
+    base_cartao: float = 0
+    base_pix: float = 0
+    pago_100_pct_pix: bool = False
+    canal_cartao: Optional[str] = None
+    data_compra_cartao: Optional[str] = None
+    valor_liquido: float = 0

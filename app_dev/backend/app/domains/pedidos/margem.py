@@ -30,8 +30,15 @@ def calcular_margem_real(
     custo_materiais: Optional[float],
     custos_variaveis: Optional[float],
     params: ParametrosCalculo,
+    custo_receber: Optional[float] = None,
 ) -> ResultadoMargem:
-    """MargemReal = (valor - custo_total)/valor - impostos - cartao_credito, em %.
+    """MargemReal = (valor - custo_total)/valor - impostos - custo de receber, em %.
+
+    `custo_receber` é a taxa de cartão + desconto Pix **em reais** daquele pedido —
+    zero num pedido pago em dinheiro. Quando não é informado (pedidos antigos, sem
+    as colunas preenchidas), cai no comportamento anterior de aplicar a taxa de
+    cartão sobre o valor cheio, para não alterar a margem histórica.
+
     Se valor_pecas <= 0, não há como calcular uma fração: trata-se como perda total (-100%),
     nunca como None — requisito explícito de nunca deixar margem_real nula."""
     horas = horas_trabalho or 0.0
@@ -43,7 +50,8 @@ def calcular_margem_real(
     if valor <= 0:
         margem_real = -100.0
     else:
-        fracao = (valor - custo_total) / valor - params.impostos - params.cartao_credito
+        fracao_receber = (custo_receber / valor) if custo_receber is not None else params.cartao_credito
+        fracao = (valor - custo_total) / valor - params.impostos - fracao_receber
         margem_real = round(fracao * 100, 1)
 
     return ResultadoMargem(custo_total=round(custo_total, 2), margem_real=margem_real)

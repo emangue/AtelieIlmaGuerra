@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import {
   Loader2,
   TrendingUp,
@@ -183,6 +184,11 @@ export default function PlanoPage() {
   const [savingItemId, setSavingItemId] = useState<number | null>(null);
   const [replicarItemId, setReplicarItemId] = useState<number | null>(null);
   const [replicarLoading, setReplicarLoading] = useState(false);
+  const [replicarErro, setReplicarErro] = useState<string | null>(null);
+  // Depois de salvar, perguntamos se o valor vale daqui pra frente — antes isso
+  // era só um link cinza que passava despercebido.
+  const [perguntaReplicar, setPerguntaReplicar] = useState<PlanoItem | null>(null);
+  const [replicarOkId, setReplicarOkId] = useState<number | null>(null);
   const [savedItemId, setSavedItemId] = useState<number | null>(null);
 
   // Modal deletar
@@ -336,6 +342,7 @@ export default function PlanoPage() {
       if (res.ok) {
         setRecEditId(null);
         setSavedItemId(item.id);
+        setPerguntaReplicar({ ...item, quantidade: qtd, ticket_medio: ticket, valor_planejado: qtd * ticket });
         fetchItensMes();
         fetchResumo();
       }
@@ -364,6 +371,7 @@ export default function PlanoPage() {
       if (res.ok) {
         setDespEditId(null);
         setSavedItemId(item.id);
+        setPerguntaReplicar({ ...item, valor_planejado: val });
         fetchItensMes();
         fetchResumo();
       }
@@ -377,15 +385,21 @@ export default function PlanoPage() {
     if (!item) return;
     setReplicarLoading(true);
     setReplicarItemId(itemId);
+    setReplicarErro(null);
     try {
-      await fetch(
+      // authFetch, não fetch: o endpoint exige token e falhava com 401 em silêncio.
+      const res = await authFetch(
         `${API_URL}/api/v1/plano/aplicar-aos-futuros?mes_referencia=${item.anomes}&item_id=${item.id}&criar_ausentes=true`,
         { method: "POST" }
       );
+      if (!res.ok) throw new Error("Não foi possível replicar para os próximos meses.");
       setSavedItemId(null);
       setReplicarItemId(null);
+      setReplicarOkId(itemId);
       fetchItensMes();
       fetchResumo();
+    } catch (e) {
+      setReplicarErro(e instanceof Error ? e.message : "Erro ao replicar.");
     } finally {
       setReplicarLoading(false);
     }
@@ -834,7 +848,8 @@ export default function PlanoPage() {
                           (() => {
                             const metaItem = meta?.pecas_necessarias.find((p) => p.tipo_item === item.tipo_item);
                             const realizado = metaItem?.realizado ?? 0;
-                            const pct = item.valor_planejado > 0 ? Math.min((realizado / item.valor_planejado) * 100, 100) : 0;
+                            const pct = item.valor_planejado > 0 ? (realizado / item.valor_planejado) * 100 : 0;
+                            const barPct = Math.min(pct, 100);
                             return (
                               <div
                                 className="px-4 py-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors"
@@ -888,7 +903,7 @@ export default function PlanoPage() {
                                 <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
                                   <div
                                     className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-emerald-400" : "bg-gray-300"}`}
-                                    style={{ width: `${pct}%` }}
+                                    style={{ width: `${barPct}%` }}
                                   />
                                 </div>
                               </div>
@@ -909,6 +924,12 @@ export default function PlanoPage() {
                               )}
                               Replicar para os próximos meses
                             </button>
+                            {replicarOkId === item.id && (
+                              <span className="ml-2 text-xs text-emerald-600">replicado</span>
+                            )}
+                            {replicarErro && replicarItemId === item.id && (
+                              <span className="ml-2 text-xs text-red-600">{replicarErro}</span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -964,6 +985,8 @@ export default function PlanoPage() {
                         const isSaving = savingItemId === item.id;
                         const justSaved = savedItemId === item.id;
                         const nome = item.detalhe || item.tipo_item;
+                        const isAndrea = item.tipo_item === "Colaboradores" && nome === "Andrea";
+                        const andreaPedidosUrl = `/mobile/pedidos/todos?mes=${mesSel}&status=Entregue&tipo=AJUSTE&repasse_funcionaria=1`;
                         return (
                           <div key={item.id} className="border-t border-gray-50 first:border-t-0">
                             {/* Modo editar planejado */}
@@ -1031,7 +1054,17 @@ export default function PlanoPage() {
                               >
                                 {/* Linha 1: nome + ações */}
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="text-sm text-gray-800 font-medium">{nome}</span>
+                                  {isAndrea ? (
+                                    <Link
+                                      href={andreaPedidosUrl}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="text-sm text-gray-800 font-medium underline decoration-gray-300 underline-offset-4 hover:text-red-700 hover:decoration-red-300"
+                                    >
+                                      {nome}
+                                    </Link>
+                                  ) : (
+                                    <span className="text-sm text-gray-800 font-medium">{nome}</span>
+                                  )}
                                   <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                                     <button
                                       className="w-7 h-7 flex items-center justify-center rounded text-gray-300 hover:text-amber-500 hover:bg-amber-50 transition-colors"
@@ -1073,7 +1106,8 @@ export default function PlanoPage() {
                                 {/* Barra de progresso */}
                                 {item.valor_planejado > 0 && (() => {
                                   const real = item.valor_realizado ?? 0;
-                                  const pct = Math.min(100, Math.round((real / item.valor_planejado) * 100));
+                                  const pct = Math.round((real / item.valor_planejado) * 100);
+                                  const barPct = Math.min(pct, 100);
                                   const over = real > item.valor_planejado;
                                   return (
                                     <div className="mt-1.5 flex items-center gap-2">
@@ -1081,7 +1115,7 @@ export default function PlanoPage() {
                                         <div
                                           className="h-full rounded-full transition-all"
                                           style={{
-                                            width: `${pct}%`,
+                                            width: `${barPct}%`,
                                             background: over ? "#E24B4A" : real > 0 ? "#D85A30" : "#e5e7eb",
                                           }}
                                         />
@@ -1110,6 +1144,12 @@ export default function PlanoPage() {
                                   )}
                                   Replicar para os próximos meses
                                 </button>
+                                {replicarOkId === item.id && (
+                                  <span className="ml-2 text-xs text-emerald-600">replicado</span>
+                                )}
+                                {replicarErro && replicarItemId === item.id && (
+                                  <span className="ml-2 text-xs text-red-600">{replicarErro}</span>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1181,6 +1221,52 @@ export default function PlanoPage() {
               className="bg-rose-600 hover:bg-rose-700"
             >
               {deleteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Pergunta se o novo valor vale daqui pra frente */}
+      <AlertDialog
+        open={!!perguntaReplicar}
+        onOpenChange={(o) => !o && setPerguntaReplicar(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Vale para os próximos meses?</AlertDialogTitle>
+            <p className="text-sm text-gray-500">
+              {perguntaReplicar && (
+                <>
+                  <span className="font-medium text-gray-700">
+                    {perguntaReplicar.detalhe || perguntaReplicar.tipo_item}
+                  </span>{" "}
+                  ficou em{" "}
+                  <span className="font-medium text-gray-700">
+                    {formatMoney(perguntaReplicar.valor_planejado)}
+                  </span>{" "}
+                  em {labelMes(perguntaReplicar.anomes)}.
+                  <br />
+                  Quer usar esse mesmo valor de {labelMes(addMes(perguntaReplicar.anomes, 1))} até
+                  dezembro de {perguntaReplicar.anomes.slice(0, 4)}?
+                </>
+              )}
+            </p>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Só neste mês</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={replicarLoading}
+              onClick={() => {
+                const item = perguntaReplicar;
+                setPerguntaReplicar(null);
+                if (item) handleReplicar(item.id);
+              }}
+            >
+              {replicarLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                "Aplicar daqui pra frente"
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

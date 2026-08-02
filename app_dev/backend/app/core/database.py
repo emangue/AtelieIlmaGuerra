@@ -15,12 +15,17 @@ engine = create_engine(
     echo=settings.DEBUG,
 )
 
-# SQLite: habilitar foreign keys (necessário para ON DELETE CASCADE)
+# SQLite: habilitar foreign keys (necessário para ON DELETE CASCADE).
+# WAL + busy_timeout são necessários porque o backend do site de atendimento
+# (app_atendimento, porta 8002) escreve no MESMO arquivo .db. Sem isso, escrita
+# simultânea dos dois processos vira "database is locked".
 if not settings.is_postgres:
     @event.listens_for(engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
