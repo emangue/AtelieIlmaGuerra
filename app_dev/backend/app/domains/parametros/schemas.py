@@ -40,7 +40,7 @@ class ParametroTaxaSchema(BaseModel):
 
 
 class ParametroTaxaCreate(BaseModel):
-    forma: str = Field(description='"Cartão" | "Pix"')
+    forma: str = Field(description='"Cartão" | "Cartão de Débito" | "Pix"')
     canal: Optional[str] = None
     parcelas_min: Optional[int] = Field(None, ge=1)
     parcelas_max: Optional[int] = Field(None, ge=1)

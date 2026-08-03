@@ -242,7 +242,7 @@ interface ParametroTaxa {
   deflator: number;
 }
 
-const FORMAS_TAXA = ["Cartão", "Pix"];
+const FORMAS_TAXA = ["Cartão", "Cartão de Débito", "Pix"];
 const CANAIS_TAXA = ["Maquininha", "Link de pagamento"];
 
 interface RascunhoTaxa {
@@ -301,7 +301,7 @@ function CustosReceberSection() {
       setErro("Informe um percentual entre 0 e 100.");
       return null;
     }
-    const ehCartao = rascunho.forma === "Cartão";
+    const ehCartaoParcelado = rascunho.forma === "Cartão";
     const min = rascunho.parcelas_min ? parseInt(rascunho.parcelas_min) : null;
     const max = rascunho.parcelas_max ? parseInt(rascunho.parcelas_max) : null;
     if (min != null && max != null && min > max) {
@@ -310,10 +310,10 @@ function CustosReceberSection() {
     }
     return {
       forma: rascunho.forma,
-      // Pix não tem canal nem faixa de parcelas — mandar null evita casar errado no resolver.
-      canal: ehCartao ? rascunho.canal : null,
-      parcelas_min: ehCartao ? min : null,
-      parcelas_max: ehCartao ? max : null,
+      // Pix e débito não têm canal nem faixa de parcelas — mandar null evita casar errado no resolver.
+      canal: ehCartaoParcelado ? rascunho.canal : null,
+      parcelas_min: ehCartaoParcelado ? min : null,
+      parcelas_max: ehCartaoParcelado ? max : null,
       percentual: pct,
       tipo_custo: rascunho.tipo_custo,
     };
@@ -398,7 +398,7 @@ function CustosReceberSection() {
               setRascunho((r) => ({
                 ...r,
                 forma: e.target.value,
-                // Pix é desconto que ela dá; cartão é taxa que a adquirente cobra.
+                // Pix é desconto que ela dá; cartões são taxas que a adquirente cobra.
                 tipo_custo: e.target.value === "Pix" ? "desconto" : "taxa",
               }))
             }

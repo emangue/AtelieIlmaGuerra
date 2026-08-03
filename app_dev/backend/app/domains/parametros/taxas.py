@@ -7,11 +7,13 @@ direto — senão a taxa volta a ficar espalhada, que é o problema que a tabela
 """
 from typing import Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .models import ParametroTaxa, ParametrosOrcamento
 
 FORMA_CARTAO = "Cartão"
+FORMA_CARTAO_DEBITO = "Cartão de Débito"
 FORMA_PIX = "Pix"
 
 CANAIS_CARTAO = ["Maquininha", "Link de pagamento"]
@@ -75,7 +77,7 @@ def resolver_percentual(
     taxa = resolver_taxa(db, forma, canal, n_parcelas)
     if taxa is not None:
         return float(taxa.percentual or 0.0)
-    if forma == FORMA_CARTAO:
+    if forma in (FORMA_CARTAO, FORMA_CARTAO_DEBITO):
         p = db.query(ParametrosOrcamento).first()
         return round(float(p.cartao_credito or 0.0) * 100, 4) if p else 0.0
     return 0.0
@@ -114,7 +116,11 @@ def seed_parametros_taxas(db: Session) -> int:
     linhas = [
         ParametroTaxa(
             forma=FORMA_PIX, canal=None, parcelas_min=None, parcelas_max=None,
-            percentual=5.0, tipo_custo=TIPO_DESCONTO, padrao=False, ativo=True,
+            percentual=0.0, tipo_custo=TIPO_DESCONTO, padrao=False, ativo=True,
+        ),
+        ParametroTaxa(
+            forma=FORMA_CARTAO_DEBITO, canal=None, parcelas_min=None, parcelas_max=None,
+            percentual=base, tipo_custo=TIPO_TAXA, padrao=False, ativo=True,
         ),
         ParametroTaxa(
             forma=FORMA_CARTAO, canal="Maquininha", parcelas_min=1, parcelas_max=6,
@@ -137,3 +143,58 @@ def seed_parametros_taxas(db: Session) -> int:
         db.add(linha)
     db.commit()
     return len(linhas)
+
+
+def migrar_pix_default_zero(db: Session) -> int:
+    """Atualiza bases antigas em que o Pix nasceu com 5% por padrão.
+
+    Roda uma única vez. Assim, se depois a Ilma quiser configurar Pix em 5% de
+    novo, uma reinicialização não desfaz a escolha dela.
+    """
+    migration_id = "20260802_pix_default_zero"
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS app_migrations (
+            id VARCHAR(100) PRIMARY KEY
+        )
+    """))
+    ja_rodou = db.execute(
+        text("SELECT 1 FROM app_migrations WHERE id = :id"),
+        {"id": migration_id},
+    ).first()
+    if ja_rodou:
+        return 0
+
+    atualizados = (
+        db.query(ParametroTaxa)
+        .filter(
+            ParametroTaxa.forma == FORMA_PIX,
+            ParametroTaxa.tipo_custo == TIPO_DESCONTO,
+            ParametroTaxa.percentual == 5.0,
+        )
+        .update({"percentual": 0.0}, synchronize_session=False)
+    )
+    db.execute(text("INSERT INTO app_migrations (id) VALUES (:id)"), {"id": migration_id})
+    db.commit()
+    return int(atualizados or 0)
+
+
+def seed_cartao_debito(db: Session) -> int:
+    """Garante a existência do parâmetro de cartão de débito em bases antigas."""
+    existe = db.query(ParametroTaxa).filter(ParametroTaxa.forma == FORMA_CARTAO_DEBITO).first()
+    if existe:
+        return 0
+
+    p = db.query(ParametrosOrcamento).first()
+    base = round(float(p.cartao_credito or 0.03) * 100, 4) if p else 3.0
+    db.add(ParametroTaxa(
+        forma=FORMA_CARTAO_DEBITO,
+        canal=None,
+        parcelas_min=None,
+        parcelas_max=None,
+        percentual=base,
+        tipo_custo=TIPO_TAXA,
+        padrao=False,
+        ativo=True,
+    ))
+    db.commit()
+    return 1

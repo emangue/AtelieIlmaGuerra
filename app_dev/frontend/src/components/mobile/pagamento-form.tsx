@@ -9,6 +9,8 @@ import {
   FORMAS_PAGAMENTO,
   formaSelecionada,
   isCartao,
+  isCartaoComTaxa,
+  isCartaoDebito,
   isParcelado,
   isPix,
 } from "@/lib/formas-pagamento";
@@ -82,6 +84,15 @@ function todayISO() {
 
 function brl(v: number) {
   return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function roundMoney(v: number) {
+  return Math.round(v * 100) / 100;
+}
+
+function percentualSobreBase(valor: number, base: number) {
+  if (!base) return 0;
+  return roundMoney((valor / base) * 100);
 }
 
 function ddmm(iso: string) {
@@ -162,19 +173,25 @@ function usePagamentoState(): EstadoPagamento {
 
 interface Taxas {
   cartaoPct: number;
+  cartaoDebitoPct: number;
   pixPct: number;
 }
 
 function useTaxas(apiUrl: string): Taxas {
-  const [taxas, setTaxas] = useState<Taxas>({ cartaoPct: 0, pixPct: 0 });
+  const [taxas, setTaxas] = useState<Taxas>({ cartaoPct: 0, cartaoDebitoPct: 0, pixPct: 0 });
   useEffect(() => {
     authFetch(`${apiUrl}/api/v1/parametros/taxas`)
       .then((r) => (r.ok ? r.json() : []))
       .then((linhas: { forma: string; percentual: number; padrao: boolean; ativo: boolean }[]) => {
         const ativas = (linhas || []).filter((l) => l.ativo);
         const cartao = ativas.find((l) => l.forma === "Cartão" && l.padrao) ?? ativas.find((l) => l.forma === "Cartão");
+        const cartaoDebito = ativas.find((l) => l.forma === "Cartão de Débito");
         const pix = ativas.find((l) => l.forma === "Pix");
-        setTaxas({ cartaoPct: cartao?.percentual ?? 0, pixPct: pix?.percentual ?? 0 });
+        setTaxas({
+          cartaoPct: cartao?.percentual ?? 0,
+          cartaoDebitoPct: cartaoDebito?.percentual ?? 0,
+          pixPct: pix?.percentual ?? 0,
+        });
       })
       .catch(() => {});
   }, [apiUrl]);
@@ -198,16 +215,23 @@ function calcularCustos(
     ...parcelas,
   ];
   const total = todas.reduce((s, p) => s + p.valor, 0);
-  const baseCartao = todas.filter((p) => isCartao(p.forma_pagamento)).reduce((s, p) => s + p.valor, 0);
+  const baseCartaoCredito = todas.filter((p) => isCartao(p.forma_pagamento)).reduce((s, p) => s + p.valor, 0);
+  const baseCartaoDebito = todas.filter((p) => isCartaoDebito(p.forma_pagamento)).reduce((s, p) => s + p.valor, 0);
+  const baseCartao = baseCartaoCredito + baseCartaoDebito;
   const basePix = todas.filter((p) => isPix(p.forma_pagamento)).reduce((s, p) => s + p.valor, 0);
   const pago100PctPix = todas.length > 0 && basePix > 0 && Math.abs(basePix - total) < 0.005;
 
-  const taxaAuto = baseCartao > 0 ? Math.round(baseCartao * taxas.cartaoPct) / 100 : 0;
-  const descontoAuto = pago100PctPix ? Math.round(basePix * taxas.pixPct) / 100 : 0;
+  const taxaAuto = roundMoney(
+    (baseCartaoCredito * taxas.cartaoPct) / 100 +
+    (baseCartaoDebito * taxas.cartaoDebitoPct) / 100
+  );
+  const descontoAuto = pago100PctPix ? roundMoney((basePix * taxas.pixPct) / 100) : 0;
 
   return {
     total,
     baseCartao,
+    baseCartaoCredito,
+    baseCartaoDebito,
     basePix,
     pago100PctPix,
     canalDisponivel,
@@ -215,6 +239,7 @@ function calcularCustos(
     descontoPix: descontoManual ?? descontoAuto,
     taxaAuto,
     descontoAuto,
+    descontoPixPct: percentualSobreBase(descontoManual ?? descontoAuto, basePix),
   };
 }
 
@@ -234,7 +259,8 @@ export function PagamentoForm({ valorPecas, config, onChange, apiUrl }: Props) {
   const isParceladoRestante = isParcelado(st.formaRestante);
   const nParcelas = Math.max(1, parseInt(st.nParcelasStr) || 1);
   const parcelasRestantes = isParceladoRestante ? nParcelas : 1;
-  const cartaoNoRestante = isCartao(st.formaRestante);
+  const cartaoCreditoNoRestante = isCartao(st.formaRestante);
+  const cartaoTaxaNoRestante = isCartaoComTaxa(st.formaRestante);
 
   const entrada: EntradaConfig | null = st.temEntrada
     ? { valor: st.entradaValor, data_pagamento: st.entradaPagoEm, forma_pagamento: st.formaEntrada }
@@ -255,7 +281,7 @@ export function PagamentoForm({ valorPecas, config, onChange, apiUrl }: Props) {
   );
 
   const custos = calcularCustos(
-    parcelas, entrada, taxas, cartaoNoRestante, st.taxaCartaoManual, st.descontoPixManual
+    parcelas, entrada, taxas, cartaoTaxaNoRestante, st.taxaCartaoManual, st.descontoPixManual
   );
 
   // Propaga para o pai sempre que algo relevante muda.
@@ -266,8 +292,8 @@ export function PagamentoForm({ valorPecas, config, onChange, apiUrl }: Props) {
       forma_pagamento: st.formaRestante,
       entrada,
       parcelas,
-      canal_cartao: cartaoNoRestante ? st.canalCartao : null,
-      data_compra_cartao: cartaoNoRestante ? st.dataBase : null,
+      canal_cartao: cartaoCreditoNoRestante ? st.canalCartao : null,
+      data_compra_cartao: cartaoCreditoNoRestante ? st.dataBase : null,
       taxa_cartao_valor: custos.taxaCartao,
       taxa_cartao_manual: st.taxaCartaoManual != null,
       desconto_pix_valor: custos.descontoPix,
@@ -292,7 +318,7 @@ export function PagamentoForm({ valorPecas, config, onChange, apiUrl }: Props) {
       {!config.pagamento_na_entrega && (
         <>
           <BlocoEntrada st={st} />
-          <BlocoRestante st={st} isParceladoRestante={isParceladoRestante} cartao={cartaoNoRestante} />
+          <BlocoRestante st={st} isParceladoRestante={isParceladoRestante} cartao={cartaoCreditoNoRestante} />
           <PreviewParcelas parcelas={parcelas} temEntrada={st.temEntrada} onPago={(i, v) => {
             const novas = parcelas.map((p, idx) => (idx === i ? { ...p, data_pagamento: v || null } : p));
             onChange({ ...config, parcelas: novas });
@@ -364,7 +390,8 @@ export function PagamentoFormEdit({
   const isParceladoRestante = isParcelado(st.formaRestante);
   const nParcelas = Math.max(1, parseInt(st.nParcelasStr) || 1);
   const parcelasRestantes = isParceladoRestante ? nParcelas : 1;
-  const cartaoNoRestante = isCartao(st.formaRestante);
+  const cartaoCreditoNoRestante = isCartao(st.formaRestante);
+  const cartaoTaxaNoRestante = isCartaoComTaxa(st.formaRestante);
 
   const { setFormaRestante, setFormaEntrada, setTemEntrada, setEntradaValor,
     setEntradaPagoEm, setNParcelasStr, setDataBase, setCanalCartao,
@@ -429,7 +456,7 @@ export function PagamentoFormEdit({
   );
 
   const custos = calcularCustos(
-    parcelas, entrada, taxas, cartaoNoRestante, st.taxaCartaoManual, st.descontoPixManual
+    parcelas, entrada, taxas, cartaoTaxaNoRestante, st.taxaCartaoManual, st.descontoPixManual
   );
 
   const handleSave = async () => {
@@ -458,8 +485,8 @@ export function PagamentoFormEdit({
                 }
               : null,
             parcelas,
-            canal_cartao: cartaoNoRestante ? st.canalCartao : null,
-            data_compra_cartao: cartaoNoRestante ? st.dataBase : null,
+            canal_cartao: cartaoCreditoNoRestante ? st.canalCartao : null,
+            data_compra_cartao: cartaoCreditoNoRestante ? st.dataBase : null,
             taxa_cartao_valor: st.taxaCartaoManual,
             desconto_pix_valor: st.descontoPixManual,
           }),
@@ -490,7 +517,7 @@ export function PagamentoFormEdit({
       {!pnEntrega && (
         <>
           <BlocoEntrada st={st} />
-          <BlocoRestante st={st} isParceladoRestante={isParceladoRestante} cartao={cartaoNoRestante} />
+          <BlocoRestante st={st} isParceladoRestante={isParceladoRestante} cartao={cartaoCreditoNoRestante} />
           <PreviewParcelas
             parcelas={parcelas}
             temEntrada={st.temEntrada}
@@ -536,7 +563,7 @@ function SeletorForma({ valor, onChange, label }: {
   return (
     <div>
       <p className="text-sm font-medium text-gray-700 mb-2">{label}</p>
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-2 gap-1.5">
         {FORMAS_PAGAMENTO.map((f) => (
           <button
             key={f}
@@ -763,7 +790,7 @@ function BlocoCustos({ valorPedido, custos, taxas, onTaxa, onDesconto }: {
       {temCartao && (
         <CampoCusto
           label="Taxa de cartão (R$)"
-          hint={`${taxas.cartaoPct.toLocaleString("pt-BR")}% sobre R$ ${brl(custos.baseCartao)}`}
+          hint={hintTaxaCartao(custos, taxas)}
           valor={custos.taxaCartao}
           automatico={custos.taxaAuto}
           onChange={onTaxa}
@@ -771,16 +798,13 @@ function BlocoCustos({ valorPedido, custos, taxas, onTaxa, onDesconto }: {
       )}
 
       {pixVisivel && (
-        <CampoCusto
-          label="Desconto Pix (R$)"
-          hint={
-            custos.pago100PctPix
-              ? `${taxas.pixPct.toLocaleString("pt-BR")}% sobre R$ ${brl(custos.basePix)}`
-              : "Aplicado manualmente — o automático vale só para pagamento inteiro em Pix"
-          }
-          valor={custos.descontoPix}
-          automatico={custos.descontoAuto}
-          onChange={onDesconto}
+        <CampoDescontoPix
+          basePix={custos.basePix}
+          descontoValor={custos.descontoPix}
+          descontoAuto={custos.descontoAuto}
+          descontoPct={custos.descontoPixPct}
+          sugestaoPct={taxas.pixPct}
+          onChangeValor={onDesconto}
         />
       )}
 
@@ -798,6 +822,66 @@ function BlocoCustos({ valorPedido, custos, taxas, onTaxa, onDesconto }: {
         <span className="text-xs text-gray-500">Valor do pedido R$ {brl(valorPedido)}</span>
         <span className="text-sm font-semibold text-gray-800">você recebe R$ {brl(liquido)}</span>
       </div>
+    </div>
+  );
+}
+
+function hintTaxaCartao(custos: ReturnType<typeof calcularCustos>, taxas: Taxas) {
+  const partes: string[] = [];
+  if (custos.baseCartaoCredito > 0) {
+    partes.push(`${taxas.cartaoPct.toLocaleString("pt-BR")}% sobre R$ ${brl(custos.baseCartaoCredito)} no crédito`);
+  }
+  if (custos.baseCartaoDebito > 0) {
+    partes.push(`${taxas.cartaoDebitoPct.toLocaleString("pt-BR")}% sobre R$ ${brl(custos.baseCartaoDebito)} no débito`);
+  }
+  return partes.join(" · ");
+}
+
+function CampoDescontoPix({ basePix, descontoValor, descontoAuto, descontoPct, sugestaoPct, onChangeValor }: {
+  basePix: number;
+  descontoValor: number;
+  descontoAuto: number;
+  descontoPct: number;
+  sugestaoPct: number;
+  onChangeValor: (v: number | null) => void;
+}) {
+  const editado = Math.abs(descontoValor - descontoAuto) > 0.005;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs text-gray-600">Desconto Pix (%)</p>
+        {editado && (
+          <button
+            type="button"
+            onClick={() => onChangeValor(null)}
+            className="flex items-center gap-1 text-[10px] text-blue-600 hover:underline"
+          >
+            <RotateCcw className="w-3 h-3" /> recalcular
+          </button>
+        )}
+      </div>
+      <input
+        type="number"
+        min={0}
+        max={100}
+        step={0.1}
+        value={descontoPct ? String(descontoPct) : ""}
+        onChange={(e) => {
+          const raw = e.target.value.replace(",", ".");
+          if (raw === "") {
+            onChangeValor(null);
+            return;
+          }
+          const pct = Math.max(0, Math.min(100, parseFloat(raw) || 0));
+          onChangeValor(roundMoney((basePix * pct) / 100));
+        }}
+        placeholder="0"
+        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+      />
+      <p className="text-[10px] text-gray-400 mt-1">
+        R$ {brl(descontoValor)} de desconto sobre R$ {brl(basePix)}
+        {sugestaoPct > 0 ? ` · padrão cadastrado: ${sugestaoPct.toLocaleString("pt-BR")}%` : ""}
+      </p>
     </div>
   );
 }

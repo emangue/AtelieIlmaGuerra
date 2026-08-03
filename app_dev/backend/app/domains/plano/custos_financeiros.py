@@ -11,7 +11,7 @@ from typing import Iterable, Optional
 
 from sqlalchemy.orm import Session
 
-from app.domains.parametros.taxas import FORMA_CARTAO, FORMA_PIX, resolver_percentual
+from app.domains.parametros.taxas import FORMA_CARTAO, FORMA_CARTAO_DEBITO, FORMA_PIX, resolver_percentual
 
 ORIGEM_TAXA_CARTAO = "taxa_cartao"
 ORIGEM_DESCONTO_PIX = "desconto_pix"
@@ -24,11 +24,20 @@ CATEGORIA_CUSTO = "Custo Variável"
 
 # "Cartão de Crédito" é o rótulo legado de registros antigos.
 _FORMAS_CARTAO = {"cartão parcelado", "cartao parcelado", "cartão de crédito", "cartao de credito"}
+_FORMAS_CARTAO_DEBITO = {"cartão de débito", "cartao de debito"}
 _FORMAS_PIX = {"pix"}
 
 
 def is_cartao(forma: Optional[str]) -> bool:
     return (forma or "").strip().lower() in _FORMAS_CARTAO
+
+
+def is_cartao_debito(forma: Optional[str]) -> bool:
+    return (forma or "").strip().lower() in _FORMAS_CARTAO_DEBITO
+
+
+def is_cartao_com_taxa(forma: Optional[str]) -> bool:
+    return is_cartao(forma) or is_cartao_debito(forma)
 
 
 def is_pix(forma: Optional[str]) -> bool:
@@ -45,7 +54,9 @@ class ResumoFormas:
     def __init__(self, parcelas: Iterable):
         parcelas = list(parcelas)
         self.total = _round(sum(p.valor or 0 for p in parcelas))
-        self.valor_cartao = _round(sum(p.valor or 0 for p in parcelas if is_cartao(p.forma_pagamento)))
+        self.valor_cartao_credito = _round(sum(p.valor or 0 for p in parcelas if is_cartao(p.forma_pagamento)))
+        self.valor_cartao_debito = _round(sum(p.valor or 0 for p in parcelas if is_cartao_debito(p.forma_pagamento)))
+        self.valor_cartao = _round(self.valor_cartao_credito + self.valor_cartao_debito)
         self.valor_pix = _round(sum(p.valor or 0 for p in parcelas if is_pix(p.forma_pagamento)))
         self.n_parcelas_cartao = sum(1 for p in parcelas if is_cartao(p.forma_pagamento))
         # Tudo-ou-nada: o desconto de Pix é pensado para pagamento inteiro em Pix.
@@ -65,8 +76,18 @@ def calcular_custos(db: Session, pedido, parcelas: Iterable) -> dict:
         taxa_pct = pedido.taxa_cartao_percentual
         taxa_valor = _round(pedido.taxa_cartao_valor)
     elif resumo.valor_cartao > 0:
-        taxa_pct = resolver_percentual(db, FORMA_CARTAO, pedido.canal_cartao, resumo.n_parcelas_cartao)
-        taxa_valor = _round(resumo.valor_cartao * taxa_pct / 100)
+        taxa_credito_pct = (
+            resolver_percentual(db, FORMA_CARTAO, pedido.canal_cartao, resumo.n_parcelas_cartao)
+            if resumo.valor_cartao_credito > 0 else 0.0
+        )
+        taxa_debito_pct = (
+            resolver_percentual(db, FORMA_CARTAO_DEBITO)
+            if resumo.valor_cartao_debito > 0 else 0.0
+        )
+        taxa_credito = resumo.valor_cartao_credito * taxa_credito_pct / 100
+        taxa_debito = resumo.valor_cartao_debito * taxa_debito_pct / 100
+        taxa_valor = _round(taxa_credito + taxa_debito)
+        taxa_pct = _round((taxa_valor / resumo.valor_cartao) * 100) if resumo.valor_cartao else None
     else:
         taxa_pct, taxa_valor = None, 0.0
 
@@ -201,6 +222,13 @@ def sync_custos_financeiros(db: Session, pedido) -> None:
         if primeira_cartao:
             from datetime import timedelta
             data_cartao = primeira_cartao.data_vencimento - timedelta(days=30)
+    if data_cartao is None:
+        primeira_cartao_pago = next(
+            (p for p in parcelas if is_cartao_com_taxa(p.forma_pagamento) and p.data_pagamento),
+            None,
+        )
+        if primeira_cartao_pago:
+            data_cartao = primeira_cartao_pago.data_pagamento
 
     _upsert_despesa(
         db, pedido, ORIGEM_TAXA_CARTAO, TIPO_ITEM_TAXA_CARTAO,

@@ -234,10 +234,16 @@ def startup():
         if seed_admin_user(db):
             print("Seed: usuário admin criado (ilma@atelieilmaguerra.com)")
 
-        from app.domains.parametros.taxas import seed_parametros_taxas
+        from app.domains.parametros.taxas import migrar_pix_default_zero, seed_cartao_debito, seed_parametros_taxas
         nt = seed_parametros_taxas(db)
         if nt:
             print(f"Seed: {nt} linhas de custo de receber inseridas")
+        ndebito = seed_cartao_debito(db)
+        if ndebito:
+            print("Seed: taxa de cartão de débito inserida")
+        npix = migrar_pix_default_zero(db)
+        if npix:
+            print(f"Migration: {npix} taxa(s) Pix ajustada(s) para 0%")
 
         from app.domains.plano.seed_plano import seed_plano
         if db.query(PlanoItem).count() == 0:

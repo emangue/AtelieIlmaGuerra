@@ -27,14 +27,14 @@ class ParametrosOrcamento(Base):
 class ParametroTaxa(Base):
     """Custo de receber por forma de pagamento, canal e faixa de parcelas.
 
-    Uma linha por combinação: "Pix" (desconto de 5%), "Cartão · Maquininha · 1-6x",
+    Uma linha por combinação: "Pix" (desconto configurável), "Cartão de Débito",
     "Cartão · Link de pagamento · 7-12x" etc.
     """
 
     __tablename__ = "parametros_taxas"
 
     id                   = Column(Integer, primary_key=True, index=True)
-    forma                = Column(String(30), nullable=False, index=True)  # "Cartão" | "Pix"
+    forma                = Column(String(30), nullable=False, index=True)  # "Cartão" | "Cartão de Débito" | "Pix"
     canal                = Column(String(20), nullable=True)               # "Maquininha" | "Link de pagamento" | NULL
     parcelas_min         = Column(Integer, nullable=True)                  # NULL quando não se aplica (Pix)
     parcelas_max         = Column(Integer, nullable=True)
