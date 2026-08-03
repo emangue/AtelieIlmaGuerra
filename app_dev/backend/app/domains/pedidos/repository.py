@@ -123,8 +123,6 @@ def _sync_repasse_funcionaria(db: Session, pedido: Pedido) -> None:
         "data_pagamento": data_repasse,
         "categoria": plano_item.categoria or "Custo Variável",
         "tipo_item": "Colaboradores",
-        "natureza": "despesa_operacional",
-        "subtipo_financeiro": None,
         "valor": float(valor_repasse),
         "descricao": f"Andrea - Pedido #{pedido.id}",
     }
@@ -137,6 +135,7 @@ def _sync_repasse_funcionaria(db: Session, pedido: Pedido) -> None:
                 tipo="despesa",
                 origem="repasse_funcionaria",
                 natureza="despesa_operacional",
+                subtipo_financeiro=None,
                 pedido_id=pedido.id,
                 **dados,
             )
