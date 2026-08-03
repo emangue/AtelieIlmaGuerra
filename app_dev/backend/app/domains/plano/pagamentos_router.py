@@ -22,6 +22,7 @@ from .custos_financeiros import (
     is_pix, sync_custo_adiantamento, sync_custos_financeiros,
 )
 from .pagamentos_model import Pagamento
+from .service import natureza_pagamento, subtipo_despesa_financeira
 from .models import PlanoItem
 from .schemas import (
     PagamentoCreate, PagamentoItem, PagamentosResponse, PagamentoUpdate,
@@ -72,6 +73,8 @@ def _to_item(pag: Pagamento) -> PagamentoItem:
         id=pag.id,
         tipo=pag.tipo,
         origem=pag.origem,
+        natureza=natureza_pagamento(pag),
+        subtipo_financeiro=subtipo_despesa_financeira(pag),
         descricao=pag.descricao or "",
         categoria=categoria,
         tipo_item=tipo_item_val,
@@ -166,7 +169,7 @@ def get_cobrancas(
 
     custos = (
         db.query(Pagamento.tipo_item, sqlfunc.sum(Pagamento.valor))
-        .filter(Pagamento.origem.in_(ORIGENS_CUSTO), Pagamento.anomes == mes)
+        .filter(Pagamento.natureza == "despesa_financeira", Pagamento.anomes == mes)
         .group_by(Pagamento.tipo_item)
         .all()
     )
@@ -316,6 +319,7 @@ def create_despesa(data: PagamentoCreate, db: Session = Depends(get_db)):
         anomes=anomes,
         tipo="despesa",
         origem="despesa_manual",
+        natureza="despesa_operacional",
         plano_item_id=plano_item.id if plano_item else None,
         data_vencimento=data_pag,
         data_pagamento=data_pag,

@@ -137,11 +137,14 @@ def _sincronizar_pagamento(db: Session, despesa: Despesa) -> None:
         pag.valor     = despesa.valor
         pag.descricao = descricao
         pag.plano_item_id = despesa.plano_item_id
+        pag.natureza = "despesa_operacional"
+        pag.subtipo_financeiro = None
     else:
         pag = Pagamento(
             anomes        = despesa.anomes,
             tipo          = "despesa",
             origem        = "despesa_manual",
+            natureza      = "despesa_operacional",
             despesa_id    = despesa.id,
             plano_item_id = despesa.plano_item_id,
             data          = despesa.data,

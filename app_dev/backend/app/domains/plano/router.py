@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.core.database import get_db
 from app.domains.auth.router import get_user_id_from_token
@@ -25,6 +25,7 @@ from .schemas import (
 from .service import (
     get_plano_vs_realizado,
     get_evolucao_bulk,
+    get_despesas_financeiras_por_mes,
     get_meta_mes,
 )
 from .schemas import MetaMes
@@ -111,10 +112,14 @@ def resumo_mensal(
     )
     desp_map = {d.anomes: float(d.total) for d in desp}
 
-    # Despesas realizadas — pagamentos tipo=despesa
+    # Despesas realizadas operacionais — custos financeiros aparecem em campo próprio.
     pag_desp = (
         db.query(Pagamento.anomes, func.coalesce(func.sum(Pagamento.valor), 0).label("total"))
-        .filter(Pagamento.anomes.like(f"{prefix}%"), Pagamento.tipo == "despesa")
+        .filter(
+            Pagamento.anomes.like(f"{prefix}%"),
+            Pagamento.tipo == "despesa",
+            or_(Pagamento.natureza.is_(None), Pagamento.natureza != "despesa_financeira"),
+        )
         .group_by(Pagamento.anomes)
     )
     trans_map = {r.anomes: float(r.total) for r in pag_desp}
@@ -127,7 +132,20 @@ def resumo_mensal(
     )
     rec_real = {r.anomes: float(r.total) for r in rec_real_q}
 
-    meses = sorted(set(rec_map.keys()) | set(desp_map.keys()) | set(rec_real.keys()) | set(trans_map.keys()))
+    meses_custos_q = (
+        db.query(Pagamento.anomes)
+        .filter(
+            Pagamento.anomes.like(f"{prefix}%"),
+            Pagamento.tipo == "despesa",
+            Pagamento.natureza == "despesa_financeira",
+        )
+        .distinct()
+        .all()
+    )
+    meses_custos = {r.anomes for r in meses_custos_q if r.anomes}
+
+    meses = sorted(set(rec_map.keys()) | set(desp_map.keys()) | set(rec_real.keys()) | set(trans_map.keys()) | meses_custos)
+    financeiras_map = get_despesas_financeiras_por_mes(db, meses)
     return [
         PlanoResumoMes(
             anomes=m,
@@ -135,8 +153,17 @@ def resumo_mensal(
             despesas_planejadas=desp_map.get(m, 0),
             lucro_planejado=rec_map.get(m, 0) - desp_map.get(m, 0),
             receita_realizada=rec_real.get(m, 0),
+            despesas_operacionais_realizadas=trans_map.get(m, 0),
             despesas_realizadas=trans_map.get(m, 0),
-            lucro_realizado=rec_real.get(m, 0) - trans_map.get(m, 0),
+            despesas_financeiras_realizadas=financeiras_map.get(m, {}).get("total", 0),
+            despesas_financeiras_credito=financeiras_map.get(m, {}).get("credito", 0),
+            despesas_financeiras_debito=financeiras_map.get(m, {}).get("debito", 0),
+            despesas_financeiras_pix=financeiras_map.get(m, {}).get("pix", 0),
+            lucro_realizado=(
+                rec_real.get(m, 0)
+                - trans_map.get(m, 0)
+                - financeiras_map.get(m, {}).get("total", 0)
+            ),
         )
         for m in meses
     ]

@@ -144,6 +144,7 @@ def _upsert_despesa(
     data_custo: Optional[date],
     descricao: str,
     pagamento_pai_id: Optional[int] = None,
+    subtipo_financeiro: Optional[str] = None,
 ):
     """Cria, atualiza ou remove a despesa de custo. Idempotente."""
     from .pagamentos_model import Pagamento
@@ -152,6 +153,10 @@ def _upsert_despesa(
         Pagamento.origem == origem,
         Pagamento.pedido_id == pedido.id,
     )
+    if subtipo_financeiro is not None:
+        query = query.filter(Pagamento.subtipo_financeiro == subtipo_financeiro)
+    else:
+        query = query.filter(Pagamento.subtipo_financeiro.is_(None))
     if pagamento_pai_id is not None:
         query = query.filter(Pagamento.pagamento_pai_id == pagamento_pai_id)
     else:
@@ -170,6 +175,8 @@ def _upsert_despesa(
         "data_pagamento": data_custo,
         "categoria": CATEGORIA_CUSTO,
         "tipo_item": tipo_item,
+        "natureza": "despesa_financeira",
+        "subtipo_financeiro": subtipo_financeiro,
         "valor": valor,
         "descricao": descricao,
     }
@@ -216,6 +223,13 @@ def sync_custos_financeiros(db: Session, pedido) -> None:
     )
     base_desc = _descricao_base(pedido)
 
+    db.query(Pagamento).filter(
+        Pagamento.pedido_id == pedido.id,
+        Pagamento.origem == ORIGEM_TAXA_CARTAO,
+        Pagamento.pagamento_pai_id.is_(None),
+        Pagamento.subtipo_financeiro.is_(None),
+    ).delete(synchronize_session=False)
+
     data_cartao = pedido.data_compra_cartao
     if data_cartao is None:
         primeira_cartao = next((p for p in parcelas if is_cartao(p.forma_pagamento) and p.data_vencimento), None)
@@ -230,11 +244,31 @@ def sync_custos_financeiros(db: Session, pedido) -> None:
         if primeira_cartao_pago:
             data_cartao = primeira_cartao_pago.data_pagamento
 
+    taxa_total = _round(pedido.taxa_cartao_valor)
+    base_credito = _round(sum(p.valor or 0 for p in parcelas if is_cartao(p.forma_pagamento)))
+    base_debito = _round(sum(p.valor or 0 for p in parcelas if is_cartao_debito(p.forma_pagamento)))
+    base_cartao = _round(base_credito + base_debito)
+
+    if taxa_total > 0 and base_cartao > 0:
+        taxa_credito = _round(taxa_total * base_credito / base_cartao)
+        taxa_debito = _round(taxa_total - taxa_credito)
+    else:
+        taxa_credito = taxa_total
+        taxa_debito = 0.0
+
     _upsert_despesa(
         db, pedido, ORIGEM_TAXA_CARTAO, TIPO_ITEM_TAXA_CARTAO,
-        valor=_round(pedido.taxa_cartao_valor),
+        valor=taxa_credito,
         data_custo=data_cartao,
-        descricao=f"Taxa de cartão · {base_desc}",
+        descricao=f"Taxa cartão crédito · {base_desc}",
+        subtipo_financeiro="credito",
+    )
+    _upsert_despesa(
+        db, pedido, ORIGEM_TAXA_CARTAO, TIPO_ITEM_TAXA_CARTAO,
+        valor=taxa_debito,
+        data_custo=data_cartao,
+        descricao=f"Taxa cartão débito · {base_desc}",
+        subtipo_financeiro="debito",
     )
 
     # Desconto Pix só vira lançamento quando o Pix efetivamente entrou.
@@ -246,6 +280,7 @@ def sync_custos_financeiros(db: Session, pedido) -> None:
         valor=_round(pedido.desconto_pix_valor),
         data_custo=primeira_pix_paga.data_pagamento if primeira_pix_paga else None,
         descricao=f"Desconto Pix · {base_desc}",
+        subtipo_financeiro="pix",
     )
 
 
@@ -261,4 +296,5 @@ def sync_custo_adiantamento(db: Session, pedido, parcela) -> None:
         data_custo=parcela.data_pagamento,
         descricao=f"Antecipação parcela {parcela.parcela_numero or ''} · {_descricao_base(pedido)}".replace("  ", " "),
         pagamento_pai_id=parcela.id,
+        subtipo_financeiro="credito",
     )

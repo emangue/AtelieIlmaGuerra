@@ -20,6 +20,8 @@ class Pagamento(Base):
     anomes          = Column(String(6), nullable=True, index=True)    # YYYYMM — calculado de data_pagamento
     tipo            = Column(String(10), nullable=False)              # "receita" | "despesa"
     origem          = Column(String(20), nullable=False)              # "pedido" | "despesa_manual" | "repasse_funcionaria" | "taxa_cartao" | "desconto_pix"
+    natureza        = Column(String(30), nullable=True, index=True)   # "receita" | "despesa_operacional" | "despesa_financeira"
+    subtipo_financeiro = Column(String(20), nullable=True)            # "credito" | "debito" | "pix"
     pedido_id       = Column(Integer, ForeignKey("pedidos.id", ondelete="CASCADE"), nullable=True)
     plano_item_id   = Column(Integer, ForeignKey("plano_itens.id"), nullable=True)
     parcela_numero  = Column(Integer, nullable=True)                  # 1, 2, 3... / NULL = à vista ou despesa

@@ -3,12 +3,18 @@ Service do domínio Plano - plano vs realizado.
 """
 import calendar
 from datetime import date
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from sqlalchemy.orm import selectinload
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.domains.pedidos.models import Pedido, TipoPedido
+from .custos_financeiros import (
+    ORIGEM_TAXA_CARTAO,
+    is_cartao,
+    is_cartao_debito,
+)
 from .models import PlanoItem
 from .pagamentos_model import Pagamento
 from .schemas import (
@@ -22,6 +28,95 @@ def _parse_mes(mes: str) -> tuple:
         d = date.today()
         return d.year, d.month
     return int(mes[:4]), int(mes[4:6])
+
+
+def _resumo_financeiro_vazio() -> dict:
+    return {
+        "credito": 0.0,
+        "debito": 0.0,
+        "pix": 0.0,
+        "total": 0.0,
+    }
+
+
+def natureza_pagamento(pagamento: Pagamento) -> str:
+    """Classificação financeira canônica usada nas telas de plano e financeiro."""
+    if getattr(pagamento, "natureza", None):
+        return pagamento.natureza
+    if pagamento.tipo == "receita":
+        return "receita"
+    return "despesa_operacional"
+
+
+def subtipo_despesa_financeira(pagamento: Pagamento) -> Optional[str]:
+    """Quebra despesas financeiras em crédito, débito e Pix quando possível."""
+    if getattr(pagamento, "subtipo_financeiro", None):
+        return pagamento.subtipo_financeiro
+    return None
+
+
+def get_despesas_financeiras_por_mes(db: Session, meses: List[str]) -> Dict[str, dict]:
+    """Quebra custos financeiros em crédito, débito e desconto Pix."""
+    if not meses:
+        return {}
+
+    result: Dict[str, dict] = {m: _resumo_financeiro_vazio() for m in meses}
+    custos = (
+        db.query(Pagamento)
+        .options(selectinload(Pagamento.pedido).selectinload(Pedido.pagamentos))
+        .filter(
+            Pagamento.anomes.in_(meses),
+            Pagamento.tipo == "despesa",
+            Pagamento.natureza == "despesa_financeira",
+        )
+        .all()
+    )
+
+    for pag in custos:
+        mes = pag.anomes
+        if not mes:
+            continue
+        if natureza_pagamento(pag) != "despesa_financeira":
+            continue
+        resumo = result.setdefault(mes, _resumo_financeiro_vazio())
+        valor = float(pag.valor or 0)
+        subtipo = subtipo_despesa_financeira(pag)
+
+        if subtipo == "pix":
+            resumo["pix"] += valor
+            resumo["total"] += valor
+            continue
+
+        if subtipo == "credito":
+            resumo["credito"] += valor
+            resumo["total"] += valor
+            continue
+
+        if subtipo == "debito":
+            resumo["debito"] += valor
+            resumo["total"] += valor
+            continue
+
+        if pag.origem == ORIGEM_TAXA_CARTAO:
+            parcelas = [
+                p for p in ((pag.pedido.pagamentos if pag.pedido else []) or [])
+                if p.tipo == "receita"
+            ]
+            base_credito = sum(float(p.valor or 0) for p in parcelas if is_cartao(p.forma_pagamento))
+            base_debito = sum(float(p.valor or 0) for p in parcelas if is_cartao_debito(p.forma_pagamento))
+            base_total = base_credito + base_debito
+
+            if base_total <= 0:
+                resumo["credito"] += valor
+            else:
+                resumo["credito"] += valor * (base_credito / base_total)
+                resumo["debito"] += valor * (base_debito / base_total)
+            resumo["total"] += valor
+
+    for resumo in result.values():
+        for key in ("credito", "debito", "pix", "total"):
+            resumo[key] = round(float(resumo[key]), 2)
+    return result
 
 def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     """
@@ -64,10 +159,14 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     receita_planejada = sum(i.valor_planejado for i in itens_rec)
     despesas_planejadas = sum(i.valor_planejado for i in itens_desp)
 
-    # Despesas realizadas: soma dos pagamentos tipo=despesa por plano_item_id
+    # Despesas realizadas operacionais: soma por plano_item_id, excluindo custos financeiros.
     pag_soma = (
         db.query(Pagamento.plano_item_id, func.coalesce(func.sum(Pagamento.valor), 0).label("total"))
-        .filter(Pagamento.anomes == mes, Pagamento.tipo == "despesa")
+        .filter(
+            Pagamento.anomes == mes,
+            Pagamento.tipo == "despesa",
+            or_(Pagamento.natureza.is_(None), Pagamento.natureza != "despesa_financeira"),
+        )
         .group_by(Pagamento.plano_item_id)
     )
     pag_map = {r.plano_item_id: float(r.total) for r in pag_soma}
@@ -76,6 +175,7 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         return pag_map.get(item.id, float(item.valor_realizado or 0))
 
     despesas_realizadas = sum(_realizado_desp(i) for i in itens_desp)
+    despesas_financeiras = get_despesas_financeiras_por_mes(db, [mes]).get(mes, _resumo_financeiro_vazio())
 
     # Agrupar receita realizado por tipo_item do plano (pedidos + receitas manuais)
     rec_por_plano_tipo: Dict[str, float] = {}
@@ -141,7 +241,8 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         ))
 
     lucro_planejado = receita_planejada - despesas_planejadas
-    lucro_realizado = receita_total_realizado - despesas_realizadas
+    despesas_financeiras_total = despesas_financeiras["total"]
+    lucro_realizado = receita_total_realizado - despesas_realizadas - despesas_financeiras_total
     percentual = (lucro_realizado / lucro_planejado * 100) if lucro_planejado else 0
 
     repasse_costureira = 0
@@ -203,6 +304,10 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         receita_por_entrega=round(receita_por_entrega, 2),
         despesas_planejadas=despesas_planejadas,
         despesas_realizadas=despesas_realizadas,
+        despesas_financeiras_realizadas=despesas_financeiras_total,
+        despesas_financeiras_credito=despesas_financeiras["credito"],
+        despesas_financeiras_debito=despesas_financeiras["debito"],
+        despesas_financeiras_pix=despesas_financeiras["pix"],
         lucro_planejado=lucro_planejado,
         lucro_realizado=lucro_realizado,
         percentual_atingimento=round(percentual, 1),

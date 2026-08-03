@@ -63,7 +63,12 @@ class PlanoResumoMes(BaseModel):
     despesas_planejadas: float
     lucro_planejado: float
     receita_realizada: float = 0
+    despesas_operacionais_realizadas: float = 0
     despesas_realizadas: float = 0
+    despesas_financeiras_realizadas: float = 0
+    despesas_financeiras_credito: float = 0
+    despesas_financeiras_debito: float = 0
+    despesas_financeiras_pix: float = 0
     lucro_realizado: float = 0
 
 
@@ -148,7 +153,12 @@ class PlanoVsRealizado(BaseModel):
     receita_realizada: float        # visão pagamento: soma dos pagamentos com anomes == mes
     receita_por_entrega: float = 0.0  # visão entrega: soma valor_pecas com data_entrega no mes
     despesas_planejadas: float
+    despesas_operacionais_realizadas: float = 0
     despesas_realizadas: float
+    despesas_financeiras_realizadas: float = 0
+    despesas_financeiras_credito: float = 0
+    despesas_financeiras_debito: float = 0
+    despesas_financeiras_pix: float = 0
     lucro_planejado: float
     lucro_realizado: float
     percentual_atingimento: float  # lucro_realizado / lucro_planejado * 100 (ou 0 se planejado=0)
@@ -187,6 +197,8 @@ class PagamentoItem(BaseModel):
     id: int
     tipo: str            # "receita" | "despesa"
     origem: str          # "pedido" | "despesa_manual"
+    natureza: str = "despesa_operacional"  # receita | despesa_operacional | despesa_financeira
+    subtipo_financeiro: Optional[str] = None  # credito | debito | pix
     descricao: str
     categoria: str
     tipo_item: Optional[str] = None

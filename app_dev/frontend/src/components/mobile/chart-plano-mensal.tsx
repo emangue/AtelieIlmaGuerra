@@ -37,6 +37,7 @@ export interface PlanoMensalItem {
   lucro_planejado: number;
   receita_realizada: number;
   despesas_realizadas: number;
+  despesas_financeiras_realizadas?: number;
   lucro_realizado: number;
 }
 
@@ -45,27 +46,37 @@ interface ChartRow {
   custo_plan: number | null;
   lucro_plan_pos: number | null;
   prejuizo_plan: number | null;
-  custo_real: number;
+  custo_operacional_real: number;
+  custo_financeiro_real: number;
   lucro_real_pos: number;
   prejuizo_real: number;
   fat_plan: number;
   fat_real: number;
   despesa_plan_total: number;
   despesa_real_total: number;
+  despesa_operacional_real_total: number;
+  despesa_financeira_real_total: number;
 }
 
 function toChartRow(d: PlanoMensalItem): ChartRow {
   const temPlano = d.receita_planejada > 0 || d.despesas_planejadas > 0;
-  const custoRealConsumido = Math.min(d.despesas_realizadas, d.receita_realizada);
+  const despesaFinanceira = d.despesas_financeiras_realizadas ?? 0;
+  const despesaRealTotal = d.despesas_realizadas + despesaFinanceira;
+  const custoOperacionalConsumido = Math.min(d.despesas_realizadas, d.receita_realizada);
+  const receitaDepoisOperacional = Math.max(0, d.receita_realizada - d.despesas_realizadas);
+  const custoFinanceiroConsumido = Math.min(despesaFinanceira, receitaDepoisOperacional);
   const custoPlanConsumido = Math.min(d.despesas_planejadas, d.receita_planejada);
   // A despesa consome a barra de faturamento. Só o excedente de despesa aparece abaixo do zero.
   return {
     label: d.label,
-    prejuizo_real: -Math.max(0, d.despesas_realizadas - d.receita_realizada),
-    custo_real: custoRealConsumido,
-    lucro_real_pos: Math.max(0, d.receita_realizada - d.despesas_realizadas),
+    prejuizo_real: -Math.max(0, despesaRealTotal - d.receita_realizada),
+    custo_operacional_real: custoOperacionalConsumido,
+    custo_financeiro_real: custoFinanceiroConsumido,
+    lucro_real_pos: Math.max(0, d.receita_realizada - despesaRealTotal),
     fat_real: d.receita_realizada,
-    despesa_real_total: d.despesas_realizadas,
+    despesa_real_total: despesaRealTotal,
+    despesa_operacional_real_total: d.despesas_realizadas,
+    despesa_financeira_real_total: despesaFinanceira,
     prejuizo_plan: temPlano ? -Math.max(0, d.despesas_planejadas - d.receita_planejada) : null,
     custo_plan: temPlano ? custoPlanConsumido : null,
     lucro_plan_pos: temPlano ? Math.max(0, d.receita_planejada - d.despesas_planejadas) : null,
@@ -93,8 +104,12 @@ const CustomTooltip = ({ active, payload, label }: {
           <span style={{ fontWeight: 500, color: "#111" }}>{fmt(row.fat_real)}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <span style={{ color: "#6b7280" }}>Despesa real</span>
-          <span style={{ color: "#D85A30" }}>{fmt(row.despesa_real_total)}</span>
+          <span style={{ color: "#6b7280" }}>Despesa operacional</span>
+          <span style={{ color: "#D85A30" }}>{fmt(row.despesa_operacional_real_total)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+          <span style={{ color: "#6b7280" }}>Despesa financeira</span>
+          <span style={{ color: "#4B5563" }}>{fmt(row.despesa_financeira_real_total)}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
           <span style={{ color: "#6b7280" }}>{sobraReal < 0 ? "Despesa acima" : "Sobra real"}</span>
@@ -190,7 +205,8 @@ export function ChartPlanoMensal({ data }: { data: PlanoMensalItem[] }) {
   // Etiquetas — lê rows[index] diretamente, nunca p.value.
   // A despesa consumida mostra fat no topo quando não há sobra positiva.
   const LabelPrejuizoReal = makeBarLabel(rows, "prejuizo_real", "rgba(255,255,255,0.9)");
-  const LabelCustoReal    = makeBarLabel(rows, "custo_real",    "rgba(255,255,255,0.9)", "fat_real",  "lucro_real_pos", true);
+  const LabelCustoReal    = makeBarLabel(rows, "custo_operacional_real", "rgba(255,255,255,0.9)");
+  const LabelFinanceiroReal = makeBarLabel(rows, "custo_financeiro_real", "rgba(255,255,255,0.9)", "fat_real", "lucro_real_pos", true);
   const LabelLucroReal    = makeBarLabel(rows, "lucro_real_pos","rgba(255,255,255,0.9)", "fat_real",  "lucro_real_pos", false);
   const LabelPrejuizoPlan = makeBarLabel(rows, "prejuizo_plan", "rgba(255,255,255,0.9)");
   const LabelCustoPlan    = makeBarLabel(rows, "custo_plan",    "#c47a5f",               "fat_plan",  "lucro_plan_pos", true);
@@ -201,9 +217,10 @@ export function ChartPlanoMensal({ data }: { data: PlanoMensalItem[] }) {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 10 }}>
         {[
           { label: "Sobra real", color: "#1D9E75" },
-          { label: "Despesa real", color: "#D85A30" },
+          { label: "Desp. operacional", color: "#D85A30" },
+          { label: "Desp. financeira", color: "#4B5563" },
           { label: "Sobra plano", color: "#9FE1CB" },
-          { label: "Despesa plano", color: "#F5C4B3" },
+          { label: "Desp. operacional plano", color: "#F5C4B3" },
           { label: "Despesa acima", color: "#B91C1C" },
         ].map((l) => (
           <span key={l.label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#6b7280" }}>
@@ -228,8 +245,11 @@ export function ChartPlanoMensal({ data }: { data: PlanoMensalItem[] }) {
             <Bar dataKey="prejuizo_real" stackId="real" fill="#B91C1C" barSize={22} radius={[0, 0, 4, 4]}>
               <LabelList content={LabelPrejuizoReal as any} />
             </Bar>
-            <Bar dataKey="custo_real" stackId="real" fill="#D85A30" barSize={22}>
+            <Bar dataKey="custo_operacional_real" stackId="real" fill="#D85A30" barSize={22}>
               <LabelList content={LabelCustoReal as any} />
+            </Bar>
+            <Bar dataKey="custo_financeiro_real" stackId="real" fill="#4B5563" barSize={22}>
+              <LabelList content={LabelFinanceiroReal as any} />
             </Bar>
             <Bar dataKey="lucro_real_pos" stackId="real" fill="#1D9E75" barSize={22} radius={[4, 4, 0, 0]}>
               <LabelList content={LabelLucroReal as any} />

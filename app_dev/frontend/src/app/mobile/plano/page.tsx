@@ -94,6 +94,10 @@ interface PlanoResumoMes {
   lucro_planejado: number;
   receita_realizada: number;
   despesas_realizadas: number;
+  despesas_financeiras_realizadas: number;
+  despesas_financeiras_credito: number;
+  despesas_financeiras_debito: number;
+  despesas_financeiras_pix: number;
   lucro_realizado: number;
 }
 
@@ -615,6 +619,10 @@ export default function PlanoPage() {
                   lucro_planejado: r?.lucro_planejado ?? 0,
                   receita_realizada: r?.receita_realizada ?? 0,
                   despesas_realizadas: r?.despesas_realizadas ?? 0,
+                  despesas_financeiras_realizadas: r?.despesas_financeiras_realizadas ?? 0,
+                  despesas_financeiras_credito: r?.despesas_financeiras_credito ?? 0,
+                  despesas_financeiras_debito: r?.despesas_financeiras_debito ?? 0,
+                  despesas_financeiras_pix: r?.despesas_financeiras_pix ?? 0,
                   lucro_realizado: r?.lucro_realizado ?? 0,
                 };
               });
@@ -945,11 +953,11 @@ export default function PlanoPage() {
               )}
             </div>
 
-            {/* Despesas do mês */}
+            {/* Despesas operacionais do mês */}
             <div className="rounded-xl border border-gray-200 bg-white overflow-hidden mb-4">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <p className="text-sm font-medium text-rose-700 flex items-center gap-1.5">
-                  <TrendingDown className="w-4 h-4" /> Despesas — {formatMes(mesSel)}
+                  <TrendingDown className="w-4 h-4" /> Despesas operacionais — {formatMes(mesSel)}
                 </p>
                 <div className="flex items-center gap-3">
                   <button
@@ -962,7 +970,7 @@ export default function PlanoPage() {
                       setShowAddDespesaPlano(true);
                     }}
                   >
-                    <Plus className="w-3.5 h-3.5" /> Nova despesa
+                    <Plus className="w-3.5 h-3.5" /> Nova operacional
                   </button>
                 </div>
               </div>
@@ -972,7 +980,7 @@ export default function PlanoPage() {
                 </div>
               ) : despesas.length === 0 ? (
                 <p className="px-4 py-4 text-sm text-gray-400 italic">
-                  Nenhuma despesa planejada. Clique em &ldquo;Nova despesa&rdquo; para adicionar.
+                  Nenhuma despesa operacional planejada. Clique em &ldquo;Nova operacional&rdquo; para adicionar.
                 </p>
               ) : (
                 <div className="divide-y divide-gray-100">
@@ -1180,10 +1188,25 @@ export default function PlanoPage() {
                     )}
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-0.5">Despesas planejadas</p>
+                    <p className="text-xs text-gray-400 mb-0.5">Despesas operacionais planejadas</p>
                     <p className="text-base font-semibold text-rose-600">{formatMoney(resumoMes.despesas_planejadas)}</p>
                     {resumoMes.despesas_realizadas > 0 && (
-                      <p className="text-xs text-rose-800">{formatMoney(resumoMes.despesas_realizadas)} real.</p>
+                      <p className="text-xs text-rose-800">{formatMoney(resumoMes.despesas_realizadas)} realizadas.</p>
+                    )}
+                  </div>
+                  <div className="col-span-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-xs text-slate-500">Despesas financeiras</p>
+                      <p className="text-sm font-semibold text-slate-800">
+                        {formatMoney(resumoMes.despesas_financeiras_realizadas ?? 0)}
+                      </p>
+                    </div>
+                    {(resumoMes.despesas_financeiras_realizadas ?? 0) > 0 && (
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        crédito {formatMoney(resumoMes.despesas_financeiras_credito ?? 0)} · débito{" "}
+                        {formatMoney(resumoMes.despesas_financeiras_debito ?? 0)} · pix{" "}
+                        {formatMoney(resumoMes.despesas_financeiras_pix ?? 0)}
+                      </p>
                     )}
                   </div>
                   <div className="col-span-2 pt-2 border-t border-gray-100">
@@ -1332,7 +1355,7 @@ export default function PlanoPage() {
       <Dialog open={showAddDespesaPlano} onOpenChange={setShowAddDespesaPlano}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Nova despesa planejada</DialogTitle>
+            <DialogTitle>Nova despesa operacional planejada</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="space-y-2">

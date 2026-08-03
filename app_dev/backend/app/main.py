@@ -159,6 +159,8 @@ def startup():
     run_migration("ALTER TABLE pagamentos ADD COLUMN categoria VARCHAR(100)", "pagamentos.categoria")
     run_migration("ALTER TABLE pagamentos ADD COLUMN tipo_item VARCHAR(100)", "pagamentos.tipo_item")
     run_migration("ALTER TABLE pagamentos ADD COLUMN forma_pagamento VARCHAR(30)", "pagamentos.forma_pagamento")
+    run_migration("ALTER TABLE pagamentos ADD COLUMN natureza VARCHAR(30)", "pagamentos.natureza")
+    run_migration("ALTER TABLE pagamentos ADD COLUMN subtipo_financeiro VARCHAR(20)", "pagamentos.subtipo_financeiro")
     run_migration("ALTER TABLE pagamentos ADD COLUMN liquidacao_automatica BOOLEAN", "pagamentos.liquidacao_automatica")
     run_migration("ALTER TABLE pagamentos ADD COLUMN desconto_adiantamento REAL", "pagamentos.desconto_adiantamento")
     run_migration("ALTER TABLE pagamentos ADD COLUMN pagamento_pai_id INTEGER", "pagamentos.pagamento_pai_id")

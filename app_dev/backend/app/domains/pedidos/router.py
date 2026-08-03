@@ -444,6 +444,7 @@ def configurar_pagamento(
             anomes=f"{data_pag.year}{data_pag.month:02d}" if data_pag else None,
             tipo="receita",
             origem="pedido",
+            natureza="receita",
             pedido_id=pedido_id,
             parcela_numero=numero,
             parcela_total=total_parcelas,
