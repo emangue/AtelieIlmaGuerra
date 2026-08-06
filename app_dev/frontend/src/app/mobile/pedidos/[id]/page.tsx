@@ -69,6 +69,11 @@ interface ParcelaForm {
   status?: string;   // calculado do servidor
 }
 
+interface TipoPedidoItem {
+  id: number;
+  nome: string;
+}
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -251,6 +256,8 @@ export default function PedidoDetailPage() {
 
   // Form state
   const [descricao, setDescricao] = useState("");
+  const [tiposPedido, setTiposPedido] = useState<TipoPedidoItem[]>([]);
+  const [tipoPedidoId, setTipoPedidoId] = useState<number | null>(null);
   const [status, setStatus] = useState("");
   const [dataEntrega, setDataEntrega] = useState("");
   const [valorPecas, setValorPecas] = useState<number | "">("");
@@ -293,6 +300,7 @@ export default function PedidoDetailPage() {
       .then((data) => {
         setPedido(data);
         setDescricao(data.descricao_produto || "");
+        setTipoPedidoId(data.tipo_pedido_id ?? null);
         setStatus(data.status || "Encomenda");
         setDataEntrega(isoToInputDate(data.data_entrega));
         setValorPecas(data.valor_pecas ?? "");
@@ -321,6 +329,9 @@ export default function PedidoDetailPage() {
         setComentarioFoto1(data.comentario_foto_1 || "");
         setComentarioFoto2(data.comentario_foto_2 || "");
         setComentarioFoto3(data.comentario_foto_3 || "");
+        if (searchParams.get("edit") === "1") {
+          setEditing(true);
+        }
       })
       .catch(() => setPedido(null))
       .finally(() => setLoading(false));
@@ -357,6 +368,10 @@ export default function PedidoDetailPage() {
         })
       )
       .catch(() => setParametros(null));
+    authFetch(`${API_URL}/api/v1/pedidos/tipos`)
+      .then((res) => res.json())
+      .then(setTiposPedido)
+      .catch(() => setTiposPedido([]));
   }, [id]);
 
   useEffect(() => {
@@ -367,15 +382,15 @@ export default function PedidoDetailPage() {
   }, [aba, loading, parcelasLoaded]);
 
   useEffect(() => {
-    if (!pedido?.tipo_pedido_id || !editing) {
+    if (!tipoPedidoId || !editing) {
       setFormasPeca([]);
       return;
     }
-    authFetch(`${API_URL}/api/v1/pedidos/formas-peca?tipo_pedido_id=${pedido.tipo_pedido_id}`)
+    authFetch(`${API_URL}/api/v1/pedidos/formas-peca?tipo_pedido_id=${tipoPedidoId}`)
       .then((res) => res.json())
       .then(setFormasPeca)
       .catch(() => setFormasPeca([]));
-  }, [pedido?.tipo_pedido_id, editing]);
+  }, [tipoPedidoId, editing]);
 
   const margemPreview = React.useMemo(() => {
     if (!parametros) return null;
@@ -391,6 +406,7 @@ export default function PedidoDetailPage() {
   const enterEditMode = () => {
     if (pedido) {
       setDescricao(pedido.descricao_produto || "");
+      setTipoPedidoId(pedido.tipo_pedido_id ?? null);
       setStatus(pedido.status || "Encomenda");
       setDataEntrega(isoToInputDate(pedido.data_entrega));
       setValorPecas(pedido.valor_pecas ?? "");
@@ -426,6 +442,11 @@ export default function PedidoDetailPage() {
   };
 
   const handleSave = async () => {
+    if (!tipoPedidoId) {
+      setAvisosAtipicos([]);
+      alert("Selecione o tipo do pedido antes de salvar.");
+      return;
+    }
     if (margemPreview) {
       const avisos = avaliarAvisosPedido(
         Number(valorPecas) || 0,
@@ -443,6 +464,7 @@ export default function PedidoDetailPage() {
     try {
       const body: Record<string, unknown> = {
         descricao_produto: descricao || null,
+        tipo_pedido_id: tipoPedidoId,
         status,
         data_entrega: dataEntrega || null,
         valor_pecas: valorPecas === "" ? null : valorPecas,
@@ -537,6 +559,7 @@ export default function PedidoDetailPage() {
     setConfirmadoAtipico(false);
     if (pedido) {
       setDescricao(pedido.descricao_produto || "");
+      setTipoPedidoId(pedido.tipo_pedido_id ?? null);
       setStatus(pedido.status || "Encomenda");
       setDataEntrega(isoToInputDate(pedido.data_entrega));
       setValorPecas(pedido.valor_pecas ?? "");
@@ -639,6 +662,33 @@ export default function PedidoDetailPage() {
               placeholder="Descrição do produto"
               className="mt-2 min-h-[80px]"
             />
+          </section>
+
+          {/* Tipo do pedido */}
+          <section className="rounded-xl border border-gray-200 bg-white p-4">
+            <Label>Tipo do pedido *</Label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {tiposPedido.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    setTipoPedidoId(t.id);
+                    setFormaPecaId(null);
+                  }}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                    tipoPedidoId === t.id
+                      ? "bg-red-500 text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {t.nome}
+                </button>
+              ))}
+            </div>
+            {!tipoPedidoId && (
+              <p className="mt-2 text-xs text-red-600">Selecione o tipo para o pedido entrar no Plano.</p>
+            )}
           </section>
 
           {/* Status */}

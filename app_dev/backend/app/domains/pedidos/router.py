@@ -18,6 +18,7 @@ MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB
 
 from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem, ParcelaCreate, ParcelasConfig, ParcelaOut, CustosReceberOut, PedidoHistoricoResponse
 from .service import PedidoService, PedidoAtipicoWarning, _norm_foto_url
+from .models import FormaPeca, FormaPecaMedida
 
 
 def _avisos_detail(exc: PedidoAtipicoWarning) -> dict:
@@ -26,7 +27,30 @@ def _avisos_detail(exc: PedidoAtipicoWarning) -> dict:
         "avisos": [{"codigo": a.codigo, "mensagem": a.mensagem} for a in exc.avisos],
         "margem_real_calculada": exc.margem_real,
     }
-from .models import FormaPeca, FormaPecaMedida
+
+
+def _campos_obrigatorios_faltando_para_aprovar(pedido) -> list[str]:
+    faltando: list[str] = []
+    if not pedido.cliente_id:
+        faltando.append("cliente")
+    if not pedido.tipo_pedido_id:
+        faltando.append("tipo do pedido")
+    if not pedido.data_pedido:
+        faltando.append("data do pedido")
+    if not pedido.data_entrega:
+        faltando.append("data de entrega")
+    if not (pedido.descricao_produto or "").strip():
+        faltando.append("descrição do produto")
+    if pedido.valor_pecas is None or pedido.valor_pecas <= 0:
+        faltando.append("valor da peça")
+    if pedido.quantidade_pecas is None or pedido.quantidade_pecas <= 0:
+        faltando.append("quantidade de peças")
+    if pedido.horas_trabalho is None or pedido.horas_trabalho <= 0:
+        faltando.append("horas de trabalho")
+    if pedido.custo_materiais is None or pedido.custo_materiais < 0:
+        faltando.append("custo de materiais")
+    return faltando
+
 
 UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads"
 (UPLOADS_DIR / "pedidos").mkdir(parents=True, exist_ok=True)
@@ -288,6 +312,13 @@ def update_pedido_status(
     if not pedido_antes:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     status_antes = pedido_antes.status
+    if status_antes == "Orçamento" and data.status not in ("Orçamento", "Cancelado"):
+        faltando = _campos_obrigatorios_faltando_para_aprovar(pedido_antes)
+        if faltando:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Preencha antes de aprovar: {', '.join(faltando)}.",
+            )
     pedido = service.update_status(pedido_id, data.status)
     registrar_alteracao(
         db, user_id=user_id, entidade="pedido", entidade_id=pedido_id, acao="mudou_status",

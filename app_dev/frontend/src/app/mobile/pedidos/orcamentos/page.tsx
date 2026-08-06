@@ -54,8 +54,8 @@ export default function PedidosOrcamentosPage() {
     try {
       await api.patch(`/api/v1/pedidos/${id}/status`, { status: "Encomenda" });
       setOrcamentos((prev) => prev.filter((p) => p.id !== id));
-    } catch {
-      alert("Erro ao aprovar. Tente novamente.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erro ao aprovar. Tente novamente.");
     } finally {
       setActionId(null);
     }

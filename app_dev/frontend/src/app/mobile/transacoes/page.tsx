@@ -11,7 +11,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ChevronLeft, ChevronRight, Loader2, Receipt, Search, X } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, ExternalLink, Loader2, Receipt, Search, X } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { addMes, hojeAnomes, labelMes, todayLocalISO } from "@/lib/date-utils";
 import { formatMoney } from "@/lib/money";
@@ -327,6 +327,20 @@ function SheetDetalhe({
           </div>
         </div>
 
+        {item?.pedido_id && (
+          <Link
+            href={`/mobile/pedidos/${item.pedido_id}?from=transacoes&edit=1`}
+            className={`mb-5 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold ${
+              item.conta_no_plano === false
+                ? "bg-red-600 text-white shadow-sm"
+                : "bg-gray-900 text-white"
+            }`}
+          >
+            <ExternalLink className="h-4 w-4" />
+            Abrir pedido para corrigir
+          </Link>
+        )}
+
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
           {linhas
             .filter(([, v]) => v)
@@ -341,7 +355,7 @@ function SheetDetalhe({
         <div className="mt-6">
           {item?.pedido_id ? (
             <Link
-              href={`/mobile/pedidos/${item.pedido_id}?from=transacoes`}
+              href={`/mobile/pedidos/${item.pedido_id}?from=transacoes&edit=1`}
               className="block w-full rounded-xl border border-gray-300 py-2.5 text-center text-sm font-medium text-gray-700"
             >
               Abrir pedido

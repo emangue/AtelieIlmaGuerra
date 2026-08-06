@@ -21,8 +21,10 @@ function authFetch(url: string, init?: RequestInit) {
   return fetch(url, { ...init, headers });
 }
 
-function parseMoneyInput(value: string): number {
-  return parseFloat(value.replace(",", ".")) || 0;
+function parseMoneyInput(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = parseFloat(value.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 interface ClienteItem {
@@ -38,6 +40,20 @@ interface FormaPecaItem {
   nome: string;
   medidas: string[];
 }
+
+type FieldErrors = Partial<Record<
+  | "cliente"
+  | "dataPedido"
+  | "tipo"
+  | "descricao"
+  | "status"
+  | "horasTrabalho"
+  | "custoMateriais"
+  | "valorPecas"
+  | "quantidadePecas"
+  | "dataEntrega",
+  string
+>>;
 
 const STATUS_OPCOES = [
   "Orçamento",
@@ -95,11 +111,11 @@ function NovoPedidoContent() {
   const [descricao, setDescricao] = useState("");
   const [status, setStatus] = useState("Encomenda");
 
-  const [horasTrabalho, setHorasTrabalho] = useState(0);
-  const [custoMateriais, setCustoMateriais] = useState(0);
+  const [horasTrabalho, setHorasTrabalho] = useState<number | null>(null);
+  const [custoMateriais, setCustoMateriais] = useState<number | null>(null);
   const [custosVariaveis, setCustosVariaveis] = useState(0);
-  const [valorPecas, setValorPecas] = useState(0);
-  const [quantidadePecas, setQuantidadePecas] = useState(0);
+  const [valorPecas, setValorPecas] = useState<number | null>(null);
+  const [quantidadePecas, setQuantidadePecas] = useState<number | null>(null);
   const [percentualLucroDono, setPercentualLucroDono] = useState(100);
   const [percentualLucroDonoEditado, setPercentualLucroDonoEditado] = useState(false);
 
@@ -243,9 +259,9 @@ function NovoPedidoContent() {
           margemReal: 0,
         };
       const r = calcularMargem(
-        valorPecas,
-        horasTrabalho,
-        custoMateriais,
+        valorPecas ?? 0,
+        horasTrabalho ?? 0,
+        custoMateriais ?? 0,
         custosVariaveis,
         parametros,
         // Custo de receber real deste pedido — zero enquanto não há forma definida.
@@ -290,18 +306,94 @@ function NovoPedidoContent() {
   }, []);
 
   const [formError, setFormError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const isFormValid = Boolean(
     clienteId &&
     tipoId &&
     dataPedido &&
     descricao.trim() &&
+    status &&
+    horasTrabalho != null &&
+    horasTrabalho > 0 &&
+    custoMateriais != null &&
+    custoMateriais >= 0 &&
+    valorPecas != null &&
+    valorPecas > 0 &&
+    quantidadePecas != null &&
+    quantidadePecas > 0 &&
     dataEntrega
   );
+
+  const validateRequiredFields = (): FieldErrors => {
+    const errors: FieldErrors = {};
+    if (!clienteId) {
+      errors.cliente = clienteSearch.trim()
+        ? "Cliente não encontrado. Selecione um cliente da lista."
+        : "Selecione um cliente da lista.";
+    }
+    if (!dataPedido) errors.dataPedido = "Informe a data do pedido.";
+    if (!tipoId) errors.tipo = "Selecione o tipo do pedido.";
+    if (!descricao.trim()) errors.descricao = "Informe a descrição do produto.";
+    if (!status) errors.status = "Selecione o status do pedido.";
+    if (horasTrabalho == null || horasTrabalho <= 0) errors.horasTrabalho = "Informe as horas de trabalho.";
+    if (custoMateriais == null || custoMateriais < 0) errors.custoMateriais = "Informe o custo de materiais. Use 0 se não houver custo.";
+    if (valorPecas == null || valorPecas <= 0) errors.valorPecas = "Informe o valor da peça.";
+    if (quantidadePecas == null || quantidadePecas <= 0) errors.quantidadePecas = "Informe a quantidade de peças.";
+    if (!dataEntrega) errors.dataEntrega = "Informe a data de entrega.";
+    return errors;
+  };
+
+  const clearFieldError = (field: keyof FieldErrors) => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const errorClass = (field: keyof FieldErrors) =>
+    fieldErrors[field] ? "border-red-500 focus-visible:ring-red-500" : "";
+
+  const FieldError = ({ field }: { field: keyof FieldErrors }) =>
+    fieldErrors[field] ? <p className="mt-1 text-xs text-red-600">{fieldErrors[field]}</p> : null;
+
+  const validationDetailToMessage = (detail: unknown): string => {
+    if (typeof detail === "string") return detail;
+    if (!Array.isArray(detail)) return "Confira os campos obrigatórios do pedido.";
+    const labels: Record<string, string> = {
+      cliente_id: "cliente",
+      tipo_pedido_id: "tipo do pedido",
+      data_pedido: "data do pedido",
+      data_entrega: "data de entrega",
+      descricao_produto: "descrição do produto",
+      status: "status",
+      horas_trabalho: "horas de trabalho",
+      custo_materiais: "custo de materiais",
+      valor_pecas: "valor da peça",
+      quantidade_pecas: "quantidade de peças",
+    };
+    const campos = detail
+      .map((item) => {
+        const loc = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : null;
+        return loc && labels[String(loc)] ? labels[String(loc)] : null;
+      })
+      .filter(Boolean);
+    if (campos.length === 0) return "Confira os campos obrigatórios do pedido.";
+    return `Confira: ${Array.from(new Set(campos)).join(", ")}.`;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
+    setFieldErrors({});
+    const requiredErrors = validateRequiredFields();
+    if (Object.keys(requiredErrors).length > 0) {
+      setFieldErrors(requiredErrors);
+      setFormError("Preencha os campos obrigatórios destacados.");
+      return;
+    }
     if (!clienteId) {
       setFormError(
         clienteSearch.trim()
@@ -324,8 +416,7 @@ function NovoPedidoContent() {
       setFormError("Erro ao validar cliente. Tente novamente.");
       return;
     }
-    if (!dataPedido) return;
-    const avisos = avaliarAvisosPedido(valorPecas, quantidadePecas, horasTrabalho, margemReal);
+    const avisos = avaliarAvisosPedido(valorPecas ?? 0, quantidadePecas ?? 0, horasTrabalho ?? 0, margemReal);
     if (avisos.length > 0 && !confirmadoAtipico) {
       setAvisosAtipicos(avisos);
       setConfirmadoAtipico(true);
@@ -338,20 +429,20 @@ function NovoPedidoContent() {
         tipo_pedido_id: tipoId,
         forma_peca_id: formaPecaId,
         data_pedido: dataPedido,
-        data_entrega: dataEntrega || null,
-        descricao_produto: descricao || "",
+        data_entrega: dataEntrega,
+        descricao_produto: descricao.trim(),
         status,
-        valor_pecas: valorPecas || null,
-        quantidade_pecas: quantidadePecas || null,
-        horas_trabalho: horasTrabalho || null,
-        custo_materiais: custoMateriais || null,
+        valor_pecas: valorPecas,
+        quantidade_pecas: quantidadePecas,
+        horas_trabalho: horasTrabalho,
+        custo_materiais: custoMateriais,
         custos_variaveis: custosVariaveis || null,
         confirmado_atipico: confirmadoAtipico,
         percentual_lucro_dono: percentualLucroDono,
         forma_pagamento: pagamentoConfig.forma_pagamento,
         pagamento_na_entrega: pagamentoConfig.pagamento_na_entrega || null,
         valor_entrada: valorEntrada || null,
-        valor_restante: Math.max(0, (valorPecas || 0) - (valorEntrada || 0)) || null,
+        valor_restante: Math.max(0, (valorPecas ?? 0) - (valorEntrada || 0)) || null,
         detalhes_pagamento: detalhesPagamento || null,
         canal_cartao: pagamentoConfig.canal_cartao,
         // Só manda o valor quando ela digitou; senão o backend calcula pela tabela.
@@ -380,6 +471,11 @@ function NovoPedidoContent() {
       if (res.status === 422) {
         const errBody = await res.json().catch(() => null);
         const avisosBackend: AvisoPedido[] = errBody?.detail?.avisos ?? [];
+        if (avisosBackend.length === 0) {
+          setFormError(validationDetailToMessage(errBody?.detail));
+          setLoading(false);
+          return;
+        }
         setAvisosAtipicos(avisosBackend);
         setConfirmadoAtipico(true);
         setLoading(false);
@@ -489,10 +585,11 @@ function NovoPedidoContent() {
                 setClienteId(null);
                 setClienteNome("");
                 setShowClienteDropdown(true);
+                clearFieldError("cliente");
               }}
               onFocus={() => setShowClienteDropdown(true)}
               placeholder="Digite para buscar..."
-              className="pl-10"
+              className={`pl-10 ${errorClass("cliente")}`}
             />
             {clienteId && (
               <button
@@ -501,6 +598,7 @@ function NovoPedidoContent() {
                   setClienteId(null);
                   setClienteNome("");
                   setClienteSearch("");
+                  clearFieldError("cliente");
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-red-600"
               >
@@ -519,6 +617,7 @@ function NovoPedidoContent() {
                       setClienteNome(c.nome);
                       setClienteSearch("");
                       setShowClienteDropdown(false);
+                      clearFieldError("cliente");
                     }}
                     className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
                   >
@@ -528,6 +627,7 @@ function NovoPedidoContent() {
               ))}
             </ul>
           )}
+          <FieldError field="cliente" />
         </div>
 
         {/* Data Pedido */}
@@ -537,22 +637,29 @@ function NovoPedidoContent() {
             id="dataPedido"
             type="date"
             value={dataPedido}
-            onChange={(e) => setDataPedido(e.target.value)}
+            onChange={(e) => {
+              setDataPedido(e.target.value);
+              clearFieldError("dataPedido");
+            }}
             required
-            className="mt-1"
+            className={`mt-1 ${errorClass("dataPedido")}`}
           />
+          <FieldError field="dataPedido" />
         </div>
 
         {/* Tipo Pedido - caixas clicáveis */}
         <div>
           <Label>Tipo Pedido *</Label>
-          <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3">
+          <div className={`mt-2 rounded-xl border bg-white p-3 ${fieldErrors.tipo ? "border-red-500" : "border-gray-200"}`}>
             <div className="flex flex-wrap gap-2">
               {tipos.map((t) => (
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => setTipoId(tipoId === t.id ? null : t.id)}
+                  onClick={() => {
+                    setTipoId(t.id);
+                    clearFieldError("tipo");
+                  }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     tipoId === t.id
                       ? "bg-red-500 text-white"
@@ -564,6 +671,7 @@ function NovoPedidoContent() {
               ))}
             </div>
           </div>
+          <FieldError field="tipo" />
         </div>
 
         {/* Forma da peça - toggle (filtrado pelo tipo de pedido) */}
@@ -597,23 +705,30 @@ function NovoPedidoContent() {
           <Input
             id="descricao"
             value={descricao}
-            onChange={(e) => setDescricao(e.target.value)}
+            onChange={(e) => {
+              setDescricao(e.target.value);
+              clearFieldError("descricao");
+            }}
             placeholder="Ex: Vestido de lese branca..."
             required
-            className="mt-1 min-h-[80px]"
+            className={`mt-1 min-h-[80px] ${errorClass("descricao")}`}
           />
+          <FieldError field="descricao" />
         </div>
 
         {/* Status */}
         <div>
           <Label>Status Pedido *</Label>
-          <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3">
+          <div className={`mt-2 rounded-xl border bg-white p-3 ${fieldErrors.status ? "border-red-500" : "border-gray-200"}`}>
             <div className="grid grid-cols-3 gap-2">
               {STATUS_OPCOES.map((s) => (
                 <button
                   key={s}
                   type="button"
-                  onClick={() => setStatus(s)}
+                  onClick={() => {
+                    setStatus(s);
+                    clearFieldError("status");
+                  }}
                   className={`px-3 py-2 rounded-lg text-sm font-medium ${
                     status === s
                       ? "bg-red-500 text-white"
@@ -625,6 +740,7 @@ function NovoPedidoContent() {
               ))}
             </div>
           </div>
+          <FieldError field="status" />
         </div>
 
         {/* Horas, Custo Materiais, Custos Variáveis */}
@@ -636,10 +752,17 @@ function NovoPedidoContent() {
               type="number"
               min={0}
               step={0.25}
-              value={horasTrabalho || ""}
-              onChange={(e) => { setHorasTrabalho(parseFloat(e.target.value) || 0); setConfirmadoAtipico(false); setAvisosAtipicos([]); }}
-              className="mt-1"
+              value={horasTrabalho ?? ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                setHorasTrabalho(value === "" ? null : parseFloat(value) || 0);
+                clearFieldError("horasTrabalho");
+                setConfirmadoAtipico(false);
+                setAvisosAtipicos([]);
+              }}
+              className={`mt-1 ${errorClass("horasTrabalho")}`}
             />
+            <FieldError field="horasTrabalho" />
           </div>
           <div>
             <Label>Custo Materiais *</Label>
@@ -647,10 +770,15 @@ function NovoPedidoContent() {
               type="number"
               min={0}
               step={0.01}
-              value={custoMateriais || ""}
-              onChange={(e) => setCustoMateriais(parseFloat(e.target.value) || 0)}
-              className="mt-1"
+              value={custoMateriais ?? ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                setCustoMateriais(value === "" ? null : parseFloat(value) || 0);
+                clearFieldError("custoMateriais");
+              }}
+              className={`mt-1 ${errorClass("custoMateriais")}`}
             />
+            <FieldError field="custoMateriais" />
           </div>
           <div>
             <Label>Custos Variáveis</Label>
@@ -707,10 +835,16 @@ function NovoPedidoContent() {
             <Input
               type="text"
               inputMode="decimal"
-              value={valorPecas || ""}
-              onChange={(e) => { setValorPecas(parseMoneyInput(e.target.value)); setConfirmadoAtipico(false); setAvisosAtipicos([]); }}
-              className="mt-1"
+              value={valorPecas ?? ""}
+              onChange={(e) => {
+                setValorPecas(parseMoneyInput(e.target.value));
+                clearFieldError("valorPecas");
+                setConfirmadoAtipico(false);
+                setAvisosAtipicos([]);
+              }}
+              className={`mt-1 ${errorClass("valorPecas")}`}
             />
+            <FieldError field="valorPecas" />
           </div>
           <div>
             <Label>Margem Real (%)</Label>
@@ -729,14 +863,17 @@ function NovoPedidoContent() {
               type="number"
               min={0}
               step={1}
-              value={quantidadePecas || ""}
+              value={quantidadePecas ?? ""}
               onChange={(e) => {
-                setQuantidadePecas(parseInt(e.target.value, 10) || 0);
+                const value = e.target.value;
+                setQuantidadePecas(value === "" ? null : parseInt(value, 10) || 0);
+                clearFieldError("quantidadePecas");
                 setConfirmadoAtipico(false);
                 setAvisosAtipicos([]);
               }}
-              className="mt-1"
+              className={`mt-1 ${errorClass("quantidadePecas")}`}
             />
+            <FieldError field="quantidadePecas" />
           </div>
           <div>
             <Label>% para Ilma</Label>
@@ -767,9 +904,13 @@ function NovoPedidoContent() {
             id="dataEntrega"
             type="date"
             value={dataEntrega}
-            onChange={(e) => setDataEntrega(e.target.value)}
-            className="mt-1"
+            onChange={(e) => {
+              setDataEntrega(e.target.value);
+              clearFieldError("dataEntrega");
+            }}
+            className={`mt-1 ${errorClass("dataEntrega")}`}
           />
+          <FieldError field="dataEntrega" />
         </div>
 
         {/* Observação */}
@@ -868,7 +1009,7 @@ function NovoPedidoContent() {
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <h3 className="text-sm font-medium text-gray-500 mb-3">Pagamento</h3>
           <PagamentoForm
-            valorPecas={valorPecas || 0}
+            valorPecas={valorPecas ?? 0}
             apiUrl={API_URL}
             config={pagamentoConfig}
             onChange={(c) => {

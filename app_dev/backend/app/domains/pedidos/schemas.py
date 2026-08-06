@@ -4,7 +4,7 @@ Schemas do domínio Pedidos.
 from datetime import date, datetime
 from typing import Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TipoPedidoItem(BaseModel):
@@ -72,16 +72,16 @@ class PedidoStatusUpdate(BaseModel):
 
 class PedidoCreate(BaseModel):
     cliente_id: int
-    tipo_pedido_id: Optional[int] = None
+    tipo_pedido_id: int
     forma_peca_id: Optional[int] = None
     data_pedido: date
-    data_entrega: Optional[date] = None
-    descricao_produto: str = ""
+    data_entrega: date
+    descricao_produto: str = Field(..., min_length=1)
     status: str = "Encomenda"
-    valor_pecas: Optional[float] = Field(default=None, ge=0)
-    quantidade_pecas: Optional[int] = Field(default=None, ge=0)
-    horas_trabalho: Optional[float] = Field(default=None, ge=0)
-    custo_materiais: Optional[float] = Field(default=None, ge=0)
+    valor_pecas: float = Field(..., gt=0)
+    quantidade_pecas: int = Field(..., gt=0)
+    horas_trabalho: float = Field(..., gt=0)
+    custo_materiais: float = Field(..., ge=0)
     custos_variaveis: Optional[float] = Field(default=None, ge=0)
     confirmado_atipico: bool = False
     percentual_lucro_dono: Optional[float] = Field(default=None, ge=0, le=100)
@@ -121,9 +121,18 @@ class PedidoCreate(BaseModel):
     medida_comprimento_bermuda: Optional[float] = None
     comentario_medidas: Optional[str] = None
 
+    @field_validator("descricao_produto")
+    @classmethod
+    def descricao_obrigatoria(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Informe a descrição do produto.")
+        return value
+
 
 class PedidoUpdate(BaseModel):
-    """Campos editáveis (exceto data_pedido, cliente_id, tipo_pedido_id)."""
+    """Campos editáveis (exceto data_pedido e cliente_id)."""
+    tipo_pedido_id: Optional[int] = None
     forma_peca_id: Optional[int] = None
     descricao_produto: Optional[str] = None
     status: Optional[str] = None

@@ -169,7 +169,7 @@ def _scale_money(original_values: list[Decimal], total: Decimal) -> list[float]:
 
 
 def _sync_receitas_pedido(db: Session, pedido: Pedido) -> None:
-    """Mantém parcelas pendentes alinhadas ao valor atual do pedido."""
+    """Mantém parcelas alinhadas ao pedido sem alterar dinheiro já recebido."""
     from app.domains.plano.pagamentos_model import Pagamento
 
     pagamentos = (
@@ -182,22 +182,22 @@ def _sync_receitas_pedido(db: Session, pedido: Pedido) -> None:
         .order_by(Pagamento.parcela_numero.asc().nullslast(), Pagamento.data_vencimento.asc().nullslast(), Pagamento.id.asc())
         .all()
     )
-    # Parcela de cartão futura nasce com data_pagamento preenchida, mas ainda pode
-    # ser reescalonada — só o dinheiro que já entrou trava o ajuste.
-    if not pagamentos or any(not p.pendente_de_caixa for p in pagamentos):
+    if not pagamentos:
         return
 
     total = _money_decimal(pedido.valor_pecas)
-    if total <= 0:
-        return
-
-    originais = [_money_decimal(p.valor) for p in pagamentos]
-    if len(pagamentos) == 1:
-        novos_valores = [float(total)]
-    elif all(v > 0 for v in originais):
-        novos_valores = _scale_money(originais, total)
+    # Parcela de cartão futura nasce com data_pagamento preenchida, mas ainda pode
+    # ser reescalonada — só o dinheiro que já entrou trava ajuste de valor.
+    if total > 0 and all(p.pendente_de_caixa for p in pagamentos):
+        originais = [_money_decimal(p.valor) for p in pagamentos]
+        if len(pagamentos) == 1:
+            novos_valores = [float(total)]
+        elif all(v > 0 for v in originais):
+            novos_valores = _scale_money(originais, total)
+        else:
+            novos_valores = _split_money(total, len(pagamentos))
     else:
-        novos_valores = _split_money(total, len(pagamentos))
+        novos_valores = [p.valor for p in pagamentos]
 
     tipo_nome = pedido.tipo_pedido.nome if pedido.tipo_pedido else "Pedido"
     cliente_nome = pedido.cliente.nome if pedido.cliente else ""
@@ -478,7 +478,7 @@ class PedidoRepository:
             pedido.param_total_horas_mes = param_total_horas_mes
             pedido.param_margem_target = param_margem_target
         _sync_medidas_cliente(self.db, pedido)
-        if "valor_pecas" in update_data:
+        if {"valor_pecas", "tipo_pedido_id"} & update_data.keys():
             _sync_receitas_pedido(self.db, pedido)
         _sync_repasse_funcionaria(self.db, pedido)
         self.db.commit()

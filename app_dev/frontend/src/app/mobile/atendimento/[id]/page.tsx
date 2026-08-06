@@ -93,6 +93,29 @@ function Campo({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
   );
 }
 
+function validationDetailToMessage(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (!Array.isArray(detail)) return "Confira os campos obrigatórios para aprovar.";
+  const labels: Record<string, string> = {
+    tipo_pedido_id: "tipo do pedido",
+    data_pedido: "data do pedido",
+    data_entrega: "data de entrega",
+    descricao_produto: "descrição do produto",
+    horas_trabalho: "horas de trabalho",
+    custo_materiais: "custo de materiais",
+    valor_pecas: "valor final",
+    quantidade_pecas: "quantidade",
+  };
+  const campos = detail
+    .map((item) => {
+      const loc = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : null;
+      return loc && labels[String(loc)] ? labels[String(loc)] : null;
+    })
+    .filter(Boolean);
+  if (campos.length === 0) return "Confira os campos obrigatórios para aprovar.";
+  return `Confira: ${Array.from(new Set(campos)).join(", ")}.`;
+}
+
 export default function RevisarAtendimentoPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -181,6 +204,20 @@ export default function RevisarAtendimentoPage() {
     e.preventDefault();
     if (!detalhe) return;
     setErro(null);
+
+    const faltando: string[] = [];
+    if (!detalhe.tipo_pedido_id) faltando.push("tipo do pedido");
+    if (!detalhe.descricao_produto.trim()) faltando.push("descrição do produto");
+    if (!valorPecas.trim() || num(valorPecas) <= 0) faltando.push("valor final");
+    if (!quantidade.trim() || Number(quantidade) <= 0) faltando.push("quantidade");
+    if (!horas.trim() || num(horas) <= 0) faltando.push("horas de trabalho");
+    if (!custoMateriais.trim() || num(custoMateriais) < 0) faltando.push("custo de materiais");
+    if (!dataEntrega) faltando.push("data de entrega");
+    if (faltando.length > 0) {
+      setErro(`Preencha antes de aprovar: ${faltando.join(", ")}.`);
+      return;
+    }
+
     setAprovando(true);
 
     const payload: Record<string, unknown> = {
@@ -188,13 +225,13 @@ export default function RevisarAtendimentoPage() {
       tipo_pedido_id: detalhe.tipo_pedido_id,
       forma_peca_id: detalhe.forma_peca_id,
       data_pedido: detalhe.data_pedido,
-      data_entrega: dataEntrega || null,
-      descricao_produto: detalhe.descricao_produto,
+      data_entrega: dataEntrega,
+      descricao_produto: detalhe.descricao_produto.trim(),
       status,
-      valor_pecas: valorPecas ? num(valorPecas) : null,
-      quantidade_pecas: quantidade ? Number(quantidade) : null,
-      horas_trabalho: horas ? num(horas) : null,
-      custo_materiais: custoMateriais ? num(custoMateriais) : null,
+      valor_pecas: num(valorPecas),
+      quantidade_pecas: Number(quantidade),
+      horas_trabalho: num(horas),
+      custo_materiais: num(custoMateriais),
       custos_variaveis: custosVariaveis ? num(custosVariaveis) : null,
       confirmado_atipico: confirmadoAtipico,
       medidas_disponiveis: detalhe.medidas_disponiveis,
@@ -234,7 +271,9 @@ export default function RevisarAtendimentoPage() {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(
-          typeof body.detail === "string" ? body.detail : `Não foi possível aprovar (HTTP ${res.status})`
+          res.status === 422
+            ? validationDetailToMessage(body.detail)
+            : typeof body.detail === "string" ? body.detail : `Não foi possível aprovar (HTTP ${res.status})`
         );
       }
       const { pedido_id } = (await res.json()) as { pedido_id: number };
@@ -380,7 +419,7 @@ export default function RevisarAtendimentoPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label htmlFor="valor">Valor final (R$)</Label>
+              <Label htmlFor="valor">Valor final (R$) *</Label>
               <Input
                 id="valor"
                 type="number"
@@ -392,7 +431,7 @@ export default function RevisarAtendimentoPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="quantidade">Quantidade</Label>
+              <Label htmlFor="quantidade">Quantidade *</Label>
               <Input
                 id="quantidade"
                 type="number"
@@ -403,7 +442,7 @@ export default function RevisarAtendimentoPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="horas">Horas de trabalho</Label>
+              <Label htmlFor="horas">Horas de trabalho *</Label>
               <Input
                 id="horas"
                 type="number"
@@ -415,7 +454,7 @@ export default function RevisarAtendimentoPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="materiais">Custo materiais (R$)</Label>
+              <Label htmlFor="materiais">Custo materiais (R$) *</Label>
               <Input
                 id="materiais"
                 type="number"
@@ -439,7 +478,7 @@ export default function RevisarAtendimentoPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="entrega">Entrega</Label>
+              <Label htmlFor="entrega">Entrega *</Label>
               <Input
                 id="entrega"
                 type="date"
