@@ -1,5 +1,13 @@
 # /deploy-atelie — Deploy do Ateliê Ilma Guerra na VPS
 
+> FONTE DA VERDADE: antes de qualquer deploy, ler
+> `docs/deploy/DEPLOY_SOURCE_OF_TRUTH.md`.
+>
+> Deploy de codigo SEMPRE começa por `./scripts/deploy.sh` no Mac/local e
+> continua com `cd /var/www/atelie && bash scripts/deploy/pos_deploy_vm.sh` na
+> VM. `deploy/deploy.sh` e apenas wrapper legado. Scripts com `deploy_atelie`
+> no nome servem para Nginx/integracao, nao para publicar codigo.
+
 Sincroniza o código local, roda migrações necessárias, rebuilda o frontend e valida que o site está funcionando — incluindo checagem de segurança.
 
 ## Contexto fixo

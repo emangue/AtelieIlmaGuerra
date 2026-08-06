@@ -2,6 +2,10 @@
 
 **Objetivo:** Deploy seguro e reproduzível para gestao.atelieilmaguerra.com.br
 
+> Fonte da verdade rapida: `docs/deploy/DEPLOY_SOURCE_OF_TRUTH.md`.
+> O script correto de deploy de codigo e `scripts/deploy.sh`.
+> `deploy/deploy.sh` e apenas wrapper legado.
+
 ---
 
 ## Visão Geral
