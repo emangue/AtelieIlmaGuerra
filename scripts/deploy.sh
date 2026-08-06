@@ -63,11 +63,19 @@ else
   RSYNC_EXCLUDES=(--exclude-from="$DEPLOY_IGNORE")
 fi
 
-# 1. Build frontend
-echo "🔨 Build do frontend..."
+# 1. Build frontends
+echo "🔨 Build do frontend de gestão..."
 cd "$PROJECT_DIR/app_dev/frontend"
 npm run build
-echo "✅ Build concluído"
+echo "✅ Build gestão concluído"
+echo ""
+
+if [ -d "$PROJECT_DIR/app_atendimento/frontend" ]; then
+  echo "🔨 Build do frontend de atendimento..."
+  cd "$PROJECT_DIR/app_atendimento/frontend"
+  npm run build
+  echo "✅ Build atendimento concluído"
+fi
 echo ""
 
 # 2. Transferir via rsync

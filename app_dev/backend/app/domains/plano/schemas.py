@@ -211,16 +211,77 @@ class PagamentoItem(BaseModel):
     plano_item_id: Optional[int] = None
     despesa_id: Optional[int] = None
 
+    # Campos de conferência. Só vêm preenchidos quando o pagamento foi lido no
+    # contexto de um mês (a tela de Transações) — fora dele "conta no plano?"
+    # não tem resposta, e por isso ficam None.
+    status: Optional[str] = None            # confirmado | previsto | em_atraso | aguardando
+    conta_no_plano: Optional[bool] = None
+    motivo_fora: Optional[str] = None
+    tipo_pedido: Optional[str] = None
+    parcela_numero: Optional[int] = None
+    parcela_total: Optional[int] = None
+    forma_pagamento: Optional[str] = None
+    data_pagamento: Optional[str] = None    # YYYY-MM-DD
+    data_vencimento: Optional[str] = None   # YYYY-MM-DD
+
     class Config:
         from_attributes = True
 
 
+class LinhaSemLancamentoOut(BaseModel):
+    """Item do plano com valor realizado e nenhum lançamento correspondente.
+
+    Não é um pagamento — vem em lista própria justamente para que um id sintético
+    nunca chegue em PATCH/DELETE /pagamentos/{id}.
+    """
+    plano_item_id: int
+    anomes: str
+    tipo: str                       # receita | despesa
+    categoria: str
+    tipo_item: str
+    detalhe: Optional[str] = None
+    valor: float
+    valor_planejado: float
+    icon_key: str
+
+
+class PagamentosTotais(BaseModel):
+    """Totais do mês inteiro — nunca do recorte filtrado.
+
+    Vale a identidade: receitas = receitas_lancadas + receitas_sem_lancamento
+    (idem despesas operacionais), e
+    lucro = receitas - despesas_operacionais - despesas_financeiras.
+    """
+    receitas: float
+    receitas_lancadas: float
+    receitas_sem_lancamento: float
+    despesas_operacionais: float
+    despesas_operacionais_lancadas: float
+    despesas_operacionais_sem_lancamento: float
+    despesas_financeiras: float
+    despesas_financeiras_credito: float
+    despesas_financeiras_debito: float
+    despesas_financeiras_pix: float
+    despesas: float                 # operacionais + financeiras
+    lucro: float
+    fora_do_plano_receitas: float = 0
+    fora_do_plano_despesas: float = 0
+    count_fora_do_plano: int = 0
+
+
 class PagamentosResponse(BaseModel):
     mes: str
+    # Os quatro campos abaixo são legado (DashboardResponse.movimentacoes usa
+    # este schema): soma bruta de tudo do mês, sem distinguir o que o plano conta.
+    # Para conferência use `totais`.
     total_receitas: float
     total_despesas: float
     saldo: float
     itens: List[PagamentoItem]
+    totais: Optional[PagamentosTotais] = None
+    sem_lancamento: List[LinhaSemLancamentoOut] = []
+    count_filtrado: Optional[int] = None
+    total_filtrado: Optional[float] = None
 
 
 class PagamentoCreate(BaseModel):

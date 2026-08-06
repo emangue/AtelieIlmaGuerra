@@ -2,6 +2,8 @@
 Service do domínio Plano - plano vs realizado.
 """
 import calendar
+from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Dict, List, Optional
 
@@ -55,6 +57,46 @@ def subtipo_despesa_financeira(pagamento: Pagamento) -> Optional[str]:
     return None
 
 
+def ratear_despesa_financeira(pag: Pagamento) -> dict:
+    """Rateia UM custo financeiro em crédito, débito e Pix.
+
+    Atenção: quando o pagamento não tem `subtipo_financeiro` e também não veio da
+    taxa de cartão, o resultado é tudo zero — a linha simplesmente não entra na
+    conta. É o comportamento histórico e mudá-lo alteraria os totais já fechados
+    do plano, então a correção é decisão à parte. A tela de transações expõe
+    essas linhas como "não entra no plano" em vez de escondê-las.
+    """
+    resumo = _resumo_financeiro_vazio()
+    if natureza_pagamento(pag) != "despesa_financeira":
+        return resumo
+
+    valor = float(pag.valor or 0)
+    subtipo = subtipo_despesa_financeira(pag)
+
+    if subtipo in ("pix", "credito", "debito"):
+        resumo[subtipo] = valor
+        resumo["total"] = valor
+        return resumo
+
+    if pag.origem == ORIGEM_TAXA_CARTAO:
+        parcelas = [
+            p for p in ((pag.pedido.pagamentos if pag.pedido else []) or [])
+            if p.tipo == "receita"
+        ]
+        base_credito = sum(float(p.valor or 0) for p in parcelas if is_cartao(p.forma_pagamento))
+        base_debito = sum(float(p.valor or 0) for p in parcelas if is_cartao_debito(p.forma_pagamento))
+        base_total = base_credito + base_debito
+
+        if base_total <= 0:
+            resumo["credito"] = valor
+        else:
+            resumo["credito"] = valor * (base_credito / base_total)
+            resumo["debito"] = valor * (base_debito / base_total)
+        resumo["total"] = valor
+
+    return resumo
+
+
 def get_despesas_financeiras_por_mes(db: Session, meses: List[str]) -> Dict[str, dict]:
     """Quebra custos financeiros em crédito, débito e desconto Pix."""
     if not meses:
@@ -76,47 +118,255 @@ def get_despesas_financeiras_por_mes(db: Session, meses: List[str]) -> Dict[str,
         mes = pag.anomes
         if not mes:
             continue
-        if natureza_pagamento(pag) != "despesa_financeira":
-            continue
         resumo = result.setdefault(mes, _resumo_financeiro_vazio())
-        valor = float(pag.valor or 0)
-        subtipo = subtipo_despesa_financeira(pag)
-
-        if subtipo == "pix":
-            resumo["pix"] += valor
-            resumo["total"] += valor
-            continue
-
-        if subtipo == "credito":
-            resumo["credito"] += valor
-            resumo["total"] += valor
-            continue
-
-        if subtipo == "debito":
-            resumo["debito"] += valor
-            resumo["total"] += valor
-            continue
-
-        if pag.origem == ORIGEM_TAXA_CARTAO:
-            parcelas = [
-                p for p in ((pag.pedido.pagamentos if pag.pedido else []) or [])
-                if p.tipo == "receita"
-            ]
-            base_credito = sum(float(p.valor or 0) for p in parcelas if is_cartao(p.forma_pagamento))
-            base_debito = sum(float(p.valor or 0) for p in parcelas if is_cartao_debito(p.forma_pagamento))
-            base_total = base_credito + base_debito
-
-            if base_total <= 0:
-                resumo["credito"] += valor
-            else:
-                resumo["credito"] += valor * (base_credito / base_total)
-                resumo["debito"] += valor * (base_debito / base_total)
-            resumo["total"] += valor
+        parcela = ratear_despesa_financeira(pag)
+        for key in ("credito", "debito", "pix", "total"):
+            resumo[key] += parcela[key]
 
     for resumo in result.values():
         for key in ("credito", "debito", "pix", "total"):
             resumo[key] = round(float(resumo[key]), 2)
     return result
+
+# ── Conciliação: a base de pagamentos vs. os totais do plano ────────────────
+#
+# Fonte única de verdade dos números do mês. `get_plano_vs_realizado` (as telas
+# de Plano) e `list_pagamentos` (a tela de Transações) consomem esta função, e é
+# só por isso que as duas telas não divergem.
+#
+# O ponto delicado: nem tudo que está no plano tem lançamento em `pagamentos`, e
+# nem todo lançamento em `pagamentos` é somado pelo plano. Em vez de esconder as
+# duas situações, cada linha carrega `conta_no_plano` + `motivo_fora`, e os itens
+# do plano sem lançamento saem em `sem_lancamento`.
+
+MOTIVO_SEM_PEDIDO = "sem_pedido"
+MOTIVO_PEDIDO_INEXISTENTE = "pedido_inexistente"
+MOTIVO_PEDIDO_SEM_TIPO = "pedido_sem_tipo"
+MOTIVO_SEM_PLANO_ITEM = "sem_plano_item"
+MOTIVO_PLANO_ITEM_OUTRO_MES = "plano_item_outro_mes"
+MOTIVO_FINANCEIRA_SEM_CLASSE = "financeira_sem_classificacao"
+
+GRUPO_RECEITA = "receita"
+GRUPO_DESPESA_OPERACIONAL = "despesa_operacional"
+GRUPO_DESPESA_FINANCEIRA = "despesa_financeira"
+
+
+@dataclass
+class LinhaPagamento:
+    """Um lançamento de `pagamentos` já classificado para o mês pedido."""
+    pagamento: Pagamento
+    grupo: str
+    conta_no_plano: bool
+    motivo_fora: Optional[str] = None
+    tipo_pedido: Optional[str] = None
+    valor_no_plano: float = 0.0  # para financeiras é o rateado, que pode ser < valor
+
+
+@dataclass
+class LinhaSemLancamento:
+    """Item do plano com valor_realizado e nenhum pagamento correspondente."""
+    plano_item: PlanoItem
+    valor: float
+
+
+@dataclass
+class ConciliacaoMes:
+    anomes: str
+    linhas: List[LinhaPagamento] = field(default_factory=list)
+    sem_lancamento: List[LinhaSemLancamento] = field(default_factory=list)
+    receita_total: float = 0.0
+    receita_lancada: float = 0.0
+    receita_sem_lancamento: float = 0.0
+    despesas_operacionais_total: float = 0.0
+    despesas_operacionais_lancadas: float = 0.0
+    despesas_operacionais_sem_lancamento: float = 0.0
+    despesas_financeiras: dict = field(default_factory=_resumo_financeiro_vazio)
+    fora_do_plano_receitas: float = 0.0
+    fora_do_plano_despesas: float = 0.0
+    lucro: float = 0.0
+    receita_por_tipo_pedido: Dict[str, float] = field(default_factory=dict)
+    despesa_por_plano_item: Dict[int, float] = field(default_factory=dict)
+
+
+def get_conciliacao_mes(
+    db: Session,
+    mes: str,
+    itens: Optional[List[PlanoItem]] = None,
+) -> ConciliacaoMes:
+    """Concilia a base de pagamentos com os totais do plano para o mês.
+
+    `itens` permite reaproveitar a query de PlanoItem que o chamador já fez.
+    """
+    conc = ConciliacaoMes(anomes=mes)
+
+    if itens is None:
+        itens = db.query(PlanoItem).filter(PlanoItem.anomes == mes).all()
+    itens_rec = [i for i in itens if i.tipo == "receita"]
+    itens_desp = [i for i in itens if i.tipo == "despesa"]
+
+    # ── Receita ────────────────────────────────────────────────────────────
+    # O plano usa dois INNER JOINs (Pedido e TipoPedido), então uma parcela cujo
+    # pedido não tem tipo definido some do faturamento sem avisar. Aqui o join é
+    # externo justamente para capturar essas linhas e marcá-las como fora.
+    rec_rows = (
+        db.query(Pagamento, TipoPedido.nome.label("tipo_pedido"), Pedido.id.label("ped_id"))
+        .outerjoin(Pedido, Pedido.id == Pagamento.pedido_id)
+        .outerjoin(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
+        .filter(
+            Pagamento.anomes == mes,
+            Pagamento.tipo == "receita",
+        )
+        .all()
+    )
+
+    for pag, tipo_pedido, ped_id in rec_rows:
+        valor = float(pag.valor or 0)
+        # Sobrevive ao INNER JOIN do plano sse Pedido e TipoPedido resolvem.
+        conta = tipo_pedido is not None
+        motivo = None
+        if not conta:
+            if pag.pedido_id is None:
+                motivo = MOTIVO_SEM_PEDIDO
+            elif ped_id is None:
+                motivo = MOTIVO_PEDIDO_INEXISTENTE
+            else:
+                motivo = MOTIVO_PEDIDO_SEM_TIPO
+
+        conc.linhas.append(LinhaPagamento(
+            pagamento=pag,
+            grupo=GRUPO_RECEITA,
+            conta_no_plano=conta,
+            motivo_fora=motivo,
+            tipo_pedido=tipo_pedido,
+            valor_no_plano=valor if conta else 0.0,
+        ))
+
+        if conta:
+            chave = tipo_pedido.upper()
+            conc.receita_por_tipo_pedido[chave] = conc.receita_por_tipo_pedido.get(chave, 0) + valor
+            conc.receita_lancada += valor
+        else:
+            conc.fora_do_plano_receitas += valor
+
+    # Receita manual: item do plano com valor_realizado e nenhum pagamento.
+    # Truthy, não `is not None` — um 0.0 é ignorado pelo plano.
+    for i in itens_rec:
+        if i.valor_realizado:
+            v = float(i.valor_realizado)
+            conc.sem_lancamento.append(LinhaSemLancamento(plano_item=i, valor=v))
+            conc.receita_sem_lancamento += v
+
+    conc.receita_total = conc.receita_lancada + conc.receita_sem_lancamento
+
+    # ── Despesa ────────────────────────────────────────────────────────────
+    pag_desp = (
+        db.query(Pagamento)
+        .options(
+            selectinload(Pagamento.pedido).selectinload(Pedido.pagamentos),
+            selectinload(Pagamento.plano_item),
+        )
+        .filter(Pagamento.anomes == mes, Pagamento.tipo == "despesa")
+        .all()
+    )
+
+    # Partição pela coluna crua: o filtro do plano é um teste SQL sobre
+    # `natureza`, e o helper natureza_pagamento() coage NULL para operacional.
+    financeiras = [p for p in pag_desp if p.natureza == "despesa_financeira"]
+    operacionais = [p for p in pag_desp if p.natureza != "despesa_financeira"]
+
+    ids_do_mes = {i.id for i in itens_desp}
+    pag_map: Dict[Optional[int], float] = defaultdict(float)
+    for p in operacionais:
+        pag_map[p.plano_item_id] += float(p.valor or 0)
+
+    for p in operacionais:
+        valor = float(p.valor or 0)
+        conta = p.plano_item_id in ids_do_mes
+        motivo = None
+        if not conta:
+            motivo = MOTIVO_SEM_PLANO_ITEM if p.plano_item_id is None else MOTIVO_PLANO_ITEM_OUTRO_MES
+            conc.fora_do_plano_despesas += valor
+        else:
+            conc.despesas_operacionais_lancadas += valor
+
+        conc.linhas.append(LinhaPagamento(
+            pagamento=p,
+            grupo=GRUPO_DESPESA_OPERACIONAL,
+            conta_no_plano=conta,
+            motivo_fora=motivo,
+            valor_no_plano=valor if conta else 0.0,
+        ))
+
+    # Fallback do plano: `pag_map.get(item.id, item.valor_realizado)`. O teste é
+    # de PRESENÇA DE CHAVE, não de soma — um item cujos pagamentos somam 0,00
+    # ignora o valor_realizado do mesmo jeito. Trocar por `.get(id, 0) == 0`
+    # mudaria o número.
+    for i in itens_desp:
+        if i.id not in pag_map:
+            v = float(i.valor_realizado or 0)
+            if v:  # itens zerados não viram linha: contribuem nada e só poluiriam
+                conc.sem_lancamento.append(LinhaSemLancamento(plano_item=i, valor=v))
+                conc.despesas_operacionais_sem_lancamento += v
+
+    conc.despesa_por_plano_item = {
+        i.id: (pag_map[i.id] if i.id in pag_map else float(i.valor_realizado or 0))
+        for i in itens_desp
+    }
+    conc.despesas_operacionais_total = sum(conc.despesa_por_plano_item.values())
+
+    # ── Despesas financeiras ───────────────────────────────────────────────
+    for p in financeiras:
+        parcela = ratear_despesa_financeira(p)
+        for key in ("credito", "debito", "pix", "total"):
+            conc.despesas_financeiras[key] += parcela[key]
+
+        conta = parcela["total"] > 0
+        if not conta:
+            conc.fora_do_plano_despesas += float(p.valor or 0)
+
+        conc.linhas.append(LinhaPagamento(
+            pagamento=p,
+            grupo=GRUPO_DESPESA_FINANCEIRA,
+            conta_no_plano=conta,
+            motivo_fora=None if conta else MOTIVO_FINANCEIRA_SEM_CLASSE,
+            valor_no_plano=parcela["total"],
+        ))
+
+    for key in ("credito", "debito", "pix", "total"):
+        conc.despesas_financeiras[key] = round(float(conc.despesas_financeiras[key]), 2)
+
+    # Ordenar por nome do tipo reproduz o GROUP BY que alimentava esse mapa antes,
+    # mantendo estável a ordem das linhas de receita na tela de Plano.
+    conc.receita_por_tipo_pedido = dict(sorted(conc.receita_por_tipo_pedido.items()))
+
+    # Os totais são dinheiro e vão direto para a tela: arredondar aqui evita
+    # expor resíduo de ponto flutuante (13719.949999999999) na conferência.
+    conc.receita_lancada = round(conc.receita_lancada, 2)
+    conc.receita_sem_lancamento = round(conc.receita_sem_lancamento, 2)
+    conc.receita_total = round(conc.receita_total, 2)
+    conc.despesas_operacionais_lancadas = round(conc.despesas_operacionais_lancadas, 2)
+    conc.despesas_operacionais_sem_lancamento = round(conc.despesas_operacionais_sem_lancamento, 2)
+    conc.despesas_operacionais_total = round(conc.despesas_operacionais_total, 2)
+    conc.fora_do_plano_receitas = round(conc.fora_do_plano_receitas, 2)
+    conc.fora_do_plano_despesas = round(conc.fora_do_plano_despesas, 2)
+
+    conc.lucro = round(
+        conc.receita_total
+        - conc.despesas_operacionais_total
+        - conc.despesas_financeiras["total"],
+        2,
+    )
+
+    # Mais recente primeiro; sem data vai para o fim.
+    conc.linhas.sort(
+        key=lambda l: (
+            l.pagamento.data_pagamento or l.pagamento.data_vencimento or date.min,
+            l.pagamento.id,
+        ),
+        reverse=True,
+    )
+    return conc
+
 
 def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     """
@@ -135,23 +385,12 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         PlanoItem.tipo, PlanoItem.categoria, PlanoItem.tipo_item
     ).all()
 
-    # Receita realizada: pagamentos tipo=receita do mês com data_pagamento confirmada.
-    receita_por_tipo = (
-        db.query(
-            TipoPedido.nome,
-            func.coalesce(func.sum(Pagamento.valor), 0).label("valor"),
-        )
-        .join(Pedido, Pedido.id == Pagamento.pedido_id)
-        .join(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
-        .filter(
-            Pagamento.anomes == mes,
-            Pagamento.tipo == "receita",
-        )
-        .group_by(TipoPedido.nome)
-        .all()
-    )
-    rec_map: Dict[str, float] = {r.nome.upper(): float(r.valor) for r in receita_por_tipo}
-    receita_total_realizado = sum(rec_map.values())
+    # Toda a aritmética do realizado vem daqui — mesma função que alimenta a
+    # tela de Transações, para que as duas nunca mostrem números diferentes.
+    conc = get_conciliacao_mes(db, mes, itens=itens)
+
+    rec_map: Dict[str, float] = conc.receita_por_tipo_pedido
+    receita_total_realizado = conc.receita_total
 
     itens_rec = [i for i in itens if i.tipo == "receita"]
     itens_desp = [i for i in itens if i.tipo == "despesa"]
@@ -159,35 +398,24 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     receita_planejada = sum(i.valor_planejado for i in itens_rec)
     despesas_planejadas = sum(i.valor_planejado for i in itens_desp)
 
-    # Despesas realizadas operacionais: soma por plano_item_id, excluindo custos financeiros.
-    pag_soma = (
-        db.query(Pagamento.plano_item_id, func.coalesce(func.sum(Pagamento.valor), 0).label("total"))
-        .filter(
-            Pagamento.anomes == mes,
-            Pagamento.tipo == "despesa",
-            or_(Pagamento.natureza.is_(None), Pagamento.natureza != "despesa_financeira"),
-        )
-        .group_by(Pagamento.plano_item_id)
-    )
-    pag_map = {r.plano_item_id: float(r.total) for r in pag_soma}
-
     def _realizado_desp(item: PlanoItem) -> float:
-        return pag_map.get(item.id, float(item.valor_realizado or 0))
+        return conc.despesa_por_plano_item[item.id]
 
-    despesas_realizadas = sum(_realizado_desp(i) for i in itens_desp)
-    despesas_financeiras = get_despesas_financeiras_por_mes(db, [mes]).get(mes, _resumo_financeiro_vazio())
+    despesas_realizadas = conc.despesas_operacionais_total
+    despesas_financeiras = conc.despesas_financeiras
 
     # Agrupar receita realizado por tipo_item do plano (pedidos + receitas manuais)
     rec_por_plano_tipo: Dict[str, float] = {}
     for tipo_pedido, valor in rec_map.items():
         plano_tipo = TIPO_PEDIDO_TO_PLANO.get(tipo_pedido, "Outros")
         rec_por_plano_tipo[plano_tipo] = rec_por_plano_tipo.get(plano_tipo, 0) + valor
-    # Somar receitas manuais (itens do plano tipo=receita com valor_realizado)
+    # Receitas manuais (itens do plano tipo=receita com valor_realizado) entram
+    # só no breakdown por tipo — no total elas já vêm dentro de conc.receita_total,
+    # somar de novo aqui dobraria o valor.
     for i in itens_rec:
         if i.valor_realizado:
             v = float(i.valor_realizado)
             rec_por_plano_tipo[i.tipo_item] = rec_por_plano_tipo.get(i.tipo_item, 0) + v
-            receita_total_realizado += v
 
     def _status_receita(planejado: float, realizado: float) -> str:
         if planejado <= 0:
@@ -304,6 +532,7 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         receita_por_entrega=round(receita_por_entrega, 2),
         despesas_planejadas=despesas_planejadas,
         despesas_realizadas=despesas_realizadas,
+        despesas_operacionais_realizadas=despesas_realizadas,
         despesas_financeiras_realizadas=despesas_financeiras_total,
         despesas_financeiras_credito=despesas_financeiras["credito"],
         despesas_financeiras_debito=despesas_financeiras["debito"],

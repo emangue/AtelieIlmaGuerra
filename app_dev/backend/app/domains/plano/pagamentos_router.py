@@ -22,10 +22,11 @@ from .custos_financeiros import (
     is_pix, sync_custo_adiantamento, sync_custos_financeiros,
 )
 from .pagamentos_model import Pagamento
-from .service import natureza_pagamento, subtipo_despesa_financeira
+from .service import get_conciliacao_mes, natureza_pagamento, subtipo_despesa_financeira
 from .models import PlanoItem
 from .schemas import (
     PagamentoCreate, PagamentoItem, PagamentosResponse, PagamentoUpdate,
+    PagamentosTotais, LinhaSemLancamentoOut,
     CobrancaItem, CobrancasResumo, CobrancasResponse,
 )
 
@@ -53,7 +54,13 @@ def _icon_key_despesa(tipo_item: Optional[str]) -> str:
     return "outros"
 
 
-def _to_item(pag: Pagamento) -> PagamentoItem:
+def _to_item(
+    pag: Pagamento,
+    *,
+    tipo_pedido: Optional[str] = None,
+    conta_no_plano: Optional[bool] = None,
+    motivo_fora: Optional[str] = None,
+) -> PagamentoItem:
     if pag.tipo == "receita":
         categoria = "Receita · Pedido"
         icon_key = "receita"
@@ -86,6 +93,15 @@ def _to_item(pag: Pagamento) -> PagamentoItem:
         pedido_id=pag.pedido_id,
         plano_item_id=pag.plano_item_id,
         despesa_id=None,
+        status=pag.status,
+        conta_no_plano=conta_no_plano,
+        motivo_fora=motivo_fora,
+        tipo_pedido=tipo_pedido,
+        parcela_numero=pag.parcela_numero,
+        parcela_total=pag.parcela_total,
+        forma_pagamento=pag.forma_pagamento,
+        data_pagamento=pag.data_pagamento.isoformat() if pag.data_pagamento else None,
+        data_vencimento=pag.data_vencimento.isoformat() if pag.data_vencimento else None,
     )
 
 
@@ -265,29 +281,117 @@ def get_repasses_funcionaria(
 @router.get("", response_model=PagamentosResponse)
 def list_pagamentos(
     mes: str = Query(..., description="YYYYMM — mês de referência"),
+    tipo: Optional[str] = Query(None, pattern="^(receita|despesa)$"),
+    natureza: Optional[str] = Query(None, pattern="^(receita|despesa_operacional|despesa_financeira)$"),
+    origem: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, description="busca em descrição, categoria e tipo_item"),
+    incluir_sem_lancamento: bool = Query(True),
     db: Session = Depends(get_db),
 ):
-    """Lista movimentações confirmadas do mês (data_pagamento no mês)."""
+    """Movimentações do mês, conciliadas com os totais do plano.
+
+    `totais` é sempre do mês INTEIRO, nunca do recorte filtrado — é o número que
+    tem que bater com a tela de Plano, e ele mudar ao filtrar tiraria a referência
+    de quem está conferindo. O recorte vai em `count_filtrado`/`total_filtrado`.
+    """
     if len(mes) != 6 or not mes.isdigit():
         raise HTTPException(status_code=400, detail="mes deve ser YYYYMM")
 
-    pagamentos = (
-        db.query(Pagamento)
-        .filter(Pagamento.anomes == mes)
-        .order_by(Pagamento.data_pagamento.desc(), Pagamento.id.desc())
-        .all()
+    conc = get_conciliacao_mes(db, mes)
+
+    itens = [
+        _to_item(
+            l.pagamento,
+            tipo_pedido=l.tipo_pedido,
+            conta_no_plano=l.conta_no_plano,
+            motivo_fora=l.motivo_fora,
+        )
+        for l in conc.linhas
+    ]
+
+    sem_lancamento = [
+        LinhaSemLancamentoOut(
+            plano_item_id=s.plano_item.id,
+            anomes=s.plano_item.anomes,
+            tipo=s.plano_item.tipo,
+            categoria=s.plano_item.categoria or "",
+            tipo_item=s.plano_item.tipo_item or "",
+            detalhe=s.plano_item.detalhe,
+            valor=s.valor,
+            valor_planejado=float(s.plano_item.valor_planejado or 0),
+            icon_key=(
+                "receita" if s.plano_item.tipo == "receita"
+                else _icon_key_despesa(s.plano_item.tipo_item)
+            ),
+        )
+        for s in conc.sem_lancamento
+    ]
+
+    fin = conc.despesas_financeiras
+    totais = PagamentosTotais(
+        receitas=conc.receita_total,
+        receitas_lancadas=conc.receita_lancada,
+        receitas_sem_lancamento=conc.receita_sem_lancamento,
+        despesas_operacionais=conc.despesas_operacionais_total,
+        despesas_operacionais_lancadas=conc.despesas_operacionais_lancadas,
+        despesas_operacionais_sem_lancamento=conc.despesas_operacionais_sem_lancamento,
+        despesas_financeiras=fin["total"],
+        despesas_financeiras_credito=fin["credito"],
+        despesas_financeiras_debito=fin["debito"],
+        despesas_financeiras_pix=fin["pix"],
+        despesas=round(conc.despesas_operacionais_total + fin["total"], 2),
+        lucro=conc.lucro,
+        fora_do_plano_receitas=conc.fora_do_plano_receitas,
+        fora_do_plano_despesas=conc.fora_do_plano_despesas,
+        count_fora_do_plano=sum(1 for l in conc.linhas if not l.conta_no_plano),
     )
 
-    itens = [_to_item(p) for p in pagamentos]
+    # Legado: soma bruta de tudo, mantida porque DashboardResponse usa este schema.
     total_receitas = sum(i.valor for i in itens if i.tipo == "receita")
     total_despesas = sum(i.valor for i in itens if i.tipo == "despesa")
 
+    # ── Filtros: estreitam as listas, nunca os totais ──────────────────────
+    termo = (q or "").strip().lower()
+
+    def _busca_casa(*partes) -> bool:
+        if not termo:
+            return True
+        return termo in " ".join(p for p in partes if p).lower()
+
+    itens = [
+        i for i in itens
+        if (not tipo or i.tipo == tipo)
+        and (not natureza or i.natureza == natureza)
+        and (not origem or i.origem == origem)
+        and _busca_casa(i.descricao, i.categoria, i.tipo_item, i.tipo_pedido)
+    ]
+
+    if not incluir_sem_lancamento or origem:
+        # Item do plano não tem origem, então qualquer filtro por origem o exclui.
+        sem_lancamento = []
+    else:
+        natureza_sl = "receita" if natureza == "receita" else "despesa_operacional"
+        sem_lancamento = [
+            s for s in sem_lancamento
+            if (not tipo or s.tipo == tipo)
+            and (not natureza or (
+                natureza_sl == ("receita" if s.tipo == "receita" else "despesa_operacional")
+            ))
+            and _busca_casa(s.categoria, s.tipo_item, s.detalhe)
+        ]
+
     return PagamentosResponse(
         mes=mes,
-        total_receitas=total_receitas,
-        total_despesas=total_despesas,
-        saldo=total_receitas - total_despesas,
+        total_receitas=round(total_receitas, 2),
+        total_despesas=round(total_despesas, 2),
+        saldo=round(total_receitas - total_despesas, 2),
         itens=itens,
+        totais=totais,
+        sem_lancamento=sem_lancamento,
+        count_filtrado=len(itens) + len(sem_lancamento),
+        total_filtrado=round(
+            sum(i.valor for i in itens) + sum(s.valor for s in sem_lancamento), 2
+        ),
     )
 
 

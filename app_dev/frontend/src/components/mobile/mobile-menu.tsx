@@ -15,9 +15,18 @@ import {
   Settings,
   ClipboardList,
   LogOut,
+  ReceiptText,
 } from "lucide-react";
 
 const MENU_ITEMS = [
+  {
+    href: "/mobile/transacoes",
+    label: "Transações",
+    sub: "Conferir faturamento e lucro do mês",
+    Icon: ReceiptText,
+    iconBg: "bg-teal-50",
+    iconColor: "text-teal-700",
+  },
   {
     href: "/mobile/atendimento",
     label: "Atendimento",

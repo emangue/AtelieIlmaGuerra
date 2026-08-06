@@ -36,23 +36,3 @@ export function formatDateTimeBR(value: string): string {
     return value;
   }
 }
-
-// ── Mês de referência no formato YYYYMM (usado nas telas mensais) ────────────
-
-const MESES_ABREV = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-
-export function hojeAnomes(): string {
-  const d = new Date();
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-export function addMes(anomes: string, n: number): string {
-  const y = parseInt(anomes.slice(0, 4), 10);
-  const m = parseInt(anomes.slice(4, 6), 10);
-  const d = new Date(y, m - 1 + n, 1);
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-export function labelMes(anomes: string): string {
-  return `${MESES_ABREV[parseInt(anomes.slice(4), 10) - 1]}/${anomes.slice(0, 4)}`;
-}
