@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
 from app.domains.pedidos.models import Pedido, TipoPedido
+from app.domains.alugueis.models import Aluguel
 from .custos_financeiros import (
     ORIGEM_TAXA_CARTAO,
     is_cartao,
@@ -390,7 +391,16 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     conc = get_conciliacao_mes(db, mes, itens=itens)
 
     rec_map: Dict[str, float] = conc.receita_por_tipo_pedido
-    receita_total_realizado = conc.receita_total
+    aluguel_realizado = float(
+        db.query(func.coalesce(func.sum(Aluguel.valor_total), 0)).filter(
+            Aluguel.status.in_(("Retirado", "Devolvido")),
+            Aluguel.data_retirada_real >= inicio,
+            Aluguel.data_retirada_real < fim,
+        ).scalar() or 0
+    )
+    if aluguel_realizado:
+        rec_map = {**rec_map, "ALUGUEL": aluguel_realizado}
+    receita_total_realizado = conc.receita_total + aluguel_realizado
 
     itens_rec = [i for i in itens if i.tipo == "receita"]
     itens_desp = [i for i in itens if i.tipo == "despesa"]
@@ -407,7 +417,7 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     # Agrupar receita realizado por tipo_item do plano (pedidos + receitas manuais)
     rec_por_plano_tipo: Dict[str, float] = {}
     for tipo_pedido, valor in rec_map.items():
-        plano_tipo = TIPO_PEDIDO_TO_PLANO.get(tipo_pedido, "Outros")
+        plano_tipo = "Aluguel" if tipo_pedido == "ALUGUEL" else TIPO_PEDIDO_TO_PLANO.get(tipo_pedido, "Outros")
         rec_por_plano_tipo[plano_tipo] = rec_por_plano_tipo.get(plano_tipo, 0) + valor
     # Receitas manuais (itens do plano tipo=receita com valor_realizado) entram
     # só no breakdown por tipo — no total elas já vêm dentro de conc.receita_total,

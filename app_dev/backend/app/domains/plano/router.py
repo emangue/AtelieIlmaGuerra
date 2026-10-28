@@ -92,6 +92,7 @@ def resumo_mensal(
     """Resumo por mês: planejado e realizado (tudo via pagamentos)."""
     from datetime import date
     from .pagamentos_model import Pagamento
+    from app.domains.alugueis.models import Aluguel
 
     y = ano or date.today().year
     prefix = str(y)
@@ -131,6 +132,18 @@ def resumo_mensal(
         .group_by(Pagamento.anomes)
     )
     rec_real = {r.anomes: float(r.total) for r in rec_real_q}
+    alugueis_realizados = (
+        db.query(Aluguel.data_retirada_real, Aluguel.valor_total)
+        .filter(
+            Aluguel.status.in_(("Retirado", "Devolvido")),
+            Aluguel.data_retirada_real >= date(y, 1, 1),
+            Aluguel.data_retirada_real < date(y + 1, 1, 1),
+        )
+        .all()
+    )
+    for data_retirada, valor in alugueis_realizados:
+        anomes = f"{data_retirada.year}{data_retirada.month:02d}"
+        rec_real[anomes] = rec_real.get(anomes, 0) + float(valor or 0)
 
     meses_custos_q = (
         db.query(Pagamento.anomes)

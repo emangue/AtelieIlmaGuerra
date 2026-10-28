@@ -45,6 +45,7 @@ function formatDataBR(iso: string | null): string {
 interface CobrancaItem {
   id: number;
   pedido_id: number;
+  aluguel_id?: number;
   cliente_nome: string;
   tipo_pedido: string;
   forma_pagamento: string | null;
@@ -57,6 +58,14 @@ interface CobrancaItem {
   dias_atraso: number;
   liquidacao_automatica: boolean;
   desconto_adiantamento: number | null;
+}
+
+interface ReceitaAluguelItem {
+  id: number;
+  tipo_pedido_nome: string;
+  valor_pecas: number;
+  data_entrega: string;
+  cliente_nome: string;
 }
 
 interface CobrancasResumo {
@@ -145,6 +154,9 @@ function CardCobranca({
 }) {
   const router = useRouter();
   const isConfirmando = confirmandoId === item.id;
+  const destino = item.aluguel_id
+    ? "/mobile/alugueis"
+    : `/mobile/pedidos/${item.pedido_id}?from=financeiro&aba=pagamento`;
   // Parcela de cartão não se confirma: cai sozinha. A única ação é adiantar.
   const automatica = item.liquidacao_automatica;
   const previsto = item.status === "previsto";
@@ -164,13 +176,13 @@ function CardCobranca({
 
   return (
     <div
-      onClick={() => router.push(`/mobile/pedidos/${item.pedido_id}?from=financeiro&aba=pagamento`)}
+      onClick={() => router.push(destino)}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          router.push(`/mobile/pedidos/${item.pedido_id}?from=financeiro&aba=pagamento`);
+          router.push(destino);
         }
       }}
       style={{ border: `0.5px solid ${borderColor}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, cursor: "pointer" }}
@@ -418,9 +430,36 @@ export default function FinanceiroPage() {
     Promise.all([
       api.get<CobrancasResponse>(`/api/v1/pagamentos/cobrancas?mes=${mes}`),
       api.get<RepassesResponse>(`/api/v1/pagamentos/repasses?mes=${mes}`),
+      api.get<ReceitaAluguelItem[]>(`/api/v1/alugueis/receitas?mes=${mes}`),
     ])
-      .then(([cobrancasData, repassesData]) => {
-        setCobrancas(cobrancasData);
+      .then(([cobrancasData, repassesData, receitasAluguel]) => {
+        const alugueisPagos: CobrancaItem[] = receitasAluguel.map((item) => ({
+          id: -item.id,
+          pedido_id: 0,
+          aluguel_id: item.id,
+          cliente_nome: item.cliente_nome,
+          tipo_pedido: item.tipo_pedido_nome || "Aluguel",
+          forma_pagamento: null,
+          parcela_numero: null,
+          parcela_total: null,
+          valor: item.valor_pecas,
+          data_vencimento: item.data_entrega,
+          data_pagamento: item.data_entrega,
+          status: "pago",
+          dias_atraso: 0,
+          liquidacao_automatica: false,
+          desconto_adiantamento: null,
+        }));
+        const totalAlugueis = alugueisPagos.reduce((total, item) => total + item.valor, 0);
+        setCobrancas({
+          ...cobrancasData,
+          pagas: [...cobrancasData.pagas, ...alugueisPagos],
+          resumo: {
+            ...cobrancasData.resumo,
+            total_pago: cobrancasData.resumo.total_pago + totalAlugueis,
+            count_pago: cobrancasData.resumo.count_pago + alugueisPagos.length,
+          },
+        });
         setRepasses(repassesData);
       })
       .catch(() => {

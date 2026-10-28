@@ -8,6 +8,23 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.domains.pedidos.models import Pedido, TipoPedido
+from app.domains.alugueis.models import Aluguel
+
+
+def _receita_alugueis_realizada(db: Session, inicio: date, fim: date) -> float:
+    return float(db.query(func.coalesce(func.sum(Aluguel.valor_total), 0)).filter(
+        Aluguel.status.in_(("Retirado", "Devolvido")),
+        Aluguel.data_retirada_real >= inicio,
+        Aluguel.data_retirada_real < fim,
+    ).scalar() or 0)
+
+
+def _receita_alugueis_potencial(db: Session, inicio: date, fim: date) -> float:
+    return float(db.query(func.coalesce(func.sum(Aluguel.valor_total), 0)).filter(
+        Aluguel.status.in_(("Reservado", "Retirado", "Devolvido")),
+        Aluguel.data_retirada >= inicio,
+        Aluguel.data_retirada < fim,
+    ).scalar() or 0)
 
 
 def _parse_mes(mes: str) -> tuple[int, int]:
@@ -41,7 +58,7 @@ def get_kpis(db: Session, mes: str) -> Dict[str, Any]:
             Pedido.data_entrega < fim,
         )
         .scalar() or 0
-    )
+    ) + _receita_alugueis_realizada(db, inicio, fim)
 
     # Faturamento potencial (todos com data_entrega no mês, exc. Orçamento/Cancelado)
     fat_potencial = (
@@ -53,7 +70,7 @@ def get_kpis(db: Session, mes: str) -> Dict[str, Any]:
             Pedido.status.notin_(("Orçamento", "Cancelado", "Canelado")),
         )
         .scalar() or 0
-    )
+    ) + _receita_alugueis_potencial(db, inicio, fim)
     # Garantir Potencial >= Real (caso haja inconsistência)
     fat_potencial = max(float(fat_potencial), float(fat_entregue))
 
@@ -172,7 +189,7 @@ def get_lucro_mensal(
                     Pedido.data_entrega < fim,
                 )
                 .scalar() or 0
-            )
+            ) + _receita_alugueis_realizada(db, inicio, fim)
             result.append({
                 "mes": f"{year}{num_mes:02d}",
                 "label": f"{num_mes:02d}/{year}",
@@ -199,7 +216,7 @@ def get_lucro_mensal(
                 Pedido.data_entrega < fim,
             )
             .scalar() or 0
-        )
+        ) + _receita_alugueis_realizada(db, inicio, fim)
         result.append({
             "mes": f"{ano}{num_mes:02d}",
             "label": f"{num_mes:02d}/{ano}",
@@ -232,10 +249,18 @@ def get_pecas_entregues_por_tipo(db: Session, mes: str) -> List[Dict[str, Any]]:
         .group_by(TipoPedido.nome)
         .all()
     )
-    return [
+    result = [
         {"tipo": r[0], "quantidade": int(r[1]), "valor": round(float(r[2]), 2)}
         for r in rows
     ]
+    aluguel = (
+        db.query(func.count(Aluguel.id), func.coalesce(func.sum(Aluguel.valor_total), 0))
+        .filter(Aluguel.status.in_(("Retirado", "Devolvido")), Aluguel.data_retirada_real >= inicio, Aluguel.data_retirada_real < fim)
+        .first()
+    )
+    if aluguel and aluguel[0]:
+        result.append({"tipo": "Aluguel", "quantidade": int(aluguel[0]), "valor": round(float(aluguel[1]), 2)})
+    return result
 
 
 def _get_year_range(ano: int):
@@ -254,7 +279,7 @@ def get_kpis_year(db: Session, ano: int) -> Dict[str, Any]:
             Pedido.data_entrega < fim,
         )
         .scalar() or 0
-    )
+    ) + _receita_alugueis_realizada(db, inicio, fim)
     fat_potencial = (
         db.query(func.coalesce(func.sum(Pedido.valor_pecas), 0))
         .filter(
@@ -264,7 +289,7 @@ def get_kpis_year(db: Session, ano: int) -> Dict[str, Any]:
             Pedido.status.notin_(("Orçamento", "Cancelado", "Canelado")),
         )
         .scalar() or 0
-    )
+    ) + _receita_alugueis_potencial(db, inicio, fim)
     fat_potencial = max(float(fat_potencial), float(fat_entregue))
     horas = (
         db.query(func.coalesce(func.sum(Pedido.horas_trabalho), 0))
@@ -365,7 +390,15 @@ def get_pecas_entregues_por_tipo_year(db: Session, ano: int) -> List[Dict[str, A
         .group_by(TipoPedido.nome)
         .all()
     )
-    return [
+    result = [
         {"tipo": r[0], "quantidade": int(r[1]), "valor": round(float(r[2]), 2)}
         for r in rows
     ]
+    aluguel = (
+        db.query(func.count(Aluguel.id), func.coalesce(func.sum(Aluguel.valor_total), 0))
+        .filter(Aluguel.status.in_(("Retirado", "Devolvido")), Aluguel.data_retirada_real >= inicio, Aluguel.data_retirada_real < fim)
+        .first()
+    )
+    if aluguel and aluguel[0]:
+        result.append({"tipo": "Aluguel", "quantidade": int(aluguel[0]), "valor": round(float(aluguel[1]), 2)})
+    return result

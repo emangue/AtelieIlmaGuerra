@@ -135,6 +135,7 @@ def get_valores_por_mes_cliente(
     """Valores gastos (valor_pecas) por mês para o cliente (últimos N meses)."""
     if not ClienteService(db).get_by_id(cliente_id):
         raise HTTPException(status_code=404, detail="Cliente não encontrado")
+    from app.domains.alugueis.models import Aluguel
     hoje = date.today()
     result = []
     for i in range(meses):
@@ -155,9 +156,18 @@ def get_valores_por_mes_cliente(
             )
             .scalar() or 0
         )
+        total_alugueis = (
+            db.query(func.coalesce(func.sum(Aluguel.valor_total), 0))
+            .filter(
+                Aluguel.cliente_id == cliente_id,
+                Aluguel.status.in_(("Retirado", "Devolvido")),
+                Aluguel.data_retirada_real >= inicio,
+                Aluguel.data_retirada_real < fim,
+            ).scalar() or 0
+        )
         result.append({
             "mes": f"{ano}{num_mes:02d}",
             "label": f"{num_mes:02d}/{ano}",
-            "valor": round(float(total), 2),
+            "valor": round(float(total) + float(total_alugueis), 2),
         })
     return list(reversed(result))

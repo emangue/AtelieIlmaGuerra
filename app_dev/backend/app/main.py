@@ -29,6 +29,7 @@ from .domains.error_logs.router import router as logs_router
 from .domains.error_logs.repository import LogRepository
 from .domains.historico.router import router as historico_router
 from .domains.atendimentos.router import router as atendimentos_router
+from .domains.alugueis.router import router as alugueis_router
 
 # Importar modelos para criar tabelas
 from .domains.clientes.models import Cliente  # noqa: F401
@@ -42,6 +43,7 @@ from .domains.despesas.models import DespesaDetalhada  # noqa: F401
 from .domains.error_logs.models import ErrorLog  # noqa: F401
 from .domains.historico.models import HistoricoAlteracao  # noqa: F401
 from .domains.atendimentos.models import PedidoAtendimento  # noqa: F401
+from .domains.alugueis.models import Aluguel, AluguelItem, ItemAcervo  # noqa: F401
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -71,6 +73,7 @@ app.include_router(despesas_router, prefix="/api/v1")
 app.include_router(logs_router, prefix="/api/v1")
 app.include_router(historico_router, prefix="/api/v1")
 app.include_router(atendimentos_router, prefix="/api/v1")
+app.include_router(alugueis_router, prefix="/api/v1")
 
 
 def _record_error(request: Request, exc: Exception, status_code: int) -> None:
