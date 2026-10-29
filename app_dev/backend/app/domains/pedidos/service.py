@@ -233,7 +233,7 @@ class PedidoService:
     @staticmethod
     def to_list_item(p: Pedido) -> PedidoListItem:
         # Só receitas: as despesas de taxa/repasse também vivem em p.pagamentos.
-        parcelas = [x for x in (p.pagamentos or []) if x.tipo == "receita"]
+        parcelas = [x for x in (p.pagamentos or []) if x.tipo == "receita" and x.origem != "devolucao"]
         # Parcela de cartão futura já tem data_pagamento (a data prevista de crédito),
         # mas o dinheiro não entrou — contá-la como paga marcaria o pedido como
         # quitado no dia da venda.

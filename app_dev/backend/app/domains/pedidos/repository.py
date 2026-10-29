@@ -38,7 +38,8 @@ def _sync_medidas_cliente(db: Session, pedido: Pedido) -> None:
 
 
 # Status que NÃO aparecem em "pedidos ativos"
-STATUS_EXCLUIDOS_ATIVOS = ("Entregue", "Orçamento", "Cancelado", "Canelado")
+STATUS_DISTRATO = "Distrato"
+STATUS_EXCLUIDOS_ATIVOS = ("Entregue", "Orçamento", "Cancelado", "Canelado", STATUS_DISTRATO)
 
 TIPOS_COM_REPASSE_50 = {"ajustes", "ajuste"}
 
@@ -56,7 +57,10 @@ def _percentual_por_tipo(db: Session, tipo_pedido_id) -> float:
 def _sync_repasse_funcionaria(db: Session, pedido: Pedido) -> None:
     """Mantém a despesa realizada da Andrea alinhada com ajustes entregues."""
     from app.domains.plano.pagamentos_model import Pagamento
-    from app.domains.plano.models import PlanoItem
+
+    # No distrato o repasse é informado à mão (pedidos/distrato.py).
+    if pedido.status == STATUS_DISTRATO:
+        return
 
     repasse = (
         db.query(Pagamento)
@@ -89,6 +93,14 @@ def _sync_repasse_funcionaria(db: Session, pedido: Pedido) -> None:
         return
 
     data_repasse = pedido.data_entrega or pedido.data_pedido or date.today()
+    gravar_repasse(db, pedido, repasse, float(valor_repasse), data_repasse)
+
+
+def gravar_repasse(db: Session, pedido: Pedido, repasse, valor: float, data_repasse: date) -> None:
+    """Cria ou atualiza a despesa de repasse da funcionária do pedido."""
+    from app.domains.plano.pagamentos_model import Pagamento
+    from app.domains.plano.models import PlanoItem
+
     anomes = f"{data_repasse.year}{data_repasse.month:02d}"
     plano_item = (
         db.query(PlanoItem)
@@ -123,7 +135,7 @@ def _sync_repasse_funcionaria(db: Session, pedido: Pedido) -> None:
         "data_pagamento": data_repasse,
         "categoria": plano_item.categoria or "Custo Variável",
         "tipo_item": "Colaboradores",
-        "valor": float(valor_repasse),
+        "valor": valor,
         "descricao": f"Andrea - Pedido #{pedido.id}",
     }
     if repasse:

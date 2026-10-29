@@ -242,7 +242,7 @@ function CardPagamento({ item, onClick }: { item: PagamentoItem; onClick: () => 
       </div>
       <span
         className={`shrink-0 font-mono text-sm font-medium tabular-nums ${
-          item.tipo === "receita" ? "text-emerald-700" : "text-gray-900"
+          item.valor < 0 ? "text-rose-700" : item.tipo === "receita" ? "text-emerald-700" : "text-gray-900"
         }`}
       >
         {formatMoney(item.valor)}

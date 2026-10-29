@@ -172,6 +172,15 @@ def startup():
     run_migration("ALTER TABLE pedidos ADD COLUMN desconto_pix_valor REAL", "pedidos.desconto_pix_valor")
     run_migration("ALTER TABLE pedidos ADD COLUMN desconto_pix_percentual REAL", "pedidos.desconto_pix_percentual")
     run_migration("ALTER TABLE pedidos ADD COLUMN desconto_pix_manual BOOLEAN", "pedidos.desconto_pix_manual")
+    run_migration("ALTER TABLE pedidos ADD COLUMN distrato_data DATE", "pedidos.distrato_data")
+    run_migration("ALTER TABLE pedidos ADD COLUMN distrato_motivo VARCHAR(30)", "pedidos.distrato_motivo")
+    run_migration("ALTER TABLE pedidos ADD COLUMN distrato_fase VARCHAR(30)", "pedidos.distrato_fase")
+    run_migration("ALTER TABLE pedidos ADD COLUMN distrato_status_anterior VARCHAR(50)", "pedidos.distrato_status_anterior")
+    run_migration("ALTER TABLE pedidos ADD COLUMN distrato_valor_garantido REAL", "pedidos.distrato_valor_garantido")
+    run_migration("ALTER TABLE pedidos ADD COLUMN distrato_valor_devolvido REAL", "pedidos.distrato_valor_devolvido")
+    run_migration("ALTER TABLE pedidos ADD COLUMN distrato_valor_retido REAL", "pedidos.distrato_valor_retido")
+    run_migration("ALTER TABLE pedidos ADD COLUMN distrato_repasse REAL", "pedidos.distrato_repasse")
+    run_migration("ALTER TABLE pedidos ADD COLUMN distrato_observacao TEXT", "pedidos.distrato_observacao")
     run_migration(
         "ALTER TABLE historico_alteracoes ADD COLUMN app VARCHAR(20) NOT NULL DEFAULT 'gestao'",
         "historico_alteracoes.app",

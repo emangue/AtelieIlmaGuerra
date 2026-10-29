@@ -370,6 +370,26 @@ def get_conciliacao_mes(
     return conc
 
 
+def _retido_distratos(db: Session, inicio: date, fim: date) -> List[tuple]:
+    """(tipo_pedido, valor retido) dos distratos que caem no período na visão entrega.
+
+    Distrato não tem entrega: o retido entra na data em que a devolução é paga.
+    Sem devolução, na data do distrato. Devolução ainda agendada não conta.
+    """
+    resultado = []
+    distratos = db.query(Pedido).filter(Pedido.status == "Distrato", Pedido.distrato_valor_retido > 0).all()
+    for p in distratos:
+        if (p.distrato_valor_devolvido or 0) > 0:
+            dev = next((x for x in p.pagamentos if x.origem == "devolucao"), None)
+            ref = dev.data_pagamento if dev else None
+        else:
+            ref = p.distrato_data
+        if ref and inicio <= ref < fim:
+            tipo = p.tipo_pedido.nome if p.tipo_pedido else "Outros"
+            resultado.append((tipo, float(p.distrato_valor_retido)))
+    return resultado
+
+
 def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     """
     Retorna plano vs realizado para o mês.
@@ -488,6 +508,8 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
         )
         .scalar() or 0
     )
+    distratos_mes = _retido_distratos(db, inicio, fim)
+    receita_por_entrega += sum(v for _, v in distratos_mes)
 
     # Breakdown por tipo — visão entrega
     entrega_por_tipo = (
@@ -508,6 +530,9 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     for r in entrega_por_tipo:
         plano_tipo = TIPO_PEDIDO_TO_PLANO.get(r.nome.upper(), "Outros")
         entrega_map[plano_tipo] = entrega_map.get(plano_tipo, 0) + float(r.valor)
+    for tipo_nome, valor in distratos_mes:
+        plano_tipo = TIPO_PEDIDO_TO_PLANO.get(tipo_nome.upper(), "Outros")
+        entrega_map[plano_tipo] = entrega_map.get(plano_tipo, 0) + valor
 
     itens_receita_entrega: List[PlanoVsRealizadoItem] = []
     plano_tipos_set = {i.tipo_item for i in itens_rec}

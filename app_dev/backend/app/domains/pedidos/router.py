@@ -16,7 +16,9 @@ from sqlalchemy.orm import Session
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB
 
-from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem, ParcelaCreate, ParcelasConfig, ParcelaOut, CustosReceberOut, PedidoHistoricoResponse
+from .schemas import PedidoCreate, PedidoUpdate, PedidoStatusUpdate, PedidoListItem, PedidoDetail, PedidoEntregueItem, TipoPedidoItem, FormaPecaItem, ParcelaCreate, ParcelasConfig, ParcelaOut, CustosReceberOut, PedidoHistoricoResponse, DistratoCreate, DistratoPreview
+from .distrato import distrato_out, preview_distrato, registrar_distrato
+from .repository import STATUS_DISTRATO
 from .service import PedidoService, PedidoAtipicoWarning, _norm_foto_url
 from .models import FormaPeca, FormaPecaMedida
 
@@ -294,9 +296,60 @@ def get_pedido(pedido_id: int, db: Session = Depends(get_db)):
         comentario_foto_1=getattr(pedido, "comentario_foto_1", None),
         comentario_foto_2=getattr(pedido, "comentario_foto_2", None),
         comentario_foto_3=getattr(pedido, "comentario_foto_3", None),
+        distrato=distrato_out(db, pedido),
         created_at=pedido.created_at,
         updated_at=pedido.updated_at,
     )
+
+
+def _bloquear_mudanca_distrato(status_antes: str, status_novo: Optional[str]) -> None:
+    """Distrato só entra pelo fluxo próprio (que exige os valores) e não sai por edição."""
+    if status_novo is None or status_novo == status_antes:
+        return
+    if status_novo == STATUS_DISTRATO:
+        raise HTTPException(status_code=400, detail="Use 'Registrar distrato' para este status.")
+    if status_antes == STATUS_DISTRATO:
+        raise HTTPException(status_code=400, detail="Pedido em distrato não muda de status.")
+
+
+@router.get("/{pedido_id}/distrato/preview", response_model=DistratoPreview)
+def get_distrato_preview(pedido_id: int, db: Session = Depends(get_db)):
+    """Quanto já entrou, quanto do cartão ainda vai cair e o que seria cancelado."""
+    pedido = PedidoService(db).get_by_id(pedido_id)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    return preview_distrato(db, pedido)
+
+
+@router.post("/{pedido_id}/distrato", response_model=PedidoDetail)
+def post_distrato(
+    pedido_id: int,
+    data: DistratoCreate,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id_from_token),
+):
+    """Registra o distrato: cancela pendências, lança a devolução e muda o status."""
+    pedido = PedidoService(db).get_by_id(pedido_id)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    status_antes = pedido.status
+    registrar_distrato(db, pedido, data)
+    registrar_alteracao(
+        db, user_id=user_id, entidade="pedido", entidade_id=pedido_id, acao="distrato",
+        resumo=(
+            f"distrato: {status_antes} → {STATUS_DISTRATO} · devolvido R$ {pedido.distrato_valor_devolvido:.2f}"
+            f" · retido R$ {pedido.distrato_valor_retido:.2f}"
+        ),
+        antes={"status": status_antes},
+        depois={
+            "status": STATUS_DISTRATO,
+            "valor_devolvido": pedido.distrato_valor_devolvido,
+            "valor_retido": pedido.distrato_valor_retido,
+            "repasse_funcionaria": pedido.distrato_repasse,
+        },
+    )
+    db.commit()
+    return get_pedido(pedido_id, db)
 
 
 @router.patch("/{pedido_id}/status", response_model=PedidoListItem)
@@ -312,6 +365,7 @@ def update_pedido_status(
     if not pedido_antes:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     status_antes = pedido_antes.status
+    _bloquear_mudanca_distrato(status_antes, data.status)
     if status_antes == "Orçamento" and data.status not in ("Orçamento", "Cancelado"):
         faltando = _campos_obrigatorios_faltando_para_aprovar(pedido_antes)
         if faltando:
@@ -342,6 +396,12 @@ def update_pedido(
     if not pedido_antes:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     campos_alterados = data.model_dump(exclude_unset=True)
+    _bloquear_mudanca_distrato(pedido_antes.status, campos_alterados.get("status"))
+    if pedido_antes.status == STATUS_DISTRATO and any(
+        k in campos_alterados and campos_alterados[k] != getattr(pedido_antes, k)
+        for k in ("valor_pecas", "tipo_pedido_id")
+    ):
+        raise HTTPException(status_code=400, detail="Pedido em distrato não muda valor nem tipo.")
     antes = {k: getattr(pedido_antes, k, None) for k in campos_alterados}
     try:
         pedido = service.update(pedido_id, data)
@@ -363,7 +423,8 @@ def get_parcelas(pedido_id: int, db: Session = Depends(get_db)):
     from datetime import date as date_type
     parcelas = (
         db.query(Pagamento)
-        .filter(Pagamento.pedido_id == pedido_id, Pagamento.tipo == "receita")
+        # A devolução do distrato aparece no card de distrato, não como parcela.
+        .filter(Pagamento.pedido_id == pedido_id, Pagamento.tipo == "receita", Pagamento.origem != "devolucao")
         .order_by(Pagamento.parcela_numero.asc().nullslast(), Pagamento.data_vencimento.asc())
         .all()
     )
@@ -437,6 +498,8 @@ def configurar_pagamento(
     pedido = service.get_by_id(pedido_id)
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    if pedido.status == STATUS_DISTRATO:
+        raise HTTPException(status_code=400, detail="Pedido em distrato: o pagamento já foi encerrado.")
 
     # Apagar parcelas existentes e as despesas de custo que elas geraram — senão
     # sobram lançamentos órfãos de uma configuração que não existe mais.

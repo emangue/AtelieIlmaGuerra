@@ -2,7 +2,7 @@
 Schemas do domínio Pedidos.
 """
 from datetime import date, datetime
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -245,8 +245,56 @@ class PedidoDetail(PedidoListItem):
     comentario_foto_1: Optional[str] = None
     comentario_foto_2: Optional[str] = None
     comentario_foto_3: Optional[str] = None
+    distrato: Optional["DistratoOut"] = None
     created_at: datetime
     updated_at: datetime
+
+
+# ── Distrato ────────────────────────────────────────────────────────────────
+
+MotivoDistrato = Literal["cliente", "atelie", "outro"]
+FaseDistrato = Literal["antes_producao", "em_producao", "apos_3a_prova"]
+
+
+class DistratoPreview(BaseModel):
+    """O que o distrato faria com o dinheiro do pedido, antes de confirmar."""
+    valor_recebido: float          # parcelas que já entraram
+    valor_cartao_a_cair: float     # cartão já passado, crédito futuro: continua caindo
+    valor_garantido: float         # recebido + cartão a cair
+    valor_a_cancelar: float        # parcelas pendentes que deixam de existir
+    parcelas_a_cancelar: int
+    status_atual: str
+
+
+class DistratoCreate(BaseModel):
+    data: date
+    motivo: MotivoDistrato
+    fase: FaseDistrato
+    valor_devolvido: float = Field(..., ge=0)
+    devolucao_data_prevista: Optional[date] = None
+    devolucao_data_pagamento: Optional[date] = None
+    devolucao_forma: Optional[str] = None
+    repasse_funcionaria: float = Field(0, ge=0)
+    observacao: Optional[str] = None
+
+
+class DistratoOut(BaseModel):
+    data: date
+    motivo: str
+    fase: str
+    status_anterior: Optional[str] = None
+    valor_garantido: float
+    valor_devolvido: float
+    valor_retido: float
+    repasse_funcionaria: float
+    observacao: Optional[str] = None
+    devolucao_pagamento_id: Optional[int] = None
+    devolucao_data_prevista: Optional[str] = None
+    devolucao_data_pagamento: Optional[str] = None
+    devolucao_forma: Optional[str] = None
+
+
+PedidoDetail.model_rebuild()
 
 
 class ParcelaCreate(BaseModel):

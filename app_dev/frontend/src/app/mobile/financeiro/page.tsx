@@ -72,6 +72,9 @@ interface CobrancasResumo {
   count_previsto_cartao: number;
   total_taxa_cartao: number;
   total_desconto_pix: number;
+  total_devolucoes_pendentes?: number;
+  count_devolucoes_pendentes?: number;
+  total_devolvido?: number;
 }
 
 interface CobrancasResponse {
@@ -80,6 +83,8 @@ interface CobrancasResponse {
   a_vencer: CobrancaItem[];
   pagas: CobrancaItem[];
   previstas_cartao: CobrancaItem[];
+  devolucoes_pendentes?: CobrancaItem[];
+  devolucoes_pagas?: CobrancaItem[];
   resumo: CobrancasResumo;
 }
 
@@ -110,7 +115,12 @@ interface RepassesResponse {
 
 type Filtro = "todas" | "em_atraso" | "a_vencer" | "pagas" | "cartao";
 
+function isDevolucao(item: CobrancaItem): boolean {
+  return item.status === "devolucao_pendente" || item.status === "devolvido";
+}
+
 function parcelaLabel(item: CobrancaItem): string {
+  if (isDevolucao(item)) return "Devolução distrato";
   if (item.parcela_numero && item.parcela_total) {
     return `Parcela ${item.parcela_numero} de ${item.parcela_total}`;
   }
@@ -148,15 +158,19 @@ function CardCobranca({
   // Parcela de cartão não se confirma: cai sozinha. A única ação é adiantar.
   const automatica = item.liquidacao_automatica;
   const previsto = item.status === "previsto";
+  const devolucao = isDevolucao(item);
+  const quitado = item.status === "pago" || item.status === "devolvido";
 
   const borderColor =
-    item.status === "em_atraso" ? "#F7C1C1"
+    devolucao ? "#D9C9F2"
+    : item.status === "em_atraso" ? "#F7C1C1"
     : item.status === "vence_hoje" ? "#FAC775"
     : previsto ? "#BBD5F2"
     : "var(--color-border-tertiary, #e5e7eb)";
 
   const accentColor =
-    item.status === "em_atraso" ? "#A32D2D"
+    devolucao ? "#5B2A9E"
+    : item.status === "em_atraso" ? "#A32D2D"
     : item.status === "vence_hoje" ? "#854F0B"
     : item.status === "pago" ? "#3B6D11"
     : previsto ? "#1B4F86"
@@ -210,6 +224,11 @@ function CardCobranca({
             previsto
           </span>
         )}
+        {devolucao && (
+          <span style={{ fontSize: 11, background: "#EBE1F8", color: "#452A70", padding: "2px 8px", borderRadius: 20, flexShrink: 0 }}>
+            {item.status === "devolvido" ? "devolvido" : item.dias_atraso > 0 ? `${item.dias_atraso}d atrasada` : "a devolver"}
+          </span>
+        )}
       </div>
 
       {/* Linha 3: parcela info + ação */}
@@ -218,8 +237,8 @@ function CardCobranca({
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0, minWidth: 0 }}>
             {parcelaLabel(item)}
             {previsto && item.data_vencimento ? ` · cai em ${formatDataBR(item.data_vencimento)}` : ""}
-            {!previsto && item.status !== "pago" && item.data_vencimento ? ` · vence ${formatDataBR(item.data_vencimento)}` : ""}
-            {item.status === "pago" && item.data_pagamento ? ` · ${formatDataBR(item.data_pagamento)}` : ""}
+            {!previsto && !quitado && item.data_vencimento ? ` · ${devolucao ? "devolver até" : "vence"} ${formatDataBR(item.data_vencimento)}` : ""}
+            {quitado && item.data_pagamento ? ` · ${formatDataBR(item.data_pagamento)}` : ""}
           </p>
           {previsto ? (
             <button
@@ -231,7 +250,7 @@ function CardCobranca({
             >
               Adiantar
             </button>
-          ) : item.status !== "pago" ? (
+          ) : !quitado ? (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -252,7 +271,7 @@ function CardCobranca({
       ) : (
         <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, #f0f0f0)", paddingTop: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0, flexShrink: 0 }}>Recebido em</p>
+            <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0, flexShrink: 0 }}>{devolucao ? "Devolvido em" : "Recebido em"}</p>
             <Input
               type="date"
               value={confirmandoData}
@@ -532,6 +551,9 @@ export default function FinanceiroPage() {
   const aVencerFiltradas = cobrancas?.a_vencer.filter(cobrancaMatchesSearch) ?? [];
   const pagasFiltradas = cobrancas?.pagas.filter(cobrancaMatchesSearch) ?? [];
   const previstasCartaoFiltradas = cobrancas?.previstas_cartao?.filter(cobrancaMatchesSearch) ?? [];
+  const devolucoesPendentesFiltradas = cobrancas?.devolucoes_pendentes?.filter(cobrancaMatchesSearch) ?? [];
+  const devolucoesPagasFiltradas = cobrancas?.devolucoes_pagas?.filter(cobrancaMatchesSearch) ?? [];
+  const mostrarDevolucoes = filtro === "todas" || filtro === "a_vencer" || filtro === "em_atraso";
   const repassesPendentesFiltrados = repasses
     ? repasses.pendentes.filter((item) => {
         if (filtro === "pagas") return false;
@@ -544,6 +566,7 @@ export default function FinanceiroPage() {
   const repassesFiltradosTotal = repassesPendentesFiltrados.reduce((sum, item) => sum + item.valor, 0);
   const temRepassesFiltrados = repassesPendentesFiltrados.length > 0 || repassesPagosFiltrados.length > 0;
   const temCobrancasFiltradas = Boolean(
+    (mostrarDevolucoes && devolucoesPendentesFiltradas.length) ||
     (mostrarEmAtraso && emAtrasoFiltradas.length) ||
     (mostrarAVencer && venceHojeFiltradas.length) ||
     (mostrarAVencer && aVencerFiltradas.length) ||
@@ -748,6 +771,28 @@ export default function FinanceiroPage() {
                   <div className="mt-2 rounded-xl bg-green-50 px-4 py-3">
                     <p className="text-xs font-medium text-green-800">
                       Pago em {labelMes(mes)}: {formatMoney(repassesPagosFiltrados.reduce((sum, item) => sum + item.valor, 0))}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* DEVOLUÇÕES (distrato) */}
+            {mostrarDevolucoes && (devolucoesPendentesFiltradas.length > 0 || devolucoesPagasFiltradas.length > 0) && (
+              <div className="mb-5">
+                <SectionHeader
+                  cor="#7C3AED"
+                  label="DEVOLUÇÕES A FAZER"
+                  count={devolucoesPendentesFiltradas.length}
+                  total={devolucoesPendentesFiltradas.reduce((s, i) => s + i.valor, 0)}
+                />
+                {devolucoesPendentesFiltradas.map((item) => (
+                  <CardCobranca key={item.id} item={item} {...cardProps} />
+                ))}
+                {devolucoesPagasFiltradas.length > 0 && (
+                  <div className="mt-2 rounded-xl bg-purple-50 px-4 py-3">
+                    <p className="text-xs font-medium text-purple-800">
+                      Devolvido em {labelMes(mes)}: {formatMoney(devolucoesPagasFiltradas.reduce((sum, item) => sum + item.valor, 0))}
                     </p>
                   </div>
                 )}

@@ -178,6 +178,35 @@ def get_cobrancas(
         else:
             a_vencer.append(item)
 
+    devolucoes_pendentes, devolucoes_pagas = [], []
+    dev_rows = (
+        db.query(Pagamento, Cliente.nome.label("cliente_nome"), TipoPedido.nome.label("tipo_pedido"))
+        .join(Pedido, Pedido.id == Pagamento.pedido_id)
+        .outerjoin(Cliente, Cliente.id == Pedido.cliente_id)
+        .outerjoin(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
+        .filter(Pagamento.origem == "devolucao")
+        .order_by(Pagamento.data_vencimento.asc().nullslast())
+        .all()
+    )
+    for pag, cliente_nome, tipo_pedido in dev_rows:
+        pendente = pag.data_pagamento is None
+        if not pendente and pag.anomes != mes:
+            continue
+        venc = pag.data_vencimento
+        item = CobrancaItem(
+            id=pag.id,
+            pedido_id=pag.pedido_id,
+            cliente_nome=cliente_nome or "—",
+            tipo_pedido=tipo_pedido or "Pedido",
+            forma_pagamento=pag.forma_pagamento,
+            valor=abs(float(pag.valor or 0)),
+            data_vencimento=venc.isoformat() if venc else None,
+            data_pagamento=pag.data_pagamento.isoformat() if pag.data_pagamento else None,
+            status="devolucao_pendente" if pendente else "devolvido",
+            dias_atraso=(hoje - venc).days if (pendente and venc and venc < hoje) else 0,
+        )
+        (devolucoes_pendentes if pendente else devolucoes_pagas).append(item)
+
     sete_dias = hoje + timedelta(days=7)
     vence_7dias = vence_hoje + [
         x for x in a_vencer if x.data_vencimento and x.data_vencimento <= sete_dias.isoformat()
@@ -204,6 +233,9 @@ def get_cobrancas(
         count_previsto_cartao=len(previstas_cartao),
         total_taxa_cartao=round(custos_por_item.get(TIPO_ITEM_TAXA_CARTAO, 0.0), 2),
         total_desconto_pix=round(custos_por_item.get(TIPO_ITEM_DESCONTO_PIX, 0.0), 2),
+        total_devolucoes_pendentes=round(sum(i.valor for i in devolucoes_pendentes), 2),
+        count_devolucoes_pendentes=len(devolucoes_pendentes),
+        total_devolvido=round(sum(i.valor for i in devolucoes_pagas), 2),
     )
 
     return CobrancasResponse(
@@ -212,6 +244,8 @@ def get_cobrancas(
         a_vencer=a_vencer,
         pagas=pagas,
         previstas_cartao=previstas_cartao,
+        devolucoes_pendentes=devolucoes_pendentes,
+        devolucoes_pagas=devolucoes_pagas,
         resumo=resumo,
     )
 

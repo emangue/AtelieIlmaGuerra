@@ -37,6 +37,7 @@ import { PedidoConfirmacaoAtipica } from "@/components/mobile/pedido-confirmacao
 import { calcularMargem, avaliarAvisosPedido, AvisoPedido, ParametrosCalculo } from "@/lib/margem-pedido";
 import { getToken } from "@/lib/api-client";
 import { parseDateOnly } from "@/lib/date-utils";
+import { DistratoRegistro, DistratoResumo, type DistratoInfo } from "@/components/mobile/distrato";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -88,6 +89,7 @@ const PAG_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 
 interface PedidoDetail {
   id: number;
+  distrato?: DistratoInfo | null;
   cliente_id: number;
   cliente_nome: string;
   tipo_pedido_id: number | null;
@@ -696,6 +698,9 @@ export default function PedidoDetailPage() {
           {/* Status */}
           <section className="rounded-xl border border-gray-200 bg-white p-4">
             <Label>Status</Label>
+            {status === "Distrato" ? (
+              <p className="mt-2 text-sm text-purple-700">Distrato registrado — o status não muda mais.</p>
+            ) : (
             <div className="mt-2 grid grid-cols-3 gap-2">
               {STATUS_OPCOES.map((s) => (
                 <button
@@ -712,6 +717,7 @@ export default function PedidoDetailPage() {
                 </button>
               ))}
             </div>
+            )}
           </section>
 
           {/* Divisão do valor */}
@@ -874,7 +880,8 @@ export default function PedidoDetailPage() {
             </div>
           </section>
 
-          {/* Pagamento */}
+          {/* Pagamento — encerrado no distrato */}
+          {status !== "Distrato" && (
           <section className="rounded-xl border border-gray-200 bg-white p-4">
             <h3 className="text-sm font-medium text-gray-500 mb-3 flex items-center gap-2">
               <CreditCard className="w-4 h-4" />
@@ -889,6 +896,7 @@ export default function PedidoDetailPage() {
               onFormaPagamentoChange={setFormaPagamento}
             />
           </section>
+          )}
 
           {/* Medidas disponíveis */}
           <section className="rounded-xl border border-gray-200 bg-white p-4">
@@ -1219,6 +1227,8 @@ export default function PedidoDetailPage() {
                       ? "bg-amber-100 text-amber-800"
                       : pedido.status === "Cancelado"
                         ? "bg-red-100 text-red-700"
+                      : pedido.status === "Distrato"
+                        ? "bg-purple-100 text-purple-700"
                       : "bg-gray-100 text-gray-700"
                 }`}
               >
@@ -1462,6 +1472,8 @@ export default function PedidoDetailPage() {
           </section>
         )}
 
+        {pedido.status === "Distrato" && pedido.distrato && <DistratoResumo distrato={pedido.distrato} />}
+
         {/* Pagamento */}
         {temPagamento && (
           <section
@@ -1491,7 +1503,8 @@ export default function PedidoDetailPage() {
                     </p>
                   </div>
                 )}
-                {pedido.valor_restante != null && (
+                {/* No distrato o que faltava foi cancelado — "restante" enganaria. */}
+                {pedido.valor_restante != null && pedido.status !== "Distrato" && (
                   <div className="py-2 px-3 rounded-lg bg-gray-50">
                     <p className="text-xs text-gray-500">Restante</p>
                     <p className="font-medium text-gray-900">
@@ -1650,6 +1663,15 @@ export default function PedidoDetailPage() {
             </div>
           </section>
         ) : (
+        <>
+        {!["Cancelado", "Distrato"].includes(pedido.status) && (
+          <DistratoRegistro
+            pedidoId={pedido.id}
+            clienteNome={pedido.cliente_nome}
+            apiUrl={API_URL}
+            onRegistrado={loadPedido}
+          />
+        )}
         <section className="rounded-xl border border-red-100 bg-red-50 p-4">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-red-500">
@@ -1703,6 +1725,7 @@ export default function PedidoDetailPage() {
             </div>
           </div>
         </section>
+        </>
         )}
       </div>
 

@@ -167,6 +167,7 @@ function PedidoCard({
               <Pencil className="h-4 w-4" />
             </button>
           </Link>
+          {!["Distrato", "Cancelado"].includes(p.status) && (
           <div className="flex items-center gap-0.5 flex-wrap justify-end">
             <button
               onClick={() => onStatusClick(p, "Cortado")}
@@ -201,6 +202,7 @@ function PedidoCard({
               <Check className="h-4 w-4" />
             </button>
           </div>
+          )}
         </div>
       </div>
     </div>
@@ -344,6 +346,21 @@ function PedidosTodosContent() {
             </Link>
           )}
         </div>
+        {!mesFilter && (
+          <div className="flex gap-2">
+            {["Distrato", "Cancelado"].map((s) => (
+              <Link
+                key={s}
+                href={statusFilter === s ? "/mobile/pedidos/todos" : `/mobile/pedidos/todos?status=${encodeURIComponent(s)}`}
+                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                  statusFilter === s ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"
+                }`}
+              >
+                {s === "Distrato" ? "Distratos" : "Cancelados"}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Resumo do mês */}

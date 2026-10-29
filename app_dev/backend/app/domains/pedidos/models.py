@@ -102,6 +102,18 @@ class Pedido(Base):
     desconto_pix_percentual = Column(Float, nullable=True)
     desconto_pix_manual = Column(Boolean, nullable=True)
 
+    # Distrato: só preenchidos quando status == "Distrato" (ver pedidos/distrato.py).
+    # O dinheiro em si vive em `pagamentos`; aqui fica o resumo do acordo.
+    distrato_data = Column(Date, nullable=True)
+    distrato_motivo = Column(String(30), nullable=True)          # cliente | atelie | outro
+    distrato_fase = Column(String(30), nullable=True)            # antes_producao | em_producao | apos_3a_prova
+    distrato_status_anterior = Column(String(50), nullable=True)
+    distrato_valor_garantido = Column(Float, nullable=True)      # pago + cartão já passado
+    distrato_valor_devolvido = Column(Float, nullable=True)
+    distrato_valor_retido = Column(Float, nullable=True)
+    distrato_repasse = Column(Float, nullable=True)              # informado à mão
+    distrato_observacao = Column(Text, nullable=True)
+
     medidas_disponiveis = Column(Boolean, default=False)
     medida_ombro = Column(Float, nullable=True)
     medida_busto = Column(Float, nullable=True)

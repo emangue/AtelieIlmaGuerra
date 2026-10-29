@@ -351,7 +351,7 @@ class CobrancaItem(BaseModel):
     valor: float
     data_vencimento: Optional[str] = None
     data_pagamento: Optional[str] = None
-    status: str  # em_atraso | vence_hoje | a_vencer | pago | previsto
+    status: str  # em_atraso | vence_hoje | a_vencer | pago | previsto | devolucao_pendente | devolvido
     dias_atraso: int = 0
     liquidacao_automatica: bool = False        # parcela de cartão: cai sozinha
     desconto_adiantamento: Optional[float] = None
@@ -370,6 +370,9 @@ class CobrancasResumo(BaseModel):
     count_previsto_cartao: int = 0
     total_taxa_cartao: float = 0
     total_desconto_pix: float = 0
+    total_devolucoes_pendentes: float = 0
+    count_devolucoes_pendentes: int = 0
+    total_devolvido: float = 0
 
 
 class CobrancasResponse(BaseModel):
@@ -378,6 +381,9 @@ class CobrancasResponse(BaseModel):
     a_vencer: List[CobrancaItem]
     pagas: List[CobrancaItem]
     previstas_cartao: List[CobrancaItem] = []
+    # Distrato: valor sempre positivo aqui (é quanto sai do caixa).
+    devolucoes_pendentes: List[CobrancaItem] = []
+    devolucoes_pagas: List[CobrancaItem] = []
     resumo: CobrancasResumo
 
 
