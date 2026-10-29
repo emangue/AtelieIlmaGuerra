@@ -1,0 +1,6 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Atendimento usa uma linhagem Certbot separada, montada diretamente no proxy Docker.
+23 2,14 * * * root /var/www/atelie/scripts/deploy/renovar_certificado_atendimento.sh >> /var/log/atelie-certbot.log 2>&1
+
