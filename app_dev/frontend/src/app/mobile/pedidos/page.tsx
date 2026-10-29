@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { getToken } from "@/lib/api-client";
 import { FORMAS_PAGAMENTO } from "@/lib/formas-pagamento";
+import { parseDateOnly } from "@/lib/date-utils";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -59,7 +60,7 @@ interface ParcelaForm {
 
 function formatDate(iso: string) {
   try {
-    const d = new Date(iso);
+    const d = parseDateOnly(iso);
     return d.toLocaleDateString("pt-BR", { day: "numeric", month: "numeric", year: "numeric" });
   } catch { return iso; }
 }

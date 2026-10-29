@@ -36,6 +36,7 @@ import { PagamentoFormEdit } from "@/components/mobile/pagamento-form";
 import { PedidoConfirmacaoAtipica } from "@/components/mobile/pedido-confirmacao-atipica";
 import { calcularMargem, avaliarAvisosPedido, AvisoPedido, ParametrosCalculo } from "@/lib/margem-pedido";
 import { getToken } from "@/lib/api-client";
+import { parseDateOnly } from "@/lib/date-utils";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -174,7 +175,7 @@ const MEDIDAS_CAMPOS: { key: keyof PedidoDetail; label: string }[] = [
 ];
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("pt-BR", {
+  return parseDateOnly(iso).toLocaleDateString("pt-BR", {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -183,6 +184,7 @@ function formatDate(iso: string) {
 
 function isoToInputDate(iso: string | null): string {
   if (!iso) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(iso)) return iso.slice(0, 10);
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

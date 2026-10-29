@@ -23,6 +23,7 @@ const ClienteValoresChart = dynamic(
 );
 
 import { getToken } from "@/lib/api-client";
+import { parseDateOnly } from "@/lib/date-utils";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -113,7 +114,7 @@ function formatMoney(val: number) {
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("pt-BR", {
+  return parseDateOnly(iso).toLocaleDateString("pt-BR", {
     day: "numeric",
     month: "short",
     year: "numeric",
