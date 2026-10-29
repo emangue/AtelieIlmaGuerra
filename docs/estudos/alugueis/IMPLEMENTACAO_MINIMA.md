@@ -92,11 +92,12 @@ As tabelas `pedido_provas`, `pedido_prova_checks`, `pedido_prova_midias`,
 `pedido_prova_aceites` e `pedido_prova_documentos` permanecem subordinadas ao
 Pedido. Não será criada uma base de clientes, aluguel ou documentos separada.
 
-Na primeira entrega não haverá SMS, código de uso único nem integração com a
-API oficial do WhatsApp. O servidor gerará um token aleatório de alta entropia,
-armazenará apenas seu digest e entregará uma URL temporária para compartilhamento
-manual. O link expira, pode ser cancelado, fica vinculado ao hash exato do resumo
-e é invalidado quando o conteúdo muda ou quando a manifestação é concluída.
+Na primeira entrega não haverá SMS, código de uso único, geolocalização nem
+integração com a API oficial do WhatsApp. O servidor gerará um token aleatório
+de alta entropia, armazenará apenas seu digest e entregará uma URL temporária
+para compartilhamento manual. O link expira, pode ser cancelado, fica vinculado
+ao hash exato do resumo e é invalidado quando o conteúdo muda ou quando a
+manifestação é concluída.
 
 ## APIs novas ou alteradas
 

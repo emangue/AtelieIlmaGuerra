@@ -31,6 +31,7 @@ O custo de não resolver é retrabalho, conflito com clientes, dificuldade de de
 
 - Gravação ou upload de vídeos.
 - Reconhecimento facial ou biometria.
+- Coleta de geolocalização, coordenadas ou validação de presença física.
 - Assinatura digital qualificada ICP-Brasil.
 - Integração automática com a API oficial do WhatsApp; na primeira versão, o sistema gera um link para compartilhamento manual.
 - Portal permanente para a cliente consultar todas as fotos; o acesso inicial será temporário e restrito a uma prova.
