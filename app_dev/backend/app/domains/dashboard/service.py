@@ -8,22 +8,19 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.domains.pedidos.models import Pedido, TipoPedido
-from app.domains.alugueis.models import Aluguel
 
 
 def _receita_alugueis_realizada(db: Session, inicio: date, fim: date) -> float:
-    return float(db.query(func.coalesce(func.sum(Aluguel.valor_total), 0)).filter(
-        Aluguel.status.in_(("Retirado", "Devolvido")),
-        Aluguel.data_retirada_real >= inicio,
-        Aluguel.data_retirada_real < fim,
+    return float(db.query(func.coalesce(func.sum(Pedido.valor_pecas), 0)).filter(
+        Pedido.modalidade == "aluguel", Pedido.status.in_(("Retirado", "Devolvido")),
+        Pedido.data_retirada_real >= inicio, Pedido.data_retirada_real < fim,
     ).scalar() or 0)
 
 
 def _receita_alugueis_potencial(db: Session, inicio: date, fim: date) -> float:
-    return float(db.query(func.coalesce(func.sum(Aluguel.valor_total), 0)).filter(
-        Aluguel.status.in_(("Reservado", "Retirado", "Devolvido")),
-        Aluguel.data_retirada >= inicio,
-        Aluguel.data_retirada < fim,
+    return float(db.query(func.coalesce(func.sum(Pedido.valor_pecas), 0)).filter(
+        Pedido.modalidade == "aluguel", Pedido.status.in_(("Reservado", "Retirado", "Devolvido")),
+        Pedido.data_retirada >= inicio, Pedido.data_retirada < fim,
     ).scalar() or 0)
 
 
@@ -254,8 +251,8 @@ def get_pecas_entregues_por_tipo(db: Session, mes: str) -> List[Dict[str, Any]]:
         for r in rows
     ]
     aluguel = (
-        db.query(func.count(Aluguel.id), func.coalesce(func.sum(Aluguel.valor_total), 0))
-        .filter(Aluguel.status.in_(("Retirado", "Devolvido")), Aluguel.data_retirada_real >= inicio, Aluguel.data_retirada_real < fim)
+        db.query(func.count(Pedido.id), func.coalesce(func.sum(Pedido.valor_pecas), 0))
+        .filter(Pedido.modalidade == "aluguel", Pedido.status.in_(("Retirado", "Devolvido")), Pedido.data_retirada_real >= inicio, Pedido.data_retirada_real < fim)
         .first()
     )
     if aluguel and aluguel[0]:
@@ -395,8 +392,8 @@ def get_pecas_entregues_por_tipo_year(db: Session, ano: int) -> List[Dict[str, A
         for r in rows
     ]
     aluguel = (
-        db.query(func.count(Aluguel.id), func.coalesce(func.sum(Aluguel.valor_total), 0))
-        .filter(Aluguel.status.in_(("Retirado", "Devolvido")), Aluguel.data_retirada_real >= inicio, Aluguel.data_retirada_real < fim)
+        db.query(func.count(Pedido.id), func.coalesce(func.sum(Pedido.valor_pecas), 0))
+        .filter(Pedido.modalidade == "aluguel", Pedido.status.in_(("Retirado", "Devolvido")), Pedido.data_retirada_real >= inicio, Pedido.data_retirada_real < fim)
         .first()
     )
     if aluguel and aluguel[0]:

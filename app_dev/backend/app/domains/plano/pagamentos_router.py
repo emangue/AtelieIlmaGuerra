@@ -142,7 +142,7 @@ def get_cobrancas(
             id=pag.id,
             pedido_id=pag.pedido_id,
             cliente_nome=cliente_nome or "—",
-            tipo_pedido=tipo_pedido or "Pedido",
+            tipo_pedido=tipo_pedido or ("Aluguel" if pag.pedido and pag.pedido.modalidade == "aluguel" else "Pedido"),
             forma_pagamento=pag.forma_pagamento or (pag.pedido.forma_pagamento if pag.pedido else None),
             parcela_numero=pag.parcela_numero,
             parcela_total=pag.parcela_total,

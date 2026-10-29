@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
 from app.domains.pedidos.models import Pedido, TipoPedido
-from app.domains.alugueis.models import Aluguel
 from .custos_financeiros import (
     ORIGEM_TAXA_CARTAO,
     is_cartao,
@@ -210,20 +209,24 @@ def get_conciliacao_mes(
     # pedido não tem tipo definido some do faturamento sem avisar. Aqui o join é
     # externo justamente para capturar essas linhas e marcá-las como fora.
     rec_rows = (
-        db.query(Pagamento, TipoPedido.nome.label("tipo_pedido"), Pedido.id.label("ped_id"))
+        db.query(Pagamento, TipoPedido.nome.label("tipo_pedido"), Pedido.id.label("ped_id"), Pedido.modalidade.label("modalidade"))
         .outerjoin(Pedido, Pedido.id == Pagamento.pedido_id)
         .outerjoin(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
         .filter(
             Pagamento.anomes == mes,
             Pagamento.tipo == "receita",
+            or_(
+                (Pagamento.liquidacao_automatica.is_(True)) & (Pagamento.data_pagamento <= date.today()),
+                (Pagamento.liquidacao_automatica.is_not(True)) & Pagamento.data_pagamento.isnot(None),
+            ),
         )
         .all()
     )
 
-    for pag, tipo_pedido, ped_id in rec_rows:
+    for pag, tipo_pedido, ped_id, modalidade in rec_rows:
         valor = float(pag.valor or 0)
-        # Sobrevive ao INNER JOIN do plano sse Pedido e TipoPedido resolvem.
-        conta = tipo_pedido is not None
+        tipo_conciliado = tipo_pedido or ("Aluguel" if modalidade == "aluguel" else None)
+        conta = tipo_conciliado is not None
         motivo = None
         if not conta:
             if pag.pedido_id is None:
@@ -238,12 +241,12 @@ def get_conciliacao_mes(
             grupo=GRUPO_RECEITA,
             conta_no_plano=conta,
             motivo_fora=motivo,
-            tipo_pedido=tipo_pedido,
+            tipo_pedido=tipo_conciliado,
             valor_no_plano=valor if conta else 0.0,
         ))
 
         if conta:
-            chave = tipo_pedido.upper()
+            chave = tipo_conciliado.upper()
             conc.receita_por_tipo_pedido[chave] = conc.receita_por_tipo_pedido.get(chave, 0) + valor
             conc.receita_lancada += valor
         else:
@@ -391,16 +394,7 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     conc = get_conciliacao_mes(db, mes, itens=itens)
 
     rec_map: Dict[str, float] = conc.receita_por_tipo_pedido
-    aluguel_realizado = float(
-        db.query(func.coalesce(func.sum(Aluguel.valor_total), 0)).filter(
-            Aluguel.status.in_(("Retirado", "Devolvido")),
-            Aluguel.data_retirada_real >= inicio,
-            Aluguel.data_retirada_real < fim,
-        ).scalar() or 0
-    )
-    if aluguel_realizado:
-        rec_map = {**rec_map, "ALUGUEL": aluguel_realizado}
-    receita_total_realizado = conc.receita_total + aluguel_realizado
+    receita_total_realizado = conc.receita_total
 
     itens_rec = [i for i in itens if i.tipo == "receita"]
     itens_desp = [i for i in itens if i.tipo == "despesa"]
@@ -495,7 +489,10 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
             Pedido.data_entrega < fim,
         )
         .scalar() or 0
-    )
+    ) + float(db.query(func.coalesce(func.sum(Pedido.valor_pecas), 0)).filter(
+        Pedido.modalidade == "aluguel", Pedido.status.in_(("Retirado", "Devolvido")),
+        Pedido.data_retirada_real >= inicio, Pedido.data_retirada_real < fim,
+    ).scalar() or 0)
 
     # Breakdown por tipo — visão entrega
     entrega_por_tipo = (
@@ -516,6 +513,12 @@ def get_plano_vs_realizado(db: Session, mes: str) -> PlanoVsRealizado:
     for r in entrega_por_tipo:
         plano_tipo = TIPO_PEDIDO_TO_PLANO.get(r.nome.upper(), "Outros")
         entrega_map[plano_tipo] = entrega_map.get(plano_tipo, 0) + float(r.valor)
+    aluguel_entrega = float(db.query(func.coalesce(func.sum(Pedido.valor_pecas), 0)).filter(
+        Pedido.modalidade == "aluguel", Pedido.status.in_(("Retirado", "Devolvido")),
+        Pedido.data_retirada_real >= inicio, Pedido.data_retirada_real < fim,
+    ).scalar() or 0)
+    if aluguel_entrega:
+        entrega_map["Aluguel"] = aluguel_entrega
 
     itens_receita_entrega: List[PlanoVsRealizadoItem] = []
     plano_tipos_set = {i.tipo_item for i in itens_rec}

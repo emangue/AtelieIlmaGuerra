@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeft, Loader2, Plus, Ruler, Search } from "lucide-react";
 import { PagamentoForm, PagamentoConfig, pagamentoConfigInicial } from "@/components/mobile/pagamento-form";
 import { PedidoConfirmacaoAtipica } from "@/components/mobile/pedido-confirmacao-atipica";
+import { NovoAluguelForm } from "@/components/mobile/novo-aluguel-form";
 import { calcularMargem, avaliarAvisosPedido, AvisoPedido } from "@/lib/margem-pedido";
 import { getToken } from "@/lib/api-client";
 
@@ -89,6 +90,9 @@ const MEDIDAS_CAMPOS: { key: string; label: string }[] = [
 function NovoPedidoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [modalidade, setModalidade] = useState<"confeccao" | "aluguel">(
+    () => searchParams.get("tipo") === "aluguel" ? "aluguel" : "confeccao"
+  );
   const [loading, setLoading] = useState(false);
   const [clientes, setClientes] = useState<ClienteItem[]>([]);
   const [clientesFiltrados, setClientesFiltrados] = useState<ClienteItem[]>([]);
@@ -556,11 +560,20 @@ function NovoPedidoContent() {
           </Link>
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Novo Pedido</h2>
-            <p className="text-sm text-gray-500">Dados do pedido</p>
+            <p className="text-sm text-gray-500">Escolha o tipo e preencha os dados do pedido</p>
           </div>
         </div>
       </div>
 
+      <div className="p-4 pb-0">
+        <Label>Modalidade do pedido</Label>
+        <div className="mt-2 grid grid-cols-2 gap-2 rounded-xl border bg-gray-50 p-1.5">
+          <button type="button" onClick={() => setModalidade("confeccao")} className={`rounded-lg px-3 py-3 text-sm font-medium ${modalidade === "confeccao" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}><span className="block">Confecção ou ajuste</span><span className="text-xs font-normal">Produção sob medida</span></button>
+          <button type="button" onClick={() => setModalidade("aluguel")} className={`rounded-lg px-3 py-3 text-sm font-medium ${modalidade === "aluguel" ? "bg-white text-rose-700 shadow-sm" : "text-gray-500"}`}><span className="block">Aluguel</span><span className="text-xs font-normal">Reserva do acervo</span></button>
+        </div>
+      </div>
+
+      {modalidade === "aluguel" ? <div className="p-4"><NovoAluguelForm embedded /></div> : (
       <form onSubmit={handleSubmit} className="p-4 space-y-6">
         {/* Cliente - busca ao digitar */}
         <div ref={clienteRef} className="relative">
@@ -1235,6 +1248,7 @@ function NovoPedidoContent() {
           </Link>
         </div>
       </form>
+      )}
     </div>
   );
 }

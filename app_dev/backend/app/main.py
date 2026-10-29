@@ -43,7 +43,7 @@ from .domains.despesas.models import DespesaDetalhada  # noqa: F401
 from .domains.error_logs.models import ErrorLog  # noqa: F401
 from .domains.historico.models import HistoricoAlteracao  # noqa: F401
 from .domains.atendimentos.models import PedidoAtendimento  # noqa: F401
-from .domains.alugueis.models import Aluguel, AluguelItem, ItemAcervo  # noqa: F401
+from .domains.alugueis.models import ItemAcervo, PedidoAcervoItem  # noqa: F401
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -175,6 +175,16 @@ def startup():
     run_migration("ALTER TABLE pedidos ADD COLUMN desconto_pix_valor REAL", "pedidos.desconto_pix_valor")
     run_migration("ALTER TABLE pedidos ADD COLUMN desconto_pix_percentual REAL", "pedidos.desconto_pix_percentual")
     run_migration("ALTER TABLE pedidos ADD COLUMN desconto_pix_manual BOOLEAN", "pedidos.desconto_pix_manual")
+    run_migration("ALTER TABLE pedidos ADD COLUMN modalidade VARCHAR(20) NOT NULL DEFAULT 'confeccao'", "pedidos.modalidade")
+    run_migration("ALTER TABLE pedidos ADD COLUMN data_retirada DATE", "pedidos.data_retirada")
+    run_migration("ALTER TABLE pedidos ADD COLUMN data_devolucao_prevista DATE", "pedidos.data_devolucao_prevista")
+    run_migration("ALTER TABLE pedidos ADD COLUMN data_retirada_real DATE", "pedidos.data_retirada_real")
+    run_migration("ALTER TABLE pedidos ADD COLUMN data_devolucao_real DATE", "pedidos.data_devolucao_real")
+    run_migration("ALTER TABLE pedidos ADD COLUMN valor_caucao REAL DEFAULT 0", "pedidos.valor_caucao")
+    run_migration("ALTER TABLE pedidos ADD COLUMN status_caucao VARCHAR(30) DEFAULT 'nao_aplicavel'", "pedidos.status_caucao")
+    run_migration("ALTER TABLE itens_acervo ADD COLUMN valor_aluguel_padrao REAL", "itens_acervo.valor_aluguel_padrao")
+    run_migration("ALTER TABLE itens_acervo ADD COLUMN status_item VARCHAR(30) NOT NULL DEFAULT 'disponivel'", "itens_acervo.status_item")
+    run_migration("ALTER TABLE itens_acervo ADD COLUMN foto_url VARCHAR(500)", "itens_acervo.foto_url")
     run_migration(
         "ALTER TABLE historico_alteracoes ADD COLUMN app VARCHAR(20) NOT NULL DEFAULT 'gestao'",
         "historico_alteracoes.app",

@@ -37,7 +37,7 @@ export function BottomNavigation() {
             return (
               <div key={tab.id} className="flex flex-col items-center flex-1">
                 <button
-                  onClick={() => router.push(tab.path)}
+                  onClick={() => router.push('/mobile/pedidos/novo')}
                   className="
                     w-14 h-14 rounded-full bg-black text-white
                     flex items-center justify-center

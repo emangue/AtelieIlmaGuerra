@@ -7,9 +7,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
-from app.domains.alugueis.models import Aluguel, AluguelItem, ItemAcervo  # noqa: F401
+from app.domains.alugueis.models import ItemAcervo, PedidoAcervoItem  # noqa: F401
 from app.domains.alugueis.schemas import AluguelCreate
-from app.domains.alugueis.service import criar_aluguel, mudar_status
+from app.domains.alugueis.service import atualizar_aluguel, criar_aluguel, mudar_status
+from app.domains.alugueis.schemas import AluguelUpdate
 from app.domains.clientes.models import Cliente
 from app.domains.pedidos.models import FormaPeca, FormaPecaMedida, Pedido, TipoPedido, tipo_pedido_forma_peca  # noqa: F401
 from app.domains.plano.models import PlanoItem  # noqa: F401
@@ -49,15 +50,23 @@ class AlugueisTest(unittest.TestCase):
         self.assertEqual(erro.exception.status_code, 409)
 
         mudar_status(self.db, primeiro, "Cancelado", None)
+        self.assertEqual(self.db.query(Pagamento).filter(Pagamento.pedido_id == primeiro.id).count(), 0)
         segundo = criar_aluguel(self.db, self.payload(date(2026, 9, 22), date(2026, 9, 23)))
-        self.assertEqual(segundo.valor_total, 500)
+        self.assertEqual(segundo.valor_pecas, 500)
 
-    def test_receita_so_e_reconhecida_na_retirada_e_caucao_nao_entra(self):
+    def test_receita_so_e_reconhecida_quando_pagamento_e_confirmado_e_caucao_nao_entra(self):
         aluguel = criar_aluguel(self.db, self.payload())
         antes = get_plano_vs_realizado(self.db, "202609")
         self.assertEqual(antes.receita_realizada, 0)
 
         mudar_status(self.db, aluguel, "Retirado", date(2026, 9, 20))
+        ainda_pendente = get_plano_vs_realizado(self.db, "202609")
+        self.assertEqual(ainda_pendente.receita_realizada, 0)
+
+        pagamento = self.db.query(Pagamento).filter(Pagamento.pedido_id == aluguel.id).one()
+        pagamento.data_pagamento = date(2026, 9, 20)
+        pagamento.anomes = "202609"
+        self.db.commit()
         depois = get_plano_vs_realizado(self.db, "202609")
         self.assertEqual(depois.receita_realizada, 500)
         self.assertEqual(depois.itens_receita[0].tipo_item, "Aluguel")
@@ -66,13 +75,46 @@ class AlugueisTest(unittest.TestCase):
         aluguel = criar_aluguel(self.db, self.payload())
         mudar_status(self.db, aluguel, "Retirado", date(2026, 9, 21))
         with self.assertRaises(HTTPException) as erro:
-            mudar_status(self.db, aluguel, "Devolvido", date(2026, 9, 20))
+            mudar_status(self.db, aluguel, "Devolvido", date(2026, 9, 20), conferencia_realizada=True)
         self.assertEqual(erro.exception.status_code, 400)
 
-    def test_retirada_atrasada_exige_ajuste_do_periodo(self):
+    def test_aluguel_e_um_pedido_com_pagamento_pendente_vinculado(self):
         aluguel = criar_aluguel(self.db, self.payload())
+        self.assertEqual(aluguel.modalidade, "aluguel")
+        self.assertEqual(aluguel.status, "Reservado")
+        self.assertEqual(len(aluguel.itens_acervo), 1)
+        pagamento = self.db.query(Pagamento).filter(Pagamento.pedido_id == aluguel.id).one()
+        self.assertEqual(pagamento.tipo_item, "Aluguel")
+        self.assertTrue(pagamento.pendente_de_caixa)
+        self.assertEqual(pagamento.valor, 500)
+        self.assertEqual(aluguel.valor_caucao, 200)
+
+    def test_item_em_manutencao_nao_pode_ser_alugado(self):
+        item = self.db.query(ItemAcervo).filter(ItemAcervo.id == self.item_id).one()
+        item.status_item = "manutencao"
+        self.db.commit()
         with self.assertRaises(HTTPException) as erro:
-            mudar_status(self.db, aluguel, "Retirado", date(2026, 9, 23))
+            criar_aluguel(self.db, self.payload())
+        self.assertEqual(erro.exception.status_code, 400)
+
+    def test_edicao_da_reserva_sincroniza_valor_e_vencimento(self):
+        aluguel = criar_aluguel(self.db, self.payload())
+        atualizar_aluguel(self.db, aluguel, AluguelUpdate(
+            data_retirada=date(2026, 9, 25),
+            data_devolucao_prevista=date(2026, 9, 27),
+            itens=[{"item_acervo_id": self.item_id, "valor_aluguel": 725}],
+            forma_pagamento="Pix",
+        ))
+        pagamento = self.db.query(Pagamento).filter(Pagamento.pedido_id == aluguel.id).one()
+        self.assertEqual(pagamento.valor, 725)
+        self.assertEqual(pagamento.data_vencimento, date(2026, 9, 25))
+        self.assertEqual(pagamento.forma_pagamento, "Pix")
+
+    def test_devolucao_exige_conferencia_dos_itens(self):
+        aluguel = criar_aluguel(self.db, self.payload())
+        aluguel = mudar_status(self.db, aluguel, "Retirado", date(2026, 9, 20))
+        with self.assertRaises(HTTPException) as erro:
+            mudar_status(self.db, aluguel, "Devolvido", date(2026, 9, 22))
         self.assertEqual(erro.exception.status_code, 400)
 
 

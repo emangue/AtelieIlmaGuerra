@@ -70,6 +70,13 @@ class Pedido(Base):
     descricao_produto = Column(Text, nullable=False, default="")
     status = Column(String(50), nullable=False, default="Encomenda")
     criado_como_orcamento = Column(Boolean, nullable=False, default=False)
+    modalidade = Column(String(20), nullable=False, default="confeccao", index=True)
+    data_retirada = Column(Date, nullable=True, index=True)
+    data_devolucao_prevista = Column(Date, nullable=True, index=True)
+    data_retirada_real = Column(Date, nullable=True)
+    data_devolucao_real = Column(Date, nullable=True)
+    valor_caucao = Column(Float, nullable=True, default=0)
+    status_caucao = Column(String(30), nullable=True, default="nao_aplicavel")
 
     valor_pecas = Column(Float, nullable=True)
     quantidade_pecas = Column(Integer, nullable=True)
@@ -142,3 +149,4 @@ class Pedido(Base):
     tipo_pedido = relationship("TipoPedido", backref="pedidos")
     forma_peca = relationship("FormaPeca", backref="pedidos")
     pagamentos = relationship("Pagamento", back_populates="pedido", cascade="all, delete-orphan")
+    itens_acervo = relationship("PedidoAcervoItem", back_populates="pedido", cascade="all, delete-orphan")

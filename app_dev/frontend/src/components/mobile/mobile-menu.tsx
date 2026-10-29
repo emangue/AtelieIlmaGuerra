@@ -16,9 +16,27 @@ import {
   ClipboardList,
   LogOut,
   ReceiptText,
+  Package,
+  CalendarDays,
 } from "lucide-react";
 
 const MENU_ITEMS = [
+  {
+    href: "/mobile/alugueis?acervo=1",
+    label: "Acervo e aluguéis",
+    sub: "Produtos, reservas e devoluções",
+    Icon: Package,
+    iconBg: "bg-rose-50",
+    iconColor: "text-rose-700",
+  },
+  {
+    href: "/mobile/calendario",
+    label: "Agenda",
+    sub: "Entregas, retiradas e devoluções",
+    Icon: CalendarDays,
+    iconBg: "bg-sky-50",
+    iconColor: "text-sky-700",
+  },
   {
     href: "/mobile/transacoes",
     label: "Transações",

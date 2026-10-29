@@ -49,6 +49,11 @@ interface PedidoItem {
   status_pagamento: string | null;
   parcelas_pagas: number | null;
   parcelas_total: number | null;
+  modalidade: string;
+  data_retirada: string | null;
+  data_devolucao_prevista: string | null;
+  valor_caucao: number | null;
+  status_caucao: string | null;
 }
 
 interface ParcelaForm {
@@ -59,7 +64,7 @@ interface ParcelaForm {
 
 function formatDate(iso: string) {
   try {
-    const d = new Date(iso);
+    const d = new Date(`${iso}T12:00:00`);
     return d.toLocaleDateString("pt-BR", { day: "numeric", month: "numeric", year: "numeric" });
   } catch { return iso; }
 }
@@ -569,8 +574,8 @@ export default function PedidosPage() {
                       {/* Grid de info */}
                       <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-4 pb-3 border-t border-gray-100 pt-3">
                         <div>
-                          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Entrega</p>
-                          <p className="text-xs text-gray-800">{p.data_entrega ? formatDate(p.data_entrega) : "—"}</p>
+                          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">{p.modalidade === "aluguel" ? "Retirada / devolução" : "Entrega"}</p>
+                          <p className="text-xs text-gray-800">{p.modalidade === "aluguel" ? `${p.data_retirada ? formatDate(p.data_retirada) : "—"} → ${p.data_devolucao_prevista ? formatDate(p.data_devolucao_prevista) : "—"}` : (p.data_entrega ? formatDate(p.data_entrega) : "—")}</p>
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Valor</p>
@@ -624,10 +629,8 @@ export default function PedidosPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </Link>
-                        <button className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100" aria-label="Medidas">
-                          <Ruler className="h-4 w-4" />
-                        </button>
-                        {/* Botões de status — ativo = azul com fundo */}
+                        {p.modalidade === "aluguel" ? <Link href="/mobile/alugueis" className="ml-auto rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700">Gerenciar aluguel</Link> : <>
+                        <button className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100" aria-label="Medidas"><Ruler className="h-4 w-4" /></button>
                         <button
                           onClick={() => handleStatusClick(p, "Cortado")}
                           disabled={updatingId === p.id}
@@ -672,6 +675,7 @@ export default function PedidosPage() {
                         >
                           <Check className="h-4 w-4" />
                         </button>
+                        </>}
                       </div>
                     </div>
                   );

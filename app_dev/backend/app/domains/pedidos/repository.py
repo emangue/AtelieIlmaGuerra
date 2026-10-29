@@ -38,7 +38,7 @@ def _sync_medidas_cliente(db: Session, pedido: Pedido) -> None:
 
 
 # Status que NÃO aparecem em "pedidos ativos"
-STATUS_EXCLUIDOS_ATIVOS = ("Entregue", "Orçamento", "Cancelado", "Canelado")
+STATUS_EXCLUIDOS_ATIVOS = ("Entregue", "Devolvido", "Orçamento", "Cancelado", "Canelado")
 
 TIPOS_COM_REPASSE_50 = {"ajustes", "ajuste"}
 
@@ -199,7 +199,7 @@ def _sync_receitas_pedido(db: Session, pedido: Pedido) -> None:
     else:
         novos_valores = [p.valor for p in pagamentos]
 
-    tipo_nome = pedido.tipo_pedido.nome if pedido.tipo_pedido else "Pedido"
+    tipo_nome = pedido.tipo_pedido.nome if pedido.tipo_pedido else ("Aluguel" if pedido.modalidade == "aluguel" else "Pedido")
     cliente_nome = pedido.cliente.nome if pedido.cliente else ""
     descricao_base = f"{tipo_nome} · {cliente_nome}" if cliente_nome else tipo_nome
     total_parcelas = len(pagamentos)

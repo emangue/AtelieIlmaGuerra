@@ -49,6 +49,13 @@ class PedidoListItem(BaseModel):
     status_pagamento: Optional[str] = None   # confirmado | aguardando | em_atraso | None
     parcelas_pagas: Optional[int] = None
     parcelas_total: Optional[int] = None
+    modalidade: str = "confeccao"
+    data_retirada: Optional[date] = None
+    data_devolucao_prevista: Optional[date] = None
+    data_retirada_real: Optional[date] = None
+    data_devolucao_real: Optional[date] = None
+    valor_caucao: Optional[float] = None
+    status_caucao: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -67,7 +74,7 @@ class PedidoEntregueItem(BaseModel):
 
 
 class PedidoStatusUpdate(BaseModel):
-    status: str = Field(..., description="Orçamento, Encomenda, Cortado, Provado, Pronto, Entregue, Cancelado")
+    status: str = Field(..., description="Status do pedido ou do aluguel")
 
 
 class PedidoCreate(BaseModel):

@@ -113,7 +113,7 @@ function formatMoney(val: number) {
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("pt-BR", {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR", {
     day: "numeric",
     month: "short",
     year: "numeric",
