@@ -18,7 +18,7 @@ from .custos_financeiros import (
     is_cartao_debito,
 )
 from .models import PlanoItem
-from .pagamentos_model import Pagamento
+from .pagamentos_model import Pagamento, conta_no_financeiro
 from .schemas import (
     PlanoVsRealizado, PlanoVsRealizadoItem, EvolucaoMensalItem, TIPO_PEDIDO_TO_PLANO,
     MetaMes, PecaNecessaria, DespesaNaoLancada, PecaEntregue,
@@ -110,6 +110,7 @@ def get_despesas_financeiras_por_mes(db: Session, meses: List[str]) -> Dict[str,
             Pagamento.anomes.in_(meses),
             Pagamento.tipo == "despesa",
             Pagamento.natureza == "despesa_financeira",
+            conta_no_financeiro(),
         )
         .all()
     )
@@ -215,6 +216,7 @@ def get_conciliacao_mes(
         .filter(
             Pagamento.anomes == mes,
             Pagamento.tipo == "receita",
+            conta_no_financeiro(),
         )
         .all()
     )
@@ -265,7 +267,7 @@ def get_conciliacao_mes(
             selectinload(Pagamento.pedido).selectinload(Pedido.pagamentos),
             selectinload(Pagamento.plano_item),
         )
-        .filter(Pagamento.anomes == mes, Pagamento.tipo == "despesa")
+        .filter(Pagamento.anomes == mes, Pagamento.tipo == "despesa", conta_no_financeiro())
         .all()
     )
 
@@ -583,6 +585,7 @@ def get_evolucao_bulk(db: Session, mes: str, meses: int = 7) -> List[EvolucaoMen
         .filter(
             Pagamento.anomes.in_(anomes_list),
             Pagamento.tipo == "receita",
+            conta_no_financeiro(),
         )
         .group_by(Pagamento.anomes)
         .all()
@@ -617,7 +620,7 @@ def get_meta_mes(db: Session, mes: str) -> MetaMes:
     # Realizado: soma dos pagamentos tipo=receita no mês
     realizado = float(
         db.query(func.coalesce(func.sum(Pagamento.valor), 0))
-        .filter(Pagamento.anomes == mes, Pagamento.tipo == "receita")
+        .filter(Pagamento.anomes == mes, Pagamento.tipo == "receita", conta_no_financeiro())
         .scalar() or 0
     )
 
@@ -651,7 +654,7 @@ def get_meta_mes(db: Session, mes: str) -> MetaMes:
         )
         .join(Pedido, Pedido.id == Pagamento.pedido_id)
         .join(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
-        .filter(Pagamento.anomes == mes, Pagamento.tipo == "receita")
+        .filter(Pagamento.anomes == mes, Pagamento.tipo == "receita", conta_no_financeiro())
         .group_by(TipoPedido.nome)
         .all()
     )
@@ -685,7 +688,7 @@ def get_meta_mes(db: Session, mes: str) -> MetaMes:
     ).all()
     pag_desp_ids = {
         r[0] for r in db.query(Pagamento.plano_item_id)
-        .filter(Pagamento.anomes == mes, Pagamento.tipo == "despesa", Pagamento.plano_item_id.isnot(None))
+        .filter(Pagamento.anomes == mes, Pagamento.tipo == "despesa", Pagamento.plano_item_id.isnot(None), conta_no_financeiro())
         .all()
     }
     despesas_nao_lancadas = [

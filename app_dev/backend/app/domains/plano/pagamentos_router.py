@@ -21,7 +21,7 @@ from .custos_financeiros import (
     ORIGENS_CUSTO, TIPO_ITEM_DESCONTO_PIX, TIPO_ITEM_TAXA_CARTAO,
     is_pix, sync_custo_adiantamento, sync_custos_financeiros,
 )
-from .pagamentos_model import Pagamento
+from .pagamentos_model import Pagamento, conta_no_financeiro
 from .service import get_conciliacao_mes, natureza_pagamento, subtipo_despesa_financeira
 from .models import PlanoItem
 from .schemas import (
@@ -123,7 +123,7 @@ def get_cobrancas(
         .join(Pedido, Pedido.id == Pagamento.pedido_id)
         .outerjoin(Cliente, Cliente.id == Pedido.cliente_id)
         .outerjoin(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
-        .filter(Pagamento.tipo == "receita", Pagamento.pedido_id.isnot(None), Pagamento.valor > 0)
+        .filter(Pagamento.tipo == "receita", Pagamento.pedido_id.isnot(None), Pagamento.valor > 0, conta_no_financeiro())
         .order_by(Pagamento.data_vencimento.asc().nullslast())
         .all()
     )
@@ -185,7 +185,7 @@ def get_cobrancas(
 
     custos = (
         db.query(Pagamento.tipo_item, sqlfunc.sum(Pagamento.valor))
-        .filter(Pagamento.natureza == "despesa_financeira", Pagamento.anomes == mes)
+        .filter(Pagamento.natureza == "despesa_financeira", Pagamento.anomes == mes, conta_no_financeiro())
         .group_by(Pagamento.tipo_item)
         .all()
     )
@@ -238,6 +238,7 @@ def get_repasses_funcionaria(
             Pagamento.tipo == "despesa",
             Pagamento.origem == "repasse_funcionaria",
             (Pagamento.data_pagamento.is_(None)) | (Pagamento.anomes == mes),
+            conta_no_financeiro(),
         )
         .order_by(Pagamento.data_pagamento.asc().nullsfirst(), Pagamento.data_vencimento.asc().nullslast())
         .all()

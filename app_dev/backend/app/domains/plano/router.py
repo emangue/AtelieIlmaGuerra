@@ -53,7 +53,7 @@ def list_plano(
 
     # valor_realizado de despesas = soma dos pagamentos tipo=despesa vinculados ao plano_item
     if itens:
-        from .pagamentos_model import Pagamento
+        from .pagamentos_model import Pagamento, conta_no_financeiro
         meses = list({i.anomes for i in itens})
         pag_q = (
             db.query(
@@ -65,6 +65,7 @@ def list_plano(
                 Pagamento.anomes.in_(meses),
                 Pagamento.tipo == "despesa",
                 Pagamento.plano_item_id.isnot(None),
+                conta_no_financeiro(),
             )
             .group_by(Pagamento.plano_item_id)
         )
@@ -91,7 +92,7 @@ def resumo_mensal(
 ):
     """Resumo por mês: planejado e realizado (tudo via pagamentos)."""
     from datetime import date
-    from .pagamentos_model import Pagamento
+    from .pagamentos_model import Pagamento, conta_no_financeiro
 
     y = ano or date.today().year
     prefix = str(y)
@@ -119,6 +120,7 @@ def resumo_mensal(
             Pagamento.anomes.like(f"{prefix}%"),
             Pagamento.tipo == "despesa",
             or_(Pagamento.natureza.is_(None), Pagamento.natureza != "despesa_financeira"),
+            conta_no_financeiro(),
         )
         .group_by(Pagamento.anomes)
     )
@@ -127,7 +129,7 @@ def resumo_mensal(
     # Receita realizada por mês — pagamentos tipo=receita
     rec_real_q = (
         db.query(Pagamento.anomes, func.coalesce(func.sum(Pagamento.valor), 0).label("total"))
-        .filter(Pagamento.anomes.like(f"{prefix}%"), Pagamento.tipo == "receita")
+        .filter(Pagamento.anomes.like(f"{prefix}%"), Pagamento.tipo == "receita", conta_no_financeiro())
         .group_by(Pagamento.anomes)
     )
     rec_real = {r.anomes: float(r.total) for r in rec_real_q}
@@ -138,6 +140,7 @@ def resumo_mensal(
             Pagamento.anomes.like(f"{prefix}%"),
             Pagamento.tipo == "despesa",
             Pagamento.natureza == "despesa_financeira",
+            conta_no_financeiro(),
         )
         .distinct()
         .all()
@@ -175,14 +178,14 @@ def list_despesas_realizadas(
     db: Session = Depends(get_db),
 ):
     """Lista despesas realizadas do plano no mês (via pagamentos tipo=despesa)."""
-    from .pagamentos_model import Pagamento
+    from .pagamentos_model import Pagamento, conta_no_financeiro
 
     if len(mes) != 6 or not mes.isdigit():
         return []
 
     pag_soma = (
         db.query(Pagamento.plano_item_id, func.coalesce(func.sum(Pagamento.valor), 0).label("total"))
-        .filter(Pagamento.anomes == mes, Pagamento.tipo == "despesa", Pagamento.plano_item_id.isnot(None))
+        .filter(Pagamento.anomes == mes, Pagamento.tipo == "despesa", Pagamento.plano_item_id.isnot(None), conta_no_financeiro())
         .group_by(Pagamento.plano_item_id)
     )
     pag_map = {r.plano_item_id: float(r.total) for r in pag_soma}
@@ -221,7 +224,7 @@ def get_dashboard(
     em uma única chamada — reduz de 3 requisições / ~33 queries para 1 / ~9 queries.
     """
     from datetime import date
-    from .pagamentos_model import Pagamento
+    from .pagamentos_model import Pagamento, conta_no_financeiro
     from .pagamentos_router import _to_item
 
     if not mes:
@@ -233,7 +236,7 @@ def get_dashboard(
 
     pagamentos = (
         db.query(Pagamento)
-        .filter(Pagamento.anomes == mes)
+        .filter(Pagamento.anomes == mes, conta_no_financeiro())
         .order_by(Pagamento.data_pagamento.desc(), Pagamento.id.desc())
         .all()
     )
@@ -537,7 +540,7 @@ def get_movimentacoes(
         raise HTTPException(status_code=422, detail="mes deve ser YYYYMM")
 
     from app.domains.pedidos.models import Pedido
-    from .pagamentos_model import Pagamento as PagamentoModel
+    from .pagamentos_model import Pagamento as PagamentoModel, conta_no_financeiro
     from calendar import monthrange
 
     ano  = int(mes[:4])
@@ -585,7 +588,7 @@ def get_movimentacoes(
     # ── Despesas: pagamentos tipo=despesa do mês ────────────
     despesas_pag = (
         db.query(PagamentoModel)
-        .filter(PagamentoModel.anomes == mes, PagamentoModel.tipo == "despesa")
+        .filter(PagamentoModel.anomes == mes, PagamentoModel.tipo == "despesa", conta_no_financeiro())
         .all()
     )
     for t in despesas_pag:

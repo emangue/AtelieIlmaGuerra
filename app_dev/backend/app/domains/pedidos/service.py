@@ -244,7 +244,7 @@ class PedidoService:
             status_pag = None
         elif len(pendentes) == 0:
             status_pag = "confirmado"
-        elif any(
+        elif p.status != "Orçamento" and any(
             x.data_vencimento and x.data_vencimento < __import__("datetime").date.today()
             for x in pendentes
         ):

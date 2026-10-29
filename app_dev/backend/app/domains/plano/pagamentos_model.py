@@ -10,6 +10,8 @@ from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
+STATUS_ORCAMENTO = "Orçamento"
+
 
 class Pagamento(Base):
     """Movimentação financeira realizada (receita ou despesa)."""
@@ -56,9 +58,14 @@ class Pagamento(Base):
             return "confirmado" if ref and ref <= date.today() else "previsto"
         if self.data_pagamento is not None:
             return "confirmado"
-        if self.data_vencimento and self.data_vencimento < date.today():
+        if self.data_vencimento and self.data_vencimento < date.today() and not self.de_orcamento:
             return "em_atraso"
         return "aguardando"
+
+    @property
+    def de_orcamento(self) -> bool:
+        """Parcela de orçamento ainda não aprovado: vencimento passado não é atraso."""
+        return self.pedido is not None and self.pedido.status == STATUS_ORCAMENTO
 
     @property
     def pendente_de_caixa(self) -> bool:
@@ -71,3 +78,22 @@ class Pagamento(Base):
             ref = self.data_pagamento or self.data_vencimento
             return not (ref and ref <= date.today())
         return self.data_pagamento is None
+
+
+def conta_no_financeiro():
+    """Critério SQL: o pagamento é dinheiro real do ateliê.
+
+    Parcela (e custo de cartão) de pedido em Orçamento é só proposta — não entra
+    em receita, despesa, cobrança nem atraso até o orçamento ser aprovado. Telas
+    do próprio pedido não usam este filtro: lá o plano de pagamento continua
+    visível.
+    """
+    from sqlalchemy import exists, or_
+    from sqlalchemy.orm import aliased
+    from app.domains.pedidos.models import Pedido
+
+    ped = aliased(Pedido)
+    return or_(
+        Pagamento.pedido_id.is_(None),
+        ~exists().where(ped.id == Pagamento.pedido_id, ped.status == STATUS_ORCAMENTO),
+    )
