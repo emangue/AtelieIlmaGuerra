@@ -45,6 +45,7 @@ temp/
 tmp/
 logs/
 .pids/
+backups/
 
 # Arquivos sensíveis / dados de clientes
 *.xlsx
