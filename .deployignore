@@ -41,6 +41,7 @@ app_dev/backend/uploads/
 temp/
 tmp/
 logs/
+backups/
 
 # Dados sensíveis / planilhas / contratos
 *.xlsx

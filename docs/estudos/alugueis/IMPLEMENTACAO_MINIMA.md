@@ -80,12 +80,10 @@ para itens idênticos pode ser adicionada depois se for realmente necessária.
 
 ### Acervo — novo router dentro do backend de gestão
 
-- `GET /api/v1/acervo` — lista, busca e filtros;
-- `POST /api/v1/acervo` — novo item;
-- `GET /api/v1/acervo/{id}` — detalhe e histórico resumido;
-- `PATCH /api/v1/acervo/{id}` — edição;
-- `PATCH /api/v1/acervo/{id}/status` — disponibilidade/manutenção;
-- `GET /api/v1/acervo/disponibilidade?retirada=&devolucao=` — itens livres no período.
+- `GET /api/v1/alugueis/acervo` — lista, filtros e disponibilidade opcional por período;
+- `POST /api/v1/alugueis/acervo` — novo item;
+- `PATCH /api/v1/alugueis/acervo/{id}` — edição, status e ativação/inativação;
+- `POST /api/v1/alugueis/acervo/upload-foto` — upload da foto principal do item.
 
 ### Pedidos — extensão do router existente
 
@@ -119,12 +117,12 @@ Manter `mobile/pedidos/novo` e `mobile/pedidos/[id]`:
 - seleção inicial de modalidade;
 - campos de confecção continuam iguais;
 - campos de aluguel aparecem condicionalmente;
-- seletor chama `/acervo/disponibilidade` usando as datas informadas;
+- seletor chama `/api/v1/alugueis/acervo?data_retirada=&data_devolucao=` usando as datas informadas;
 - salvar chama o mesmo endpoint de pedidos.
 
 ### Acervo
 
-Nova rota `mobile/acervo`, acessada pelo menu lateral:
+O acervo fica na visão dedicada de `mobile/alugueis?acervo=1`, acessada pelo menu lateral:
 
 - lista, busca e filtros;
 - cadastro e edição no mesmo padrão visual de clientes/parâmetros;
@@ -157,4 +155,3 @@ A primeira implementação acrescenta um domínio de dados pequeno e duas telas
 novas, mas continua usando a mesma aplicação, banco, autenticação, clientes,
 pedidos, pagamentos, histórico e padrão de edição. Não há novo frontend, novo
 backend ou nova integração externa.
-

@@ -154,7 +154,7 @@ else
   warn "Git Ateliê possui alterações; branch=$(git -C /var/www/atelie branch --show-current) commit=$(git -C /var/www/atelie rev-parse --short HEAD)"
 fi
 
-new_errors=$(journalctl -p 0..3 --since '15 minutes ago' --no-pager 2>/dev/null \
+new_errors=$(journalctl -q -p 0..3 --since '15 minutes ago' --no-pager 2>/dev/null \
   | grep -Ev 'certbot.service|Failed to start certbot' | wc -l)
 if [ "$new_errors" -eq 0 ]; then
   pass 'sem novos erros críticos no journal nos últimos 15 minutos'

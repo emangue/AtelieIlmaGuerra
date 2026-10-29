@@ -154,6 +154,12 @@ if [ "$(id -u)" -eq 0 ] && [ -f "$ATELIE_PATH/scripts/deploy/atelie-backend.serv
     atelie-frontend \
     atelie-atendimento-backend \
     atelie-atendimento-frontend 2>/dev/null || true
+  if [ -f "$ATELIE_PATH/scripts/deploy/atelie-certbot.cron" ]; then
+    install -m 0644 \
+      "$ATELIE_PATH/scripts/deploy/atelie-certbot.cron" \
+      /etc/cron.d/atelie-certbot
+    echo "   Renovação automática do certificado de atendimento instalada"
+  fi
   echo "   Units instalados"
 else
   echo "   (Execute como root para instalar systemd units)"
