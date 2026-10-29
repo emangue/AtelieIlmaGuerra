@@ -71,16 +71,17 @@ Antes de finalizar, a tela mostrará um resumo com fotos e observações. A aten
 
 A atendente confirma o telefone mascarado, a validade do link e envia ou compartilha o convite. A cliente abre uma página temporária, sem criar conta, e pode **concordar**, **pedir correção** ou **informar que não concorda**.
 
-O aceite recomendado combina:
+O aceite da primeira entrega combina:
 
 - link individual e de curta duração, enviado ao canal informado no Pedido;
 - resumo idêntico ao que será preservado no documento;
 - caixa explícita de ciência e concordância;
 - nome completo digitado pela cliente;
-- código de uso único enviado ao telefone da cliente;
 - data e hora do servidor, versão do texto e hash do resumo aceito.
 
-O sistema não armazenará o token ou o código em texto puro. Uma assinatura desenhada na tela poderá existir como complemento P1, mas não será o mecanismo principal: ela gera mais atrito e, isoladamente, oferece menos contexto do que a confirmação no dispositivo da cliente com código e trilha técnica.
+O sistema não armazenará o token em texto puro. Na primeira entrega, o link será compartilhado manualmente por um texto pronto no WhatsApp ou copiado para outro canal; não haverá SMS nem código de uso único. Uma assinatura desenhada poderá existir como complemento P1, mas não será o mecanismo principal.
+
+Sem segundo fator, o sistema registra uma manifestação feita por meio de um link individual enviado ao contato cadastrado, mas não deve afirmar que verificou a identidade por SMS ou que produziu assinatura qualificada. A trilha continua preservando qual versão foi apresentada, qual ação ocorreu e quando.
 
 ### 6.4 Finalização
 
@@ -249,7 +250,6 @@ O upload local atual de fotos de Pedido não atende sozinho aos requisitos de pr
 - `GET /api/v1/provas/{prova_id}/midias/{midia_id}/acesso`
 - `POST /api/v1/provas/{prova_id}/aceites/convites`
 - `GET /api/v1/aceites/{token_publico}` — resumo temporário, sem revelar o Pedido completo
-- `POST /api/v1/aceites/{token_publico}/codigo/solicitar`
 - `POST /api/v1/aceites/{token_publico}/aceitar`
 - `POST /api/v1/aceites/{token_publico}/correcao`
 - `POST /api/v1/aceites/{token_publico}/discordar`
@@ -274,7 +274,7 @@ O sistema oferece checks sugeridos — medidas e caimento, acabamento, condiçã
 
 ### Tela C — Revisar e enviar
 
-Prévia fiel do resumo que a cliente verá, com alertas para foto sem legenda, ajuste sem responsável ou mudança de preço sem valor. A atendente confirma o canal e escolhe **Gerar link de aceite**. O compartilhamento pode ser manual no piloto; a integração automática é evolução posterior.
+Prévia fiel do resumo que a cliente verá, com alertas para foto sem legenda, ajuste sem responsável ou mudança de preço sem valor. A atendente confirma o telefone, escolhe **Gerar link de aceite** e então usa **Compartilhar no WhatsApp** ou **Copiar link**. O WhatsApp abre com texto pronto, mas a atendente ainda confirma a conversa e pressiona enviar. A integração automática é evolução posterior.
 
 ### Tela D — Aceite da cliente
 
@@ -282,7 +282,7 @@ Página mobile sem login e com identidade clara do ateliê. Mostra somente os da
 
 - **Pedir correção**, com motivo obrigatório;
 - **Não concordo**, com motivo opcional;
-- **Li e estou de acordo**, seguido de nome completo e código de uso único.
+- **Li e estou de acordo**, seguido de nome completo.
 
 O botão final dirá **Confirmar concordância**; não se usará texto genérico como “Continuar”. Antes da confirmação, a página informa que o registro será preservado com data e hora. Após concluir, apresenta protocolo e opção de baixar o documento.
 
@@ -306,9 +306,10 @@ O ateliê vê o relatório em formato semelhante a uma folha A4, o estado do ace
 
 | Opção | Atrito | Força do registro | Decisão |
 |---|---:|---:|---|
-| Link + nome digitado + código de uso único | Baixo | Bom equilíbrio de identidade, intenção, conteúdo e horário | **Recomendado para P0** |
+| Link individual + nome digitado | Muito baixo | Preserva intenção, conteúdo e horário; não verifica posse por segundo fator | **Escolhido para P0** |
 | Aceite presencial assistido no aparelho do ateliê | Muito baixo | Menor independência do dispositivo/canal | Fallback, identificado como assistido |
 | Assinatura desenhada | Médio | Complemento visual, mas fraco quando isolado | Opcional em P1 |
+| Link + código enviado por SMS | Baixo | Acrescenta verificação do telefone | P1, quando houver provedor |
 | Provedor externo de assinatura eletrônica | Médio/alto | Evidência e operação especializadas | Avaliar em P2 se o risco justificar |
 
 O objetivo não é simular uma assinatura qualificada. É demonstrar, de forma proporcional e pouco friccionante, **quem recebeu qual versão, o que foi apresentado, qual ação tomou e quando isso ocorreu**.
@@ -322,7 +323,8 @@ O objetivo não é simular uma assinatura qualificada. É demonstrar, de forma p
 - Estado rascunho e estado finalizado.
 - Fotos privadas, autorizadas e identificadas por hash.
 - Registro de ciência, recusa ou não aplicabilidade.
-- Aceite remoto por link temporário, nome digitado e código de uso único.
+- Aceite remoto por link temporário, nome digitado e confirmação explícita.
+- Texto pronto e compartilhamento manual no WhatsApp, sem dependência de API externa.
 - Opções explícitas para pedir correção e registrar discordância.
 - Checks estruturados, incluindo impacto de preço quando aplicável.
 - Documento PDF gerado na finalização.
@@ -336,6 +338,7 @@ O objetivo não é simular uma assinatura qualificada. É demonstrar, de forma p
 ### P1
 
 - assinatura desenhada opcional, sempre vinculada ao mesmo resumo e trilha de aceite;
+- código de uso único por SMS ou WhatsApp oficial, após contratação de provedor;
 - envio do relatório por e-mail ou WhatsApp mediante ação explícita;
 - comparação visual entre provas;
 - lembrete de prova agendada sem registro;
@@ -362,7 +365,7 @@ O objetivo não é simular uma assinatura qualificada. É demonstrar, de forma p
 - Dado um convite válido, quando a cliente pede correção, então o conteúdo não é marcado como aceito e o motivo aparece no Pedido.
 - Dado um resumo alterado depois de um convite, quando a cliente tenta aceitar o link anterior, então o sistema recusa a confirmação e exige novo convite.
 - Dado um aceite concluído, quando qualquer usuário tenta editar o resumo aceito, então a operação é recusada e auditada.
-- Dado um código incorreto ou tentativas excessivas, quando a cliente tenta confirmar, então o sistema limita novas tentativas sem revelar dados adicionais.
+- Dado um token inválido, expirado, cancelado ou já concluído, quando alguém abre o link, então o sistema apresenta resposta neutra sem revelar dados do Pedido.
 
 ## 14. Estratégia de testes
 
@@ -386,7 +389,7 @@ O objetivo não é simular uma assinatura qualificada. É demonstrar, de forma p
 
 ### End-to-end
 
-Criar Pedido → registrar prova → adicionar fotos e checks → revisar → gerar convite → cliente pede correção → corrigir e reenviar → cliente aceita com código → gerar PDF → consultar histórico → tentar edição indevida → criar retificação.
+Criar Pedido → registrar prova → adicionar fotos e checks → revisar → gerar convite → compartilhar texto no WhatsApp → cliente pede correção → corrigir e reenviar → cliente aceita pelo link → gerar PDF → consultar histórico → tentar edição indevida → criar retificação.
 
 ### Operação
 
