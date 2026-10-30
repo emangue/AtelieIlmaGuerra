@@ -13,7 +13,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { getToken } from "@/lib/api-client";
 import { formatDateOnlyBR, todayLocalISO } from "@/lib/date-utils";
@@ -80,19 +79,22 @@ function Linha({ label, valor, destaque }: { label: string; valor: string; desta
   );
 }
 
-/** Seção do pedido para registrar o distrato. */
-export function DistratoRegistro({
+/** Formulário de distrato, aberto pelo menu de ações do pedido. */
+export function DistratoDialog({
+  open,
+  onOpenChange: setOpen,
   pedidoId,
   clienteNome,
   apiUrl,
   onRegistrado,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   pedidoId: number;
   clienteNome: string;
   apiUrl: string;
   onRegistrado: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<DistratoPreview | null>(null);
   const [data, setData] = useState(todayLocalISO());
   const [motivo, setMotivo] = useState("cliente");
@@ -153,28 +155,13 @@ export function DistratoRegistro({
   };
 
   return (
-    <section className="rounded-xl border border-purple-100 bg-purple-50 p-4">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-purple-600">
-          <FileX2 className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-purple-900">Registrar distrato</h2>
-          <p className="mt-1 text-sm text-purple-700">
-            Quando a cliente desiste depois de já ter pago: registra o que fica com o ateliê e o que volta para ela.
-          </p>
           <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button type="button" className="mt-3 w-full bg-purple-600 text-white hover:bg-purple-700 sm:w-auto">
-                <FileX2 className="h-4 w-4" />
-                Registrar distrato
-              </Button>
-            </DialogTrigger>
             <DialogContent className="max-h-[90vh] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg">
               <DialogHeader>
                 <DialogTitle>Distrato · {clienteNome}</DialogTitle>
                 <DialogDescription>
-                  Parcelas pendentes são canceladas. Cartão já passado continua caindo normalmente.
+                  Para quando a cliente desiste depois de já ter pago. Parcelas pendentes são canceladas;
+                  cartão já passado continua caindo normalmente.
                 </DialogDescription>
               </DialogHeader>
 
@@ -289,9 +276,6 @@ export function DistratoRegistro({
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </div>
-      </div>
-    </section>
   );
 }
 

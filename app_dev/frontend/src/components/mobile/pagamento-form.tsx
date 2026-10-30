@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Check, RotateCcw } from "lucide-react";
 import { getToken } from "@/lib/api-client";
 import {
@@ -347,6 +347,11 @@ interface PagamentoFormEditProps {
   pagamentoNaEntrega: boolean | null;
   onFormaPagamentoChange: (f: string | null) => void;
   onSaved?: () => void;
+  /**
+   * O pai (tela de edição do pedido) usa isto para salvar o pagamento junto com
+   * o "Salvar" geral. Fica null quando não há alteração pendente.
+   */
+  saveRef?: React.MutableRefObject<(() => Promise<boolean>) | null>;
 }
 
 interface ParcelaOut {
@@ -377,7 +382,7 @@ const PAG_STATUS_LABEL: Record<string, string> = {
 };
 
 export function PagamentoFormEdit({
-  pedidoId, valorPecas, apiUrl, formaPagamento, pagamentoNaEntrega, onFormaPagamentoChange, onSaved,
+  pedidoId, valorPecas, apiUrl, formaPagamento, pagamentoNaEntrega, onFormaPagamentoChange, onSaved, saveRef,
 }: PagamentoFormEditProps) {
   const st = usePagamentoState();
   const taxas = useTaxas(apiUrl);
@@ -460,7 +465,22 @@ export function PagamentoFormEdit({
     parcelas, entrada, taxas, cartaoTaxaNoRestante, st.taxaCartaoManual, st.descontoPixManual
   );
 
-  const handleSave = async () => {
+  // Sem isto, trocar só a data não dava sinal nenhum — nem de pendente, nem de salvo.
+  const snapshot = JSON.stringify({
+    pnEntrega, forma: st.formaRestante, entrada, parcelas,
+    canal: st.canalCartao, taxa: st.taxaCartaoManual, desconto: st.descontoPixManual,
+  });
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const [salvoAgora, setSalvoAgora] = useState(false);
+  useEffect(() => {
+    if (loaded && baseline === null) setBaseline(snapshot);
+  }, [loaded, baseline, snapshot]);
+  const alterado = loaded && baseline !== null && snapshot !== baseline;
+  useEffect(() => {
+    if (alterado) setSalvoAgora(false);
+  }, [alterado]);
+
+  const handleSave = async (): Promise<boolean> => {
     setSaving(true);
     setErro(null);
     try {
@@ -497,12 +517,24 @@ export function PagamentoFormEdit({
           throw new Error(typeof body?.detail === "string" ? body.detail : "Não foi possível salvar as parcelas.");
         }
       }
+      setBaseline(null); // volta a comparar com o que o servidor devolver
+      setSalvoAgora(true);
       loadParcelas();
       onSaved?.();
+      return true;
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao salvar pagamento.");
+      return false;
     } finally { setSaving(false); }
   };
+
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+  useEffect(() => {
+    if (!saveRef) return;
+    saveRef.current = alterado ? () => handleSaveRef.current() : null;
+    return () => { saveRef.current = null; };
+  }, [saveRef, alterado]);
 
   if (!loaded) return <div className="flex justify-center py-6"><Loader2 className="w-4 h-4 animate-spin text-gray-400" /></div>;
 
@@ -550,6 +582,12 @@ export function PagamentoFormEdit({
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
         {pnEntrega ? "Salvar configuração" : "Salvar pagamento"}
       </button>
+      {alterado && !saving && (
+        <p className="text-xs text-amber-700 text-center">Alterações no pagamento ainda não salvas</p>
+      )}
+      {!alterado && salvoAgora && (
+        <p className="text-xs text-green-700 text-center">Pagamento salvo</p>
+      )}
     </div>
   );
 }
@@ -618,6 +656,7 @@ function BlocoEntrada({ st }: { st: EstadoPagamento }) {
                   type="date"
                   value={st.entradaPagoEm || ""}
                   onChange={(e) => st.setEntradaPagoEm(e.target.value || null)}
+                  onBlur={(e) => st.setEntradaPagoEm(e.target.value || null)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
                 />
               </div>
@@ -757,6 +796,8 @@ function PreviewParcelas({ parcelas, temEntrada, statusPorIndice, onPago }: {
                     type="date"
                     value={p.data_pagamento || ""}
                     onChange={(e) => onPago(i, e.target.value)}
+                    // iOS às vezes só entrega o valor do seletor ao perder o foco.
+                    onBlur={(e) => onPago(i, e.target.value)}
                     className="w-full px-1.5 py-1 border border-gray-200 rounded-lg text-[10px]"
                   />
                 </div>

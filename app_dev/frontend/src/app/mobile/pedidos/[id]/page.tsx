@@ -15,7 +15,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   ArrowLeft,
@@ -32,13 +31,15 @@ import {
   ImageIcon,
   XCircle,
   AlertTriangle,
+  MoreHorizontal,
+  FileX2,
 } from "lucide-react";
 import { PagamentoFormEdit } from "@/components/mobile/pagamento-form";
 import { PedidoConfirmacaoAtipica } from "@/components/mobile/pedido-confirmacao-atipica";
 import { calcularMargem, avaliarAvisosPedido, AvisoPedido, ParametrosCalculo } from "@/lib/margem-pedido";
 import { getToken } from "@/lib/api-client";
 import { parseDateOnly, todayLocalISO } from "@/lib/date-utils";
-import { DistratoRegistro, DistratoResumo, type DistratoInfo } from "@/components/mobile/distrato";
+import { DistratoDialog, DistratoResumo, type DistratoInfo } from "@/components/mobile/distrato";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -257,6 +258,11 @@ export default function PedidoDetailPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Ações do pedido ficam num menu no topo, não em caixas no fim da tela.
+  const [menuAcoes, setMenuAcoes] = useState(false);
+  const [distratoAberto, setDistratoAberto] = useState(false);
+  const [confirmarExcluir, setConfirmarExcluir] = useState(false);
+  const [confirmarCancelarOrc, setConfirmarCancelarOrc] = useState(false);
   const [fotoUploading, setFotoUploading] = useState(false);
 
   // Form state
@@ -295,6 +301,8 @@ export default function PedidoDetailPage() {
   const [avisosAtipicos, setAvisosAtipicos] = useState<AvisoPedido[]>([]);
   const [confirmadoAtipico, setConfirmadoAtipico] = useState(false);
   const pagamentoSectionRef = useRef<HTMLElement | null>(null);
+  // Preenchido pelo formulário de pagamento quando há alteração não salva nele.
+  const pagamentoSaveRef = useRef<(() => Promise<boolean>) | null>(null);
 
   const loadPedido = () => {
     authFetch(`${API_URL}/api/v1/pedidos/${id}`)
@@ -512,6 +520,13 @@ export default function PedidoDetailPage() {
         return;
       }
       if (!res.ok) throw new Error("Erro ao salvar");
+      // O "Salvar" geral também leva o pagamento: antes, uma data de pagamento
+      // trocada se perdia aqui sem aviso.
+      if (pagamentoSaveRef.current) {
+        const ok = await pagamentoSaveRef.current();
+        if (!ok) return; // erro já aparece no formulário de pagamento
+      }
+      loadParcelas();
       // Refetch para obter o pedido completo (PATCH retorna PedidoListItem)
       const detailRes = await authFetch(`${API_URL}/api/v1/pedidos/${id}`);
       if (detailRes.ok) {
@@ -522,7 +537,7 @@ export default function PedidoDetailPage() {
       setConfirmadoAtipico(false);
       setEditing(false);
     } catch {
-      // ignore
+      alert("Não foi possível salvar o pedido. Tente novamente.");
     } finally {
       setSaving(false);
     }
@@ -895,6 +910,8 @@ export default function PedidoDetailPage() {
               formaPagamento={formaPagamento}
               pagamentoNaEntrega={pedido?.pagamento_na_entrega ?? null}
               onFormaPagamentoChange={setFormaPagamento}
+              onSaved={loadParcelas}
+              saveRef={pagamentoSaveRef}
             />
           </section>
           )}
@@ -1242,13 +1259,69 @@ export default function PedidoDetailPage() {
               )}
             </div>
           </div>
-          <Link
-            href={`/mobile/contratos/novo?cliente_id=${pedido.cliente_id}`}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-medium text-gray-700"
-          >
-            <FileText className="h-4 w-4" />
-            Contrato
-          </Link>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={enterEditMode}
+              className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+            >
+              <Pencil className="h-4 w-4" />
+              Editar
+            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMenuAcoes((m) => !m)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100"
+                aria-label="Mais ações"
+              >
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
+              {menuAcoes && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuAcoes(false)} />
+                  <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+                    <Link
+                      href={`/mobile/contratos/novo?cliente_id=${pedido.cliente_id}`}
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <FileText className="h-4 w-4 text-gray-400" />
+                      Gerar contrato
+                    </Link>
+                    {!["Orçamento", "Cancelado", "Distrato"].includes(pedido.status) && (
+                      <button
+                        type="button"
+                        onClick={() => { setMenuAcoes(false); setDistratoAberto(true); }}
+                        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <FileX2 className="h-4 w-4 text-gray-400" />
+                        Registrar distrato
+                      </button>
+                    )}
+                    {pedido.status === "Orçamento" && (
+                      <button
+                        type="button"
+                        onClick={() => { setMenuAcoes(false); setConfirmarCancelarOrc(true); }}
+                        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <XCircle className="h-4 w-4 text-gray-400" />
+                        Cancelar orçamento
+                      </button>
+                    )}
+                    <div className="my-1 border-t border-gray-100" />
+                    <button
+                      type="button"
+                      onClick={() => { setMenuAcoes(false); setConfirmarExcluir(true); }}
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Excluir pedido
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1533,8 +1606,9 @@ export default function PedidoDetailPage() {
                     </p>
                   </div>
                 )}
-                {/* No distrato o que faltava foi cancelado — "restante" enganaria. */}
-                {pedido.valor_restante != null && pedido.status !== "Distrato" && (
+                {/* Campo legado: com parcelas lançadas elas mostram a situação real, e no
+                    distrato o que faltava foi cancelado — "restante" enganaria. */}
+                {pedido.valor_restante != null && pedido.status !== "Distrato" && parcelas.length === 0 && (
                   <div className="py-2 px-3 rounded-lg bg-gray-50">
                     <p className="text-xs text-gray-500">Restante</p>
                     <p className="font-medium text-gray-900">
@@ -1639,134 +1713,69 @@ export default function PedidoDetailPage() {
           </section>
         )}
 
-        {pedido.status === "Orçamento" ? (
-          <section className="rounded-xl border border-amber-100 bg-amber-50 p-4">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-amber-600">
-                <XCircle className="h-4 w-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-sm font-semibold text-amber-900">Cancelar orçamento</h2>
-                <p className="mt-1 text-sm text-amber-700">
-                  O orçamento sai da lista de ativos, mas continua no histórico para acompanhar conversão.
-                </p>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      type="button"
-                      className="mt-3 w-full bg-amber-600 text-white hover:bg-amber-700 sm:w-auto"
-                      disabled={deleting}
-                    >
-                      {deleting ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <XCircle className="h-4 w-4" />
-                      )}
-                      Cancelar orçamento
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent className="max-w-[calc(100vw-2rem)] rounded-lg">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Cancelar este orçamento?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        O orçamento de {pedido.cliente_nome} será marcado como Cancelado e continuará
-                        disponível no histórico. Nenhum registro será apagado.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel disabled={deleting}>Voltar</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleCancelOrcamento();
-                        }}
-                        disabled={deleting}
-                        className="bg-amber-600 text-white hover:bg-amber-700"
-                      >
-                        {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
-                        Confirmar cancelamento
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            </div>
-          </section>
-        ) : (
-        <>
-        {!["Cancelado", "Distrato"].includes(pedido.status) && (
-          <DistratoRegistro
-            pedidoId={pedido.id}
-            clienteNome={pedido.cliente_nome}
-            apiUrl={API_URL}
-            onRegistrado={loadPedido}
-          />
-        )}
-        <section className="rounded-xl border border-red-100 bg-red-50 p-4">
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-red-500">
-              <Trash2 className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-semibold text-red-900">Excluir pedido</h2>
-              <p className="mt-1 text-sm text-red-700">
-                Use quando o pedido foi lançado duplicado ou não deve existir no histórico.
-              </p>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    className="mt-3 w-full bg-red-600 hover:bg-red-700 sm:w-auto"
-                    disabled={deleting}
-                  >
-                    {deleting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                    Excluir pedido
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="max-w-[calc(100vw-2rem)] rounded-lg">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Excluir este pedido?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      O pedido de {pedido.cliente_nome} será removido junto com os pagamentos vinculados.
-                      Esta ação não pode ser desfeita.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleDelete();
-                      }}
-                      disabled={deleting}
-                      className="bg-red-600 text-white hover:bg-red-700"
-                    >
-                      {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
-                      Excluir definitivamente
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </div>
-        </section>
-        </>
-        )}
       </div>
 
-      {/* FAB Editar */}
-      <button
-        onClick={enterEditMode}
-        className="fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg hover:bg-red-600"
-        aria-label="Editar"
-      >
-        <Pencil className="h-6 w-6" />
-      </button>
+      {/* Confirmações das ações do menu */}
+      <DistratoDialog
+        open={distratoAberto}
+        onOpenChange={setDistratoAberto}
+        pedidoId={pedido.id}
+        clienteNome={pedido.cliente_nome}
+        apiUrl={API_URL}
+        onRegistrado={() => { loadPedido(); loadParcelas(); }}
+      />
+
+      <AlertDialog open={confirmarCancelarOrc} onOpenChange={setConfirmarCancelarOrc}>
+        <AlertDialogContent className="max-w-[calc(100vw-2rem)] rounded-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar este orçamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O orçamento de {pedido.cliente_nome} será marcado como Cancelado e continuará
+              disponível no histórico. Nenhum registro será apagado.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleCancelOrcamento();
+              }}
+              disabled={deleting}
+              className="bg-amber-600 text-white hover:bg-amber-700"
+            >
+              {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Confirmar cancelamento
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmarExcluir} onOpenChange={setConfirmarExcluir}>
+        <AlertDialogContent className="max-w-[calc(100vw-2rem)] rounded-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir este pedido?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Use só quando o pedido foi lançado duplicado ou não deve existir. O pedido de{" "}
+              {pedido.cliente_nome} será removido junto com os pagamentos vinculados, sem como desfazer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleDelete();
+              }}
+              disabled={deleting}
+              className="bg-red-600 text-white hover:bg-red-700"
+            >
+              {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Excluir definitivamente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
     </div>
   );
