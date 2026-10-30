@@ -11,6 +11,7 @@ import { PagamentoForm, PagamentoConfig, pagamentoConfigInicial } from "@/compon
 import { PedidoConfirmacaoAtipica } from "@/components/mobile/pedido-confirmacao-atipica";
 import { calcularMargem, avaliarAvisosPedido, AvisoPedido } from "@/lib/margem-pedido";
 import { getToken } from "@/lib/api-client";
+import { todayLocalISO } from "@/lib/date-utils";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -495,7 +496,7 @@ function NovoPedidoContent() {
           // A entrada vence na data-base do pagamento (compra no cartão ou 1º vencimento).
           data_vencimento: pagamentoConfig.data_compra_cartao
             ?? pagamentoConfig.parcelas[0]?.data_vencimento
-            ?? new Date().toISOString().slice(0, 10),
+            ?? todayLocalISO(),
           data_pagamento: pagamentoConfig.entrada.data_pagamento,
           forma_pagamento: pagamentoConfig.entrada.forma_pagamento,
         } : null;

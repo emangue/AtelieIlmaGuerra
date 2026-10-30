@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { getToken } from "@/lib/api-client";
+import { todayLocalISO } from "@/lib/date-utils";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -28,7 +29,7 @@ export default function NovoOrcamentoPage() {
   const [loading, setLoading] = useState(false);
   const [clientes, setClientes] = useState<ClienteItem[]>([]);
   const [clienteId, setClienteId] = useState("");
-  const [data, setData] = useState(new Date().toISOString().split("T")[0]);
+  const [data, setData] = useState(todayLocalISO());
   const [descricao, setDescricao] = useState("");
   const [horasTrabalho, setHorasTrabalho] = useState("0");
   const [custoMateriais, setCustoMateriais] = useState("0");

@@ -357,6 +357,17 @@ class CobrancaItem(BaseModel):
     desconto_adiantamento: Optional[float] = None
 
 
+class EntregueSemPagamentoItem(BaseModel):
+    """Pedido entregue sem nenhuma parcela lançada: não aparece em nenhuma visão de caixa."""
+    pedido_id: int
+    cliente_nome: str
+    tipo_pedido: str
+    valor_pecas: float
+    data_entrega: Optional[str] = None
+    forma_pagamento: Optional[str] = None
+    dias_desde_entrega: int = 0
+
+
 class CobrancasResumo(BaseModel):
     total_em_atraso: float
     count_em_atraso: int
@@ -373,6 +384,8 @@ class CobrancasResumo(BaseModel):
     total_devolucoes_pendentes: float = 0
     count_devolucoes_pendentes: int = 0
     total_devolvido: float = 0
+    total_entregues_sem_pagamento: float = 0
+    count_entregues_sem_pagamento: int = 0
 
 
 class CobrancasResponse(BaseModel):
@@ -384,6 +397,8 @@ class CobrancasResponse(BaseModel):
     # Distrato: valor sempre positivo aqui (é quanto sai do caixa).
     devolucoes_pendentes: List[CobrancaItem] = []
     devolucoes_pagas: List[CobrancaItem] = []
+    # Alerta: não depende do mês — pedido no limbo não pode sumir quando o mês vira.
+    entregues_sem_pagamento: List[EntregueSemPagamentoItem] = []
     resumo: CobrancasResumo
 
 

@@ -31,12 +31,13 @@ import {
   FileText,
   ImageIcon,
   XCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { PagamentoFormEdit } from "@/components/mobile/pagamento-form";
 import { PedidoConfirmacaoAtipica } from "@/components/mobile/pedido-confirmacao-atipica";
 import { calcularMargem, avaliarAvisosPedido, AvisoPedido, ParametrosCalculo } from "@/lib/margem-pedido";
 import { getToken } from "@/lib/api-client";
-import { parseDateOnly } from "@/lib/date-utils";
+import { parseDateOnly, todayLocalISO } from "@/lib/date-utils";
 import { DistratoRegistro, DistratoResumo, type DistratoInfo } from "@/components/mobile/distrato";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
@@ -77,7 +78,7 @@ interface TipoPedidoItem {
 }
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalISO();
 }
 
 const PAG_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -882,7 +883,7 @@ export default function PedidoDetailPage() {
 
           {/* Pagamento — encerrado no distrato */}
           {status !== "Distrato" && (
-          <section className="rounded-xl border border-gray-200 bg-white p-4">
+          <section id="pagamento-edit" className="scroll-mt-20 rounded-xl border border-gray-200 bg-white p-4">
             <h3 className="text-sm font-medium text-gray-500 mb-3 flex items-center gap-2">
               <CreditCard className="w-4 h-4" />
               Pagamento
@@ -1473,6 +1474,35 @@ export default function PedidoDetailPage() {
         )}
 
         {pedido.status === "Distrato" && pedido.distrato && <DistratoResumo distrato={pedido.distrato} />}
+
+        {/* Entregue sem parcela lançada: fica fora de cobranças e do faturamento por pagamento. */}
+        {pedido.status === "Entregue" && parcelasLoaded && parcelas.length === 0 && (pedido.valor_pecas ?? 0) > 0 && (
+          <section className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-semibold text-amber-900">Pagamento não lançado</h2>
+                <p className="mt-1 text-sm text-amber-800">
+                  Este pedido foi entregue mas não tem nenhuma parcela. Lance como ela pagou — ou, se ainda não
+                  pagou, deixe a data de pagamento em branco para virar cobrança.
+                </p>
+                <Button
+                  type="button"
+                  className="mt-3 w-full bg-amber-600 text-white hover:bg-amber-700 sm:w-auto"
+                  onClick={() => {
+                    enterEditMode();
+                    // O formulário de pagamento carrega depois e empurra o layout: rola de novo.
+                    const rolar = () => document.getElementById("pagamento-edit")?.scrollIntoView({ block: "start" });
+                    [150, 700, 1400].forEach((ms) => setTimeout(rolar, ms));
+                  }}
+                >
+                  <CreditCard className="h-4 w-4" />
+                  Lançar pagamento
+                </Button>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Pagamento */}
         {temPagamento && (

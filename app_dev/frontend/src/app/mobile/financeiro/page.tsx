@@ -1,10 +1,14 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { ChevronLeft, ChevronRight, Loader2, Check, X, Search } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Loader2, Check, X, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api-client";
+import { PagamentoFormEdit } from "@/components/mobile/pagamento-form";
+import { todayLocalISO } from "@/lib/date-utils";
+
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
 function formatMoney(val: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -21,7 +25,7 @@ function hojeStr(): string {
 }
 
 function hojeIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalISO();
 }
 
 function addMes(anomes: string, n: number): string {
@@ -77,7 +81,18 @@ interface CobrancasResumo {
   total_devolvido?: number;
 }
 
+interface EntregueSemPagamentoItem {
+  pedido_id: number;
+  cliente_nome: string;
+  tipo_pedido: string;
+  valor_pecas: number;
+  data_entrega: string | null;
+  forma_pagamento: string | null;
+  dias_desde_entrega: number;
+}
+
 interface CobrancasResponse {
+  entregues_sem_pagamento?: EntregueSemPagamentoItem[];
   em_atraso: CobrancaItem[];
   vence_hoje: CobrancaItem[];
   a_vencer: CobrancaItem[];
@@ -126,6 +141,100 @@ function parcelaLabel(item: CobrancaItem): string {
   }
   if (item.parcela_numero) return `Parcela ${item.parcela_numero}`;
   return "À vista";
+}
+
+/**
+ * Pedido entregue sem nenhuma parcela lançada não aparece em cobrança, atraso nem
+ * faturamento por pagamento — fica no limbo. O alerta não depende do mês, e o
+ * pagamento é lançado ali mesmo, sem abrir o pedido.
+ */
+function AlertaEntreguesSemPagamento({
+  itens,
+  onLancado,
+}: {
+  itens: EntregueSemPagamentoItem[];
+  onLancado: () => void;
+}) {
+  const router = useRouter();
+  const [aberto, setAberto] = useState(false);
+  const [editandoId, setEditandoId] = useState<number | null>(null);
+  if (itens.length === 0) return null;
+  const total = itens.reduce((s, i) => s + i.valor_pecas, 0);
+  return (
+    <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50">
+      <button
+        type="button"
+        onClick={() => setAberto((a) => !a)}
+        className="flex w-full items-start gap-3 p-3 text-left"
+      >
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-amber-900">
+            {itens.length} {itens.length === 1 ? "pedido entregue" : "pedidos entregues"} sem pagamento lançado
+          </p>
+          <p className="text-xs text-amber-800">
+            {formatMoney(total)} fora de cobranças e do faturamento por pagamento. Toque no pedido para lançar.
+          </p>
+        </div>
+        <ChevronDown className={`h-5 w-5 shrink-0 text-amber-700 transition-transform ${aberto ? "rotate-180" : ""}`} />
+      </button>
+      {aberto && (
+        <div className="border-t border-amber-200 px-3 pb-2">
+          {itens.map((i) => {
+            const editando = editandoId === i.pedido_id;
+            return (
+              <div key={i.pedido_id} className="border-b border-amber-100 last:border-b-0">
+                <button
+                  type="button"
+                  onClick={() => setEditandoId(editando ? null : i.pedido_id)}
+                  className="flex w-full items-center justify-between gap-3 py-2 text-left"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-gray-900">{i.cliente_nome}</p>
+                    <p className="truncate text-xs text-gray-600">
+                      {i.tipo_pedido} · entregue {formatDataBR(i.data_entrega)}
+                      {i.forma_pagamento ? ` · ${i.forma_pagamento}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-amber-900">{formatMoney(i.valor_pecas)}</p>
+                      <p className="text-[11px] text-amber-700">há {i.dias_desde_entrega}d</p>
+                    </div>
+                    <ChevronDown className={`h-4 w-4 text-amber-700 transition-transform ${editando ? "rotate-180" : ""}`} />
+                  </div>
+                </button>
+                {editando && (
+                  <div className="mb-3 rounded-lg border border-gray-200 bg-white p-3">
+                    {/* Entregue: as parcelas têm que existir — "pagar na entrega" começa desligado. */}
+                    <PagamentoFormEdit
+                      pedidoId={i.pedido_id}
+                      valorPecas={i.valor_pecas}
+                      apiUrl={API_URL}
+                      formaPagamento={i.forma_pagamento}
+                      pagamentoNaEntrega={false}
+                      onFormaPagamentoChange={() => {}}
+                      onSaved={() => {
+                        setEditandoId(null);
+                        onLancado();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/mobile/pedidos/${i.pedido_id}?from=financeiro&aba=pagamento`)}
+                      className="mt-2 w-full text-center text-xs font-medium text-gray-500 hover:text-gray-700"
+                    >
+                      Abrir pedido completo
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CardCobranca({
@@ -733,6 +842,11 @@ export default function FinanceiroPage() {
                 </p>
               </div>
             </div>
+
+            <AlertaEntreguesSemPagamento
+              itens={cobrancas?.entregues_sem_pagamento ?? []}
+              onLancado={fetchCobrancas}
+            />
 
             {erroAcao && (
               <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-2">

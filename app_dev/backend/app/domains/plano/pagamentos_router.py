@@ -27,7 +27,7 @@ from .models import PlanoItem
 from .schemas import (
     PagamentoCreate, PagamentoItem, PagamentosResponse, PagamentoUpdate,
     PagamentosTotais, LinhaSemLancamentoOut,
-    CobrancaItem, CobrancasResumo, CobrancasResponse,
+    CobrancaItem, CobrancasResumo, CobrancasResponse, EntregueSemPagamentoItem,
 )
 
 router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"], dependencies=[Depends(get_user_id_from_token)])
@@ -114,7 +114,7 @@ def get_cobrancas(
     from datetime import timedelta
     from app.domains.pedidos.models import Pedido, TipoPedido
     from app.domains.clientes.models import Cliente
-    from sqlalchemy import func as sqlfunc
+    from sqlalchemy import exists, func as sqlfunc
 
     hoje = date_type.today()
 
@@ -207,6 +207,35 @@ def get_cobrancas(
         )
         (devolucoes_pendentes if pendente else devolucoes_pagas).append(item)
 
+    sem_pagamento_rows = (
+        db.query(Pedido, Cliente.nome.label("cliente_nome"), TipoPedido.nome.label("tipo_pedido"))
+        .outerjoin(Cliente, Cliente.id == Pedido.cliente_id)
+        .outerjoin(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
+        .filter(
+            Pedido.status == "Entregue",
+            Pedido.valor_pecas > 0,
+            ~exists().where(
+                Pagamento.pedido_id == Pedido.id,
+                Pagamento.tipo == "receita",
+                Pagamento.origem != "devolucao",
+            ),
+        )
+        .order_by(Pedido.data_entrega.asc().nullsfirst())
+        .all()
+    )
+    entregues_sem_pagamento = [
+        EntregueSemPagamentoItem(
+            pedido_id=ped.id,
+            cliente_nome=cliente_nome or "—",
+            tipo_pedido=tipo_pedido or "Pedido",
+            valor_pecas=float(ped.valor_pecas or 0),
+            data_entrega=ped.data_entrega.isoformat() if ped.data_entrega else None,
+            forma_pagamento=ped.forma_pagamento,
+            dias_desde_entrega=(hoje - ped.data_entrega).days if ped.data_entrega else 0,
+        )
+        for ped, cliente_nome, tipo_pedido in sem_pagamento_rows
+    ]
+
     sete_dias = hoje + timedelta(days=7)
     vence_7dias = vence_hoje + [
         x for x in a_vencer if x.data_vencimento and x.data_vencimento <= sete_dias.isoformat()
@@ -236,6 +265,8 @@ def get_cobrancas(
         total_devolucoes_pendentes=round(sum(i.valor for i in devolucoes_pendentes), 2),
         count_devolucoes_pendentes=len(devolucoes_pendentes),
         total_devolvido=round(sum(i.valor for i in devolucoes_pagas), 2),
+        total_entregues_sem_pagamento=round(sum(i.valor_pecas for i in entregues_sem_pagamento), 2),
+        count_entregues_sem_pagamento=len(entregues_sem_pagamento),
     )
 
     return CobrancasResponse(
@@ -246,6 +277,7 @@ def get_cobrancas(
         previstas_cartao=previstas_cartao,
         devolucoes_pendentes=devolucoes_pendentes,
         devolucoes_pagas=devolucoes_pagas,
+        entregues_sem_pagamento=entregues_sem_pagamento,
         resumo=resumo,
     )
 

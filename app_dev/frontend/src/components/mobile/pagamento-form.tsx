@@ -14,6 +14,7 @@ import {
   isParcelado,
   isPix,
 } from "@/lib/formas-pagamento";
+import { todayLocalISO } from "@/lib/date-utils";
 
 function authFetch(url: string, init?: RequestInit) {
   const token = getToken();
@@ -79,7 +80,7 @@ function addMonths(iso: string, n: number): string {
 }
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalISO();
 }
 
 function brl(v: number) {
