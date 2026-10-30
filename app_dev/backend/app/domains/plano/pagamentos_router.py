@@ -27,7 +27,7 @@ from .models import PlanoItem
 from .schemas import (
     PagamentoCreate, PagamentoItem, PagamentosResponse, PagamentoUpdate,
     PagamentosTotais, LinhaSemLancamentoOut,
-    CobrancaItem, CobrancasResumo, CobrancasResponse, EntregueSemPagamentoItem,
+    CobrancaItem, CobrancasResumo, CobrancasResponse, EntregueSemMargemItem, EntregueSemPagamentoItem,
 )
 
 router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"], dependencies=[Depends(get_user_id_from_token)])
@@ -236,6 +236,33 @@ def get_cobrancas(
         for ped, cliente_nome, tipo_pedido in sem_pagamento_rows
     ]
 
+    # Mesma regra do alerta diário da Neusa (neusa/relatorios_agendados.py):
+    # antes de 2026 o ateliê não lançava margem — lacuna histórica, não pendência.
+    sem_margem_rows = (
+        db.query(Pedido, Cliente.nome.label("cliente_nome"), TipoPedido.nome.label("tipo_pedido"))
+        .outerjoin(Cliente, Cliente.id == Pedido.cliente_id)
+        .outerjoin(TipoPedido, TipoPedido.id == Pedido.tipo_pedido_id)
+        .filter(
+            Pedido.status == "Entregue",
+            Pedido.margem_real.is_(None),
+            Pedido.data_entrega >= date_type(2026, 1, 1),
+        )
+        .order_by(Pedido.data_entrega.asc())
+        .all()
+    )
+    entregues_sem_margem = [
+        EntregueSemMargemItem(
+            pedido_id=ped.id,
+            cliente_nome=cliente_nome or "—",
+            tipo_pedido=tipo_pedido or "Pedido",
+            valor_pecas=float(ped.valor_pecas or 0),
+            data_entrega=ped.data_entrega.isoformat() if ped.data_entrega else None,
+            horas_trabalho=ped.horas_trabalho,
+            custo_materiais=ped.custo_materiais,
+        )
+        for ped, cliente_nome, tipo_pedido in sem_margem_rows
+    ]
+
     sete_dias = hoje + timedelta(days=7)
     vence_7dias = vence_hoje + [
         x for x in a_vencer if x.data_vencimento and x.data_vencimento <= sete_dias.isoformat()
@@ -267,6 +294,7 @@ def get_cobrancas(
         total_devolvido=round(sum(i.valor for i in devolucoes_pagas), 2),
         total_entregues_sem_pagamento=round(sum(i.valor_pecas for i in entregues_sem_pagamento), 2),
         count_entregues_sem_pagamento=len(entregues_sem_pagamento),
+        count_entregues_sem_margem=len(entregues_sem_margem),
     )
 
     return CobrancasResponse(
@@ -278,6 +306,7 @@ def get_cobrancas(
         devolucoes_pendentes=devolucoes_pendentes,
         devolucoes_pagas=devolucoes_pagas,
         entregues_sem_pagamento=entregues_sem_pagamento,
+        entregues_sem_margem=entregues_sem_margem,
         resumo=resumo,
     )
 

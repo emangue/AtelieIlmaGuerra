@@ -368,6 +368,17 @@ class EntregueSemPagamentoItem(BaseModel):
     dias_desde_entrega: int = 0
 
 
+class EntregueSemMargemItem(BaseModel):
+    """Pedido entregue sem margem_real: fica fora da margem do mês. Mesma regra da Neusa."""
+    pedido_id: int
+    cliente_nome: str
+    tipo_pedido: str
+    valor_pecas: float
+    data_entrega: Optional[str] = None
+    horas_trabalho: Optional[float] = None
+    custo_materiais: Optional[float] = None
+
+
 class CobrancasResumo(BaseModel):
     total_em_atraso: float
     count_em_atraso: int
@@ -386,6 +397,7 @@ class CobrancasResumo(BaseModel):
     total_devolvido: float = 0
     total_entregues_sem_pagamento: float = 0
     count_entregues_sem_pagamento: int = 0
+    count_entregues_sem_margem: int = 0
 
 
 class CobrancasResponse(BaseModel):
@@ -399,6 +411,7 @@ class CobrancasResponse(BaseModel):
     devolucoes_pagas: List[CobrancaItem] = []
     # Alerta: não depende do mês — pedido no limbo não pode sumir quando o mês vira.
     entregues_sem_pagamento: List[EntregueSemPagamentoItem] = []
+    entregues_sem_margem: List[EntregueSemMargemItem] = []
     resumo: CobrancasResumo
 
 

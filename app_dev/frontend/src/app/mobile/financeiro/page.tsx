@@ -91,8 +91,19 @@ interface EntregueSemPagamentoItem {
   dias_desde_entrega: number;
 }
 
+interface EntregueSemMargemItem {
+  pedido_id: number;
+  cliente_nome: string;
+  tipo_pedido: string;
+  valor_pecas: number;
+  data_entrega: string | null;
+  horas_trabalho: number | null;
+  custo_materiais: number | null;
+}
+
 interface CobrancasResponse {
   entregues_sem_pagamento?: EntregueSemPagamentoItem[];
+  entregues_sem_margem?: EntregueSemMargemItem[];
   em_atraso: CobrancaItem[];
   vence_hoje: CobrancaItem[];
   a_vencer: CobrancaItem[];
@@ -143,23 +154,36 @@ function parcelaLabel(item: CobrancaItem): string {
   return "À vista";
 }
 
+// Acima disso as horas provavelmente foram digitadas erradas (ex.: 500 em vez de 5).
+const HORAS_SUSPEITAS = 60;
+
 /**
- * Pedido entregue sem nenhuma parcela lançada não aparece em cobrança, atraso nem
- * faturamento por pagamento — fica no limbo. O alerta não depende do mês, e o
- * pagamento é lançado ali mesmo, sem abrir o pedido.
+ * Pedidos entregues com dado faltando, que hoje ficam no limbo:
+ * - sem nenhuma parcela: fora de cobrança, atraso e faturamento por pagamento.
+ *   O pagamento é lançado ali mesmo, sem abrir o pedido.
+ * - sem margem (mesma regra do alerta diário da Neusa): fora da margem do mês.
+ *   Precisa corrigir horas/custos, então leva para a edição do pedido.
+ * Não depende do mês: pendência não pode sumir quando o mês vira.
  */
-function AlertaEntreguesSemPagamento({
+function AlertaPendenciasEntregues({
   itens,
+  semMargem,
   onLancado,
 }: {
   itens: EntregueSemPagamentoItem[];
+  semMargem: EntregueSemMargemItem[];
   onLancado: () => void;
 }) {
   const router = useRouter();
   const [aberto, setAberto] = useState(false);
   const [editandoId, setEditandoId] = useState<number | null>(null);
-  if (itens.length === 0) return null;
+  const totalPendencias = itens.length + semMargem.length;
+  if (totalPendencias === 0) return null;
   const total = itens.reduce((s, i) => s + i.valor_pecas, 0);
+  const resumo = [
+    itens.length > 0 && `${itens.length} sem pagamento (${formatMoney(total)})`,
+    semMargem.length > 0 && `${semMargem.length} sem margem`,
+  ].filter(Boolean).join(" · ");
   return (
     <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50">
       <button
@@ -170,16 +194,17 @@ function AlertaEntreguesSemPagamento({
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-amber-900">
-            {itens.length} {itens.length === 1 ? "pedido entregue" : "pedidos entregues"} sem pagamento lançado
+            {totalPendencias} {totalPendencias === 1 ? "pendência" : "pendências"} em pedidos entregues
           </p>
-          <p className="text-xs text-amber-800">
-            {formatMoney(total)} fora de cobranças e do faturamento por pagamento. Toque no pedido para lançar.
-          </p>
+          <p className="text-xs text-amber-800">{resumo}. Toque para ver e corrigir.</p>
         </div>
         <ChevronDown className={`h-5 w-5 shrink-0 text-amber-700 transition-transform ${aberto ? "rotate-180" : ""}`} />
       </button>
-      {aberto && (
+      {aberto && itens.length > 0 && (
         <div className="border-t border-amber-200 px-3 pb-2">
+          <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+            Sem pagamento lançado
+          </p>
           {itens.map((i) => {
             const editando = editandoId === i.pedido_id;
             return (
@@ -229,6 +254,40 @@ function AlertaEntreguesSemPagamento({
                   </div>
                 )}
               </div>
+            );
+          })}
+        </div>
+      )}
+      {aberto && semMargem.length > 0 && (
+        <div className="border-t border-amber-200 px-3 pb-2">
+          <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+            Sem margem calculada
+          </p>
+          {semMargem.map((i) => {
+            const horasSuspeitas = (i.horas_trabalho ?? 0) > HORAS_SUSPEITAS;
+            return (
+              <button
+                key={i.pedido_id}
+                type="button"
+                onClick={() => router.push(`/mobile/pedidos/${i.pedido_id}?from=financeiro&edit=1`)}
+                className="flex w-full items-center justify-between gap-3 border-b border-amber-100 py-2 text-left last:border-b-0"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-900">{i.cliente_nome}</p>
+                  <p className="truncate text-xs text-gray-600">
+                    {i.tipo_pedido} · entregue {formatDataBR(i.data_entrega)}
+                  </p>
+                  {horasSuspeitas && (
+                    <p className="text-xs text-red-700">
+                      {i.horas_trabalho} horas de trabalho — confira se não foi erro de digitação
+                    </p>
+                  )}
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-semibold text-amber-900">{formatMoney(i.valor_pecas)}</p>
+                  <p className="text-[11px] text-amber-700">corrigir →</p>
+                </div>
+              </button>
             );
           })}
         </div>
@@ -843,8 +902,9 @@ export default function FinanceiroPage() {
               </div>
             </div>
 
-            <AlertaEntreguesSemPagamento
+            <AlertaPendenciasEntregues
               itens={cobrancas?.entregues_sem_pagamento ?? []}
+              semMargem={cobrancas?.entregues_sem_margem ?? []}
               onLancado={fetchCobrancas}
             />
 
